@@ -10,6 +10,7 @@ use serde::Serialize;
 
 use super::AppState;
 
+mod bsl_ls;
 mod client_versions;
 mod clients;
 mod configs;
@@ -91,4 +92,8 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/status", get(status))
         .route("/logs", get(logs))
         .route("/reindex", post(reindex))
+        .route("/bsl-ls", get(bsl_ls::get_state))
+        .route("/bsl-ls/config", post(bsl_ls::update_config))
+        .route("/bsl-ls/restart", post(bsl_ls::restart))
+        .route("/bsl-ls/stop", post(bsl_ls::stop))
 }

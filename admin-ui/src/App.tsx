@@ -1,6 +1,6 @@
 import { Route, Routes, NavLink } from 'react-router-dom';
 import {
-  LayoutDashboard, Server, Brain, FileJson, Package, Users, ScrollText,
+  LayoutDashboard, Server, Brain, FileJson, Package, Users, ScrollText, Code,
 } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import McpServers from './pages/McpServers';
@@ -9,11 +9,13 @@ import Configs from './pages/Configs';
 import ClientVersions from './pages/ClientVersions';
 import Clients from './pages/Clients';
 import Logs from './pages/Logs';
+import BslLs from './pages/BslLs';
 
 const nav = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/mcp-servers', label: 'MCP Servers', icon: Server },
   { to: '/skills', label: 'Skills', icon: Brain },
+  { to: '/bsl-ls', label: 'BSL LS', icon: Code },
   { to: '/configs', label: 'Configs', icon: FileJson },
   { to: '/client-versions', label: 'Client Versions', icon: Package },
   { to: '/clients', label: 'Clients', icon: Users },
@@ -54,6 +56,7 @@ export default function App() {
           <Route path="/configs" element={<Configs />} />
           <Route path="/client-versions" element={<ClientVersions />} />
           <Route path="/clients" element={<Clients />} />
+          <Route path="/bsl-ls" element={<BslLs />} />
           <Route path="/logs" element={<Logs />} />
         </Routes>
       </main>

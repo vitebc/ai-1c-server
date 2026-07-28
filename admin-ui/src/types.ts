@@ -63,3 +63,16 @@ export interface ServerStatus {
   name: string;
   status: string;
 }
+
+export interface BslLsConfig {
+  java_path: string;
+  jar_path: string;
+  port: number;
+  enabled: boolean;
+}
+
+export interface BslLsState {
+  status: string;
+  pid: number | null;
+  config: BslLsConfig;
+}

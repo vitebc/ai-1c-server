@@ -58,9 +58,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mcp_manager = Arc::new(mcp::McpManager::new());
             mcp_manager.load_from_db(&db).await;
 
+            let bsl_ls = Arc::new(mcp::BslLsManager::new());
+            {
+                let guard = db.lock().await;
+                bsl_ls.load_config(&*guard).await;
+            }
+
             let state = Arc::new(api::AppState {
                 db,
                 mcp: mcp_manager,
+                bsl_ls,
             });
 
             let mut app = api::routes(state).layer(CorsLayer::permissive());

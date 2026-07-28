@@ -6,7 +6,7 @@
 
 ## Состояние проекта
 
-Завершены этапы 1-2, 5-6 (каркас, MCP Gateway, Admin CRUD API, Admin Dashboard):
+Завершены этапы 1-2, 5-6, 9 (каркас, MCP Gateway, Admin CRUD API, Admin Dashboard, BSL LS):
 - `src/main.rs` — CLI с subcommand `migrate` + `run` (default)
 - `src/db/` — SQLite init + авто-применение миграций из `migrations/`
 - GET `/health` — живой endpoint

@@ -1,4 +1,4 @@
-import type { Client, ClientVersion, ConfigProfile, McpServer, ServerStatus, Skill } from '../types';
+import type { BslLsState, Client, ClientVersion, ConfigProfile, McpServer, ServerStatus, Skill } from '../types';
 
 const BASE = import.meta.env.VITE_API_BASE || '';
 
@@ -47,6 +47,11 @@ export const api = {
   deleteClientVersion: (id: string) => request<void>(`/client-versions/${id}`, { method: 'DELETE' }),
 
   getClients: () => request<Client[]>('/clients'),
+  getBslLs: () => request<BslLsState>('/bsl-ls'),
+  updateBslLs: (data: { config: { java_path: string; jar_path: string; port: number; enabled: boolean } }) =>
+    request<BslLsState>('/bsl-ls/config', { method: 'POST', body: JSON.stringify(data) }),
+  restartBslLs: () => request<BslLsState>('/bsl-ls/restart', { method: 'POST' }),
+  stopBslLs: () => request<BslLsState>('/bsl-ls/stop', { method: 'POST' }),
   getLogs: () => request<unknown[]>('/logs'),
   reindex: () => request<void>('/reindex', { method: 'POST' }),
 };
