@@ -1,5 +1,8 @@
+use std::sync::Arc;
 use axum::Router;
 
-pub fn routes() -> Router {
+use crate::mcp::McpManager;
+
+pub fn routes() -> Router<Arc<McpManager>> {
     Router::new()
 }

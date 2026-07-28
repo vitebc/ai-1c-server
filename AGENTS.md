@@ -52,4 +52,6 @@ main.rs           — точка входа, clap CLI
 - **Миграции БД**: `migrations/001_initial.sql` (7 таблиц)
 - **Зависимости**: см. `Cargo.toml` (включая `tower`, которого нет в старой схеме)
 - **Тесты отсутствуют** (ни Rust, ни JS)
+- **MCP Gateway (`src/mcp/`)**: запуск subprocess, авто-инициализация MCP, JSON-RPC через stdio. Прокси: `POST /api/mcp/:server_id`
 - **Все MCP-серверы клиента** (1c-help, 1c-search, 1c-naparnik, 1c-metadata, BSL LS) запускаются на этом сервере, клиенты подключаются по HTTP/WS. На клиенте остаётся EditorBridge (.NET named pipe)
+- При старте сервер загружает включённые MCP-серверы из таблицы `mcp_servers`

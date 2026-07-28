@@ -6,6 +6,7 @@ mod updater;
 mod watcher;
 mod web;
 
+use std::sync::Arc;
 use clap::{Parser, Subcommand};
 use std::path::Path;
 use tower_http::cors::CorsLayer;
@@ -53,7 +54,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let db = db::Database::open(Path::new(&cli.data_dir))?;
             db.run_migrations()?;
 
-            let mut app = api::routes().layer(CorsLayer::permissive());
+            let manager = Arc::new(mcp::McpManager::new());
+            manager.load_from_db(&db).await;
+
+            let mut app = api::routes(manager.clone()).layer(CorsLayer::permissive());
 
             if let Some(admin_dir) = &cli.admin_dir {
                 let serve_dir = ServeDir::new(admin_dir)
@@ -66,6 +70,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let listener = tokio::net::TcpListener::bind(&addr).await?;
             axum::serve(listener, app).await?;
+
+            manager.shutdown_all().await;
         }
     }
 
