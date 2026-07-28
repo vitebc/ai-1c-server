@@ -56,3 +56,11 @@ body {
   margin: 0;
   font-family: system-ui, -apple-system, sans-serif;
 }
+
+input, textarea, select {
+  color: #CBCCC6;
+}
+
+input:focus, textarea:focus, select:focus {
+  color: #E8E7E0;
+}
