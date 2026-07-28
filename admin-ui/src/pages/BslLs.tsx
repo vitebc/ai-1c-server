@@ -22,16 +22,17 @@ export default function BslLs() {
   const [enabled, setEnabled] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load().then(() => checkVersions());
+  }, []);
 
-  function load() {
-    api.getBslLs().then(s => {
-      setState(s);
-      setJavaPath(s.config.java_path);
-      setJarPath(s.config.jar_path);
-      setPort(String(s.config.port));
-      setEnabled(s.config.enabled);
-    });
+  async function load() {
+    const s = await api.getBslLs();
+    setState(s);
+    setJavaPath(s.config.java_path);
+    setJarPath(s.config.jar_path);
+    setPort(String(s.config.port));
+    setEnabled(s.config.enabled);
   }
 
   async function checkVersions() {
@@ -62,6 +63,19 @@ export default function BslLs() {
       setDlResult(`Error: ${e.message}`);
     } finally {
       setDownloading(false);
+    }
+  }
+
+  async function startBslLs() {
+    setSaving(true);
+    setEnabled(true);
+    try {
+      const result = await api.updateBslLs({
+        config: { java_path: javaPath, jar_path: jarPath, port: Number(port), enabled: true },
+      });
+      setState(result);
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -103,7 +117,7 @@ export default function BslLs() {
               <Square size={16} /> Stop
             </button>
           ) : (
-            <button onClick={handleSave} disabled={saving}
+            <button onClick={startBslLs} disabled={saving}
               className="flex items-center gap-2 px-3 py-2 text-sm text-green-500 border border-green-300 rounded-lg hover:bg-green-50 disabled:opacity-50">
               <Play size={16} /> {saving ? 'Starting...' : 'Start'}
             </button>
@@ -164,19 +178,17 @@ export default function BslLs() {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Java Path</label>
               <input type="text" value={javaPath} onChange={e => setJavaPath(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              <p className="text-xs text-gray-400 mt-1">Full path to java executable</p>
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-100 text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">JAR Path</label>
               <input type="text" value={jarPath} onChange={e => setJarPath(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              <p className="text-xs text-gray-400 mt-1">Full path to bsl-language-server.jar</p>
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-100 text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Port</label>
               <input type="number" value={port} onChange={e => setPort(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-100 text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
             <label className="flex items-center gap-2 text-sm text-gray-700">
               <input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} className="rounded" />
