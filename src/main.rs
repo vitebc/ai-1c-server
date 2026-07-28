@@ -1,7 +1,7 @@
 use clap::Parser;
 
 #[derive(Parser, Debug)]
-#[command(name = "mini-ai-1c-server", about = "Mini AI 1C Enterprise Server")]
+#[command(name = "ai-1c-server", about = "AI 1C Enterprise Server")]
 struct Cli {
     #[arg(long, default_value = "/data/mini-ai-1c")]
     data_dir: String,
@@ -23,7 +23,7 @@ async fn main() {
         .init();
 
     let cli = Cli::parse();
-    tracing::info!("Starting Mini AI 1C Server (data_dir: {}, port: {})", cli.data_dir, cli.http_port);
+    tracing::info!("Starting AI 1C Server (data_dir: {}, port: {})", cli.data_dir, cli.http_port);
     tracing::info!("Server initializing...");
 
     // TODO: init DB, MCP manager, file watcher, API routes

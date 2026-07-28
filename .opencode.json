@@ -1,6 +1,6 @@
 {
   "name": "ai-1c-server",
-  "description": "Mini AI 1C Enterprise Server — централизованное управление MCP-серверами, конфигурациями 1С и развёртывание клиентов",
+  "description": "AI 1C Enterprise Server — централизованное управление MCP-серверами, конфигурациями 1С и развёртывание клиентов",
   "skills": [
     {
       "name": "rust-engineer",

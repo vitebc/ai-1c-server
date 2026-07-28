@@ -11,4 +11,4 @@ echo "=== Building server (Linux) ==="
 cargo build --release --target x86_64-unknown-linux-gnu
 
 echo "=== Done ==="
-echo "Binary: target/x86_64-unknown-linux-gnu/release/mini-ai-1c-server"
+echo "Binary: target/x86_64-unknown-linux-gnu/release/ai-1c-server"

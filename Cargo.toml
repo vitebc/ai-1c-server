@@ -1,5 +1,5 @@
 [package]
-name = "mini-ai-1c-server"
+name = "ai-1c-server"
 version = "0.1.0"
 edition = "2021"
 

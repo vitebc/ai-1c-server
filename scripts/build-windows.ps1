@@ -8,4 +8,4 @@ Write-Host "=== Building server (Windows) ==="
 cargo build --release --target x86_64-pc-windows-msvc
 
 Write-Host "=== Done ==="
-Write-Host "Binary: target/x86_64-pc-windows-msvc/release/mini-ai-1c-server.exe"
+Write-Host "Binary: target/x86_64-pc-windows-msvc/release/ai-1c-server.exe"
