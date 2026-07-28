@@ -1,5 +1,57 @@
 @import "tailwindcss";
 
+@theme {
+  --color-gray-50: #0B0E14;
+  --color-gray-100: #1A1F29;
+  --color-gray-200: #2D3640;
+  --color-gray-300: #3D4A5C;
+  --color-gray-400: #4D5A6C;
+  --color-gray-500: #707A8C;
+  --color-gray-600: #8A9BB5;
+  --color-gray-700: #B3B1AD;
+  --color-gray-800: #CBCCC6;
+  --color-gray-900: #E8E7E0;
+
+  --color-blue-50: #1A2744;
+  --color-blue-100: #223A5E;
+  --color-blue-200: #2A4A78;
+  --color-blue-300: #3A5F98;
+  --color-blue-400: #5A7FB8;
+  --color-blue-500: #73B8FF;
+  --color-blue-600: #5A9FDF;
+  --color-blue-700: #4A8FCF;
+
+  --color-green-50: #142B25;
+  --color-green-100: #1A332E;
+  --color-green-200: #25473E;
+  --color-green-300: #356050;
+  --color-green-400: #508A70;
+  --color-green-500: #95E6CB;
+  --color-green-600: #75C6AB;
+  --color-green-700: #5AA690;
+
+  --color-red-50: #2E1519;
+  --color-red-100: #3D1C22;
+  --color-red-200: #4D2530;
+  --color-red-300: #6A3540;
+  --color-red-400: #8A4550;
+  --color-red-500: #F07178;
+  --color-red-600: #D06168;
+  --color-red-700: #B04A52;
+  --color-red-800: #E85A60;
+
+  --color-orange-50: #2E1C0D;
+  --color-orange-100: #3D2815;
+  --color-orange-500: #FF8F40;
+
+  --color-purple-50: #1E1830;
+  --color-purple-100: #2A2045;
+  --color-purple-500: #D4A0FF;
+
+  --color-yellow-50: #2E280D;
+  --color-yellow-500: #FFD173;
+}
+
 body {
   margin: 0;
   font-family: system-ui, -apple-system, sans-serif;

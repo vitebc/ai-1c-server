@@ -20,7 +20,7 @@ export default function ClientVersions() {
         </button>
       </div>
       {showForm && <VersionForm item={edit} onClose={() => setShowForm(false)} onSaved={load} />}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="bg-gray-100 rounded-xl border border-gray-200 overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-200 bg-gray-50">
@@ -37,7 +37,7 @@ export default function ClientVersions() {
                 <td className="px-4 py-3 font-medium text-gray-800">{item.version}</td>
                 <td className="px-4 py-3 text-gray-600">{item.platform}</td>
                 <td className="px-4 py-3">
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${item.required ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-500'}`}>
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${item.required ? 'bg-red-50 text-red-500' : 'bg-gray-200 text-gray-400'}`}>
                     {item.required ? 'Required' : 'Optional'}
                   </span>
                 </td>
@@ -78,8 +78,8 @@ function VersionForm({ item, onClose, onSaved }: { item?: ClientVersion | null; 
   }
 
   return (
-    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-gray-100 rounded-xl shadow-xl w-full max-w-lg mx-4" onClick={e => e.stopPropagation()}>
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <h3 className="text-lg font-semibold text-gray-800">{item ? 'Edit Version' : 'Add Version'}</h3>
           <Field label="Version" value={form.version} onChange={v => setForm(f => ({ ...f, version: v }))} required />

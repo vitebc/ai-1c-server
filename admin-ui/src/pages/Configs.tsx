@@ -20,7 +20,7 @@ export default function Configs() {
         </button>
       </div>
       {showForm && <ConfigForm item={edit} onClose={() => setShowForm(false)} onSaved={load} />}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="bg-gray-100 rounded-xl border border-gray-200 overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-200 bg-gray-50">
@@ -37,7 +37,7 @@ export default function Configs() {
                 <td className="px-4 py-3 font-medium text-gray-800">{item.name}</td>
                 <td className="px-4 py-3 text-gray-600 font-mono text-xs">{item.path}</td>
                 <td className="px-4 py-3">
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${item.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${item.active ? 'bg-green-50 text-green-500' : 'bg-gray-200 text-gray-400'}`}>
                     {item.active ? 'Active' : 'Inactive'}
                   </span>
                 </td>
@@ -73,8 +73,8 @@ function ConfigForm({ item, onClose, onSaved }: { item?: ConfigProfile | null; o
   }
 
   return (
-    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-gray-100 rounded-xl shadow-xl w-full max-w-lg mx-4" onClick={e => e.stopPropagation()}>
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <h3 className="text-lg font-semibold text-gray-800">{item ? 'Edit Profile' : 'Add Profile'}</h3>
           <div>

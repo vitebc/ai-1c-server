@@ -5,7 +5,7 @@ export default function Logs() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-bold text-gray-800">Logs</h2>
-        <button className="flex items-center gap-2 px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+        <button className="flex items-center gap-2 px-4 py-2 text-sm text-gray-400 border border-gray-300 rounded-lg hover:bg-gray-200 transition-colors">
           <RefreshCw size={16} /> Refresh
         </button>
       </div>

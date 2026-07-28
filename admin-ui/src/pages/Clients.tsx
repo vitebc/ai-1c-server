@@ -10,7 +10,7 @@ export default function Clients() {
   return (
     <div>
       <h2 className="text-2xl font-bold text-gray-800 mb-6">Clients</h2>
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="bg-gray-100 rounded-xl border border-gray-200 overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-200 bg-gray-50">

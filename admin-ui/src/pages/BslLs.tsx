@@ -53,45 +53,45 @@ export default function BslLs() {
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-bold text-gray-800">BSL Language Server</h2>
         <div className="flex gap-2">
-          <button onClick={load} className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">
+          <button onClick={load} className="flex items-center gap-2 px-3 py-2 text-sm text-gray-400 border border-gray-300 rounded-lg hover:bg-gray-200">
             <RefreshCw size={16} /> Refresh
           </button>
           {isRunning ? (
-            <button onClick={handleStop} className="flex items-center gap-2 px-3 py-2 text-sm text-red-600 border border-red-300 rounded-lg hover:bg-red-50">
+            <button onClick={handleStop} className="flex items-center gap-2 px-3 py-2 text-sm text-red-500 border border-red-300 rounded-lg hover:bg-red-50">
               <Square size={16} /> Stop
             </button>
           ) : (
             <button onClick={handleSave} disabled={saving}
-              className="flex items-center gap-2 px-3 py-2 text-sm text-green-600 border border-green-300 rounded-lg hover:bg-green-50 disabled:opacity-50">
+              className="flex items-center gap-2 px-3 py-2 text-sm text-green-500 border border-green-300 rounded-lg hover:bg-green-50 disabled:opacity-50">
               <Play size={16} /> {saving ? 'Starting...' : 'Start'}
             </button>
           )}
-          <button onClick={handleRestart} className="flex items-center gap-2 px-3 py-2 text-sm text-blue-600 border border-blue-300 rounded-lg hover:bg-blue-50">
+          <button onClick={handleRestart} className="flex items-center gap-2 px-3 py-2 text-sm text-blue-500 border border-blue-300 rounded-lg hover:bg-blue-50">
             <RefreshCw size={16} /> Restart
           </button>
         </div>
       </div>
 
       {isError && state?.error && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">
+        <div className="mb-6 p-4 bg-red-50 border border-red-300 rounded-xl flex items-start gap-3">
           <AlertCircle size={20} className="text-red-500 shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-medium text-red-800">BSL LS failed to start</p>
-            <p className="text-sm text-red-600 mt-1 font-mono">{state.error}</p>
+            <p className="text-sm font-medium text-red-500">BSL LS failed to start</p>
+            <p className="text-sm text-red-400 mt-1 font-mono">{state.error}</p>
           </div>
         </div>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <div className="bg-gray-100 rounded-xl border border-gray-200 p-6">
           <h3 className="font-semibold text-gray-800 mb-4">Status</h3>
           <div className="space-y-3">
             <div className="flex items-center justify-between py-2 border-b border-gray-100">
               <span className="text-sm text-gray-500">Status</span>
               <span className={`text-sm px-2 py-0.5 rounded-full ${
-                isRunning ? 'bg-green-100 text-green-700' :
-                isError ? 'bg-red-100 text-red-700' :
-                'bg-gray-100 text-gray-500'
+                isRunning ? 'bg-green-50 text-green-500' :
+                isError ? 'bg-red-50 text-red-500' :
+                'bg-gray-200 text-gray-400'
               }`}>
                 {state?.status || 'unknown'}
               </span>
@@ -109,7 +109,7 @@ export default function BslLs() {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <div className="bg-gray-100 rounded-xl border border-gray-200 p-6">
           <h3 className="font-semibold text-gray-800 mb-4">Configuration</h3>
           <div className="space-y-4">
             <div>

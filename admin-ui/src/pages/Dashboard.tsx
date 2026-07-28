@@ -29,7 +29,7 @@ export default function Dashboard() {
       <h2 className="text-2xl font-bold text-gray-800 mb-6">Dashboard</h2>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         {cards.map(c => (
-          <div key={c.label} className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-4">
+          <div key={c.label} className="bg-gray-100 rounded-xl border border-gray-200 p-4 flex items-center gap-4">
             <div className={`${c.color} p-3 rounded-lg text-white`}>
               <c.icon size={24} />
             </div>
@@ -40,7 +40,7 @@ export default function Dashboard() {
           </div>
         ))}
       </div>
-      <div className="bg-white rounded-xl border border-gray-200 p-4">
+      <div className="bg-gray-100 rounded-xl border border-gray-200 p-4">
         <h3 className="font-semibold text-gray-800 mb-3">MCP Server Status</h3>
         {status.length === 0 ? (
           <p className="text-sm text-gray-400">No servers configured</p>
@@ -50,9 +50,9 @@ export default function Dashboard() {
               <div key={s.id} className="flex items-center justify-between py-1">
                 <span className="text-sm text-gray-700">{s.name}</span>
                 <span className={`text-xs px-2 py-0.5 rounded-full ${
-                  s.status === 'running' ? 'bg-green-100 text-green-700' :
-                  s.status === 'error' ? 'bg-red-100 text-red-700' :
-                  'bg-gray-100 text-gray-500'
+                   s.status === 'running' ? 'bg-green-50 text-green-500' :
+                   s.status === 'error' ? 'bg-red-50 text-red-500' :
+                   'bg-gray-200 text-gray-400'
                 }`}>
                   {s.status}
                 </span>

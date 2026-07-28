@@ -25,7 +25,7 @@ const nav = [
 export default function App() {
   return (
     <div className="flex h-dvh bg-gray-50">
-      <aside className="w-60 bg-white border-r border-gray-200 flex flex-col shrink-0">
+      <aside className="w-60 bg-gray-100 border-r border-gray-200 flex flex-col shrink-0">
         <div className="p-4 border-b border-gray-200">
           <h1 className="text-lg font-bold text-gray-800">AI 1C</h1>
           <p className="text-xs text-gray-500">Enterprise Server</p>
@@ -38,7 +38,7 @@ export default function App() {
               end={to === '/'}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
-                  isActive ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-600 hover:bg-gray-100'
+                  isActive ? 'bg-blue-50 text-blue-500 font-medium' : 'text-gray-600 hover:bg-gray-200'
                 }`
               }
             >

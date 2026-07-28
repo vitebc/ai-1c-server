@@ -20,7 +20,7 @@ export default function Skills() {
         </button>
       </div>
       {showForm && <SkillForm item={edit} onClose={() => setShowForm(false)} onSaved={load} />}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="bg-gray-100 rounded-xl border border-gray-200 overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-200 bg-gray-50">
@@ -40,7 +40,7 @@ export default function Skills() {
                 <td className="px-4 py-3 text-gray-600">{item.server_id || '-'}</td>
                 <td className="px-4 py-3 text-gray-600">{item.category || '-'}</td>
                 <td className="px-4 py-3">
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${item.enabled ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${item.enabled ? 'bg-green-50 text-green-500' : 'bg-gray-200 text-gray-400'}`}>
                     {item.enabled ? 'Enabled' : 'Disabled'}
                   </span>
                 </td>
@@ -83,8 +83,8 @@ function SkillForm({ item, onClose, onSaved }: { item?: Skill | null; onClose: (
   }
 
   return (
-    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-gray-100 rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <h3 className="text-lg font-semibold text-gray-800">{item ? 'Edit Skill' : 'Add Skill'}</h3>
           <Field label="Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} required />
