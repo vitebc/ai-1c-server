@@ -1,3 +1,4 @@
+use std::path::Path;
 use tokio::sync::Mutex;
 use tokio::process::{Command, Child};
 
@@ -68,6 +69,7 @@ pub enum BslLsStatus {
 pub struct BslLsManager {
     config: Mutex<BslLsConfig>,
     process: Mutex<Option<Child>>,
+    last_error: Mutex<Option<String>>,
 }
 
 impl BslLsManager {
@@ -75,6 +77,7 @@ impl BslLsManager {
         Self {
             config: Mutex::new(BslLsConfig::default()),
             process: Mutex::new(None),
+            last_error: Mutex::new(None),
         }
     }
 
@@ -83,9 +86,7 @@ impl BslLsManager {
         let start_it = config.enabled;
         *self.config.lock().await = config;
         if start_it {
-            if let Err(e) = self.start().await {
-                tracing::error!("Failed to auto-start BSL LS: {}", e);
-            }
+            self.start().await;
         }
     }
 
@@ -97,36 +98,67 @@ impl BslLsManager {
         *self.config.lock().await = config;
     }
 
-    pub async fn start(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn start(&self) {
         let mut proc = self.process.lock().await;
         if proc.is_some() {
-            return Ok(());
+            return;
         }
         let cfg = self.config.lock().await.clone();
-        let mut cmd = Command::new(&cfg.java_path);
-        cmd.args(["-jar", &cfg.jar_path, "--tcp", &cfg.port.to_string()]);
+
+        let java_path = cfg.java_path.trim();
+        let jar_path = cfg.jar_path.trim();
+
+        if java_path.contains('/') || java_path.contains('\\') {
+            if !Path::new(java_path).exists() {
+                let msg = format!("Java not found: {}", java_path);
+                tracing::error!("{}", msg);
+                *self.last_error.lock().await = Some(msg);
+                return;
+            }
+        }
+        if jar_path.contains('/') || jar_path.contains('\\') {
+            if !Path::new(jar_path).exists() {
+                let msg = format!("BSL LS JAR not found: {}", jar_path);
+                tracing::error!("{}", msg);
+                *self.last_error.lock().await = Some(msg);
+                return;
+            }
+        }
+
+        let mut cmd = Command::new(java_path);
+        cmd.args(["-jar", jar_path, "--tcp", &cfg.port.to_string()]);
         cmd.stdin(std::process::Stdio::null());
         cmd.stdout(std::process::Stdio::null());
         cmd.stderr(std::process::Stdio::piped());
 
-        let mut child = cmd.spawn().map_err(|e| format!("Failed to start BSL LS: {}", e))?;
-        let pid = child.id().unwrap_or(0);
-        tracing::info!("BSL LS started (PID: {}, port: {})", pid, cfg.port);
+        let mut child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(e) => {
+                let msg = format!("Failed to spawn BSL LS: {}", e);
+                tracing::error!("{}", msg);
+                *self.last_error.lock().await = Some(msg);
+                return;
+            }
+            };
 
+        let pid = child.id().unwrap_or(0);
+        *self.last_error.lock().await = None;
+
+        let log_id = pid;
         if let Some(stderr) = child.stderr.take() {
             tokio::spawn(async move {
                 use tokio::io::AsyncBufReadExt;
                 let mut reader = tokio::io::BufReader::new(stderr);
                 let mut line = String::new();
                 while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
-                    tracing::info!("[bsl-ls] {}", line.trim());
+                    tracing::info!("[bsl-ls:{}] {}", log_id, line.trim());
                     line.clear();
                 }
             });
         }
 
+        tracing::info!("BSL LS started (PID: {}, port: {})", pid, cfg.port);
         *proc = Some(child);
-        Ok(())
     }
 
     pub async fn stop(&self) {
@@ -134,21 +166,45 @@ impl BslLsManager {
         if let Some(mut child) = proc.take() {
             let _ = child.start_kill();
             let _ = child.wait().await;
+            *self.last_error.lock().await = None;
             tracing::info!("BSL LS stopped");
         }
     }
 
-    pub async fn restart(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn restart(&self) {
         self.stop().await;
-        self.start().await
+        self.start().await;
     }
 
     pub async fn status(&self) -> BslLsStatus {
-        let proc = self.process.lock().await;
-        match &*proc {
-            Some(child) => BslLsStatus::Running { pid: child.id().unwrap_or(0) },
-            None => BslLsStatus::Stopped,
+        let mut proc = self.process.lock().await;
+        if let Some(child) = proc.as_mut() {
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    let msg = format!("BSL LS exited with code {}", status);
+                    tracing::warn!("{}", msg);
+                    *proc = None;
+                    *self.last_error.lock().await = Some(msg.clone());
+                    BslLsStatus::Error(msg)
+                }
+                Ok(None) => BslLsStatus::Running { pid: child.id().unwrap_or(0) },
+                Err(e) => {
+                    let msg = format!("BSL LS process error: {}", e);
+                    *self.last_error.lock().await = Some(msg.clone());
+                    BslLsStatus::Error(msg)
+                }
+            }
+        } else {
+            let err = self.last_error.lock().await.clone();
+            match err {
+                Some(e) => BslLsStatus::Error(e),
+                None => BslLsStatus::Stopped,
+            }
         }
+    }
+
+    pub async fn last_error(&self) -> Option<String> {
+        self.last_error.lock().await.clone()
     }
 }
 

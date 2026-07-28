@@ -74,5 +74,6 @@ export interface BslLsConfig {
 export interface BslLsState {
   status: string;
   pid: number | null;
+  error: string | null;
   config: BslLsConfig;
 }

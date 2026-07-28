@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Play, Square, RefreshCw, Terminal } from 'lucide-react';
+import { Play, Square, RefreshCw, Terminal, AlertCircle } from 'lucide-react';
 import { api } from '../api/client';
 import type { BslLsState } from '../types';
 
@@ -9,6 +9,7 @@ export default function BslLs() {
   const [jarPath, setJarPath] = useState('bsl-language-server.jar');
   const [port, setPort] = useState('8025');
   const [enabled, setEnabled] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => { load(); }, []);
 
@@ -23,10 +24,15 @@ export default function BslLs() {
   }
 
   async function handleSave() {
-    const result = await api.updateBslLs({
-      config: { java_path: javaPath, jar_path: jarPath, port: Number(port), enabled },
-    });
-    setState(result);
+    setSaving(true);
+    try {
+      const result = await api.updateBslLs({
+        config: { java_path: javaPath, jar_path: jarPath, port: Number(port), enabled },
+      });
+      setState(result);
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleRestart() {
@@ -40,6 +46,7 @@ export default function BslLs() {
   }
 
   const isRunning = state?.status === 'running';
+  const isError = state?.status === 'error';
 
   return (
     <div>
@@ -54,8 +61,9 @@ export default function BslLs() {
               <Square size={16} /> Stop
             </button>
           ) : (
-            <button onClick={handleSave} className="flex items-center gap-2 px-3 py-2 text-sm text-green-600 border border-green-300 rounded-lg hover:bg-green-50">
-              <Play size={16} /> Start
+            <button onClick={handleSave} disabled={saving}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-green-600 border border-green-300 rounded-lg hover:bg-green-50 disabled:opacity-50">
+              <Play size={16} /> {saving ? 'Starting...' : 'Start'}
             </button>
           )}
           <button onClick={handleRestart} className="flex items-center gap-2 px-3 py-2 text-sm text-blue-600 border border-blue-300 rounded-lg hover:bg-blue-50">
@@ -63,6 +71,16 @@ export default function BslLs() {
           </button>
         </div>
       </div>
+
+      {isError && state?.error && (
+        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">
+          <AlertCircle size={20} className="text-red-500 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-medium text-red-800">BSL LS failed to start</p>
+            <p className="text-sm text-red-600 mt-1 font-mono">{state.error}</p>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white rounded-xl border border-gray-200 p-6">
@@ -72,13 +90,13 @@ export default function BslLs() {
               <span className="text-sm text-gray-500">Status</span>
               <span className={`text-sm px-2 py-0.5 rounded-full ${
                 isRunning ? 'bg-green-100 text-green-700' :
-                state?.status === 'stopped' ? 'bg-gray-100 text-gray-500' :
-                'bg-red-100 text-red-700'
+                isError ? 'bg-red-100 text-red-700' :
+                'bg-gray-100 text-gray-500'
               }`}>
                 {state?.status || 'unknown'}
               </span>
             </div>
-            {state?.pid && (
+            {isRunning && state?.pid && (
               <div className="flex items-center justify-between py-2 border-b border-gray-100">
                 <span className="text-sm text-gray-500">Process ID</span>
                 <span className="text-sm font-mono text-gray-700">{state.pid}</span>
@@ -98,11 +116,13 @@ export default function BslLs() {
               <label className="block text-sm font-medium text-gray-700 mb-1">Java Path</label>
               <input type="text" value={javaPath} onChange={e => setJavaPath(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <p className="text-xs text-gray-400 mt-1">Full path to java executable</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">JAR Path</label>
               <input type="text" value={jarPath} onChange={e => setJarPath(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <p className="text-xs text-gray-400 mt-1">Full path to bsl-language-server.jar</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Port</label>
@@ -124,7 +144,7 @@ export default function BslLs() {
       <div className="mt-6 bg-gray-900 text-green-400 font-mono text-xs p-4 rounded-xl border border-gray-200 min-h-[200px]">
         <div className="flex items-center gap-2 text-gray-400 mb-2">
           <Terminal size={14} />
-          <span>BSL LS logs will appear here</span>
+          <span>BSL LS stderr output will appear here</span>
         </div>
       </div>
     </div>

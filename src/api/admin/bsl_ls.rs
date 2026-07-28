@@ -12,6 +12,7 @@ use crate::mcp::BslLsStatus;
 pub struct BslLsState {
     pub status: String,
     pub pid: Option<u32>,
+    pub error: Option<String>,
     pub config: BslLsConfigDto,
 }
 
@@ -26,14 +27,16 @@ pub struct BslLsConfigDto {
 pub async fn get_state(State(state): State<Arc<AppState>>) -> Json<BslLsState> {
     let cfg = state.bsl_ls.get_config().await;
     let status = state.bsl_ls.status().await;
+    let error = state.bsl_ls.last_error().await;
     let (status_str, pid) = match status {
         BslLsStatus::Running { pid } => ("running".into(), Some(pid)),
         BslLsStatus::Stopped => ("stopped".into(), None),
-        BslLsStatus::Error(e) => (format!("error: {}", e), None),
+        BslLsStatus::Error(_) => ("error".into(), None),
     };
     Json(BslLsState {
         status: status_str,
         pid,
+        error,
         config: BslLsConfigDto {
             java_path: cfg.java_path,
             jar_path: cfg.jar_path,
@@ -67,9 +70,7 @@ pub async fn update_config(
         }
         state.bsl_ls.update_config(new_cfg).await;
         if cfg.enabled {
-            if let Err(e) = state.bsl_ls.restart().await {
-                tracing::error!("Failed to restart BSL LS: {}", e);
-            }
+            state.bsl_ls.restart().await;
         } else {
             state.bsl_ls.stop().await;
         }
@@ -78,7 +79,7 @@ pub async fn update_config(
 }
 
 pub async fn restart(State(state): State<Arc<AppState>>) -> Json<BslLsState> {
-    let _ = state.bsl_ls.restart().await;
+    state.bsl_ls.restart().await;
     get_state(State(state)).await
 }
 
