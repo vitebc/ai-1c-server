@@ -24,6 +24,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "ai-1c-server"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "chrono",
+ "clap",
+ "jsonwebtoken",
+ "notify",
+ "reqwest",
+ "rusqlite",
+ "rust-embed",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "android_system_properties"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1050,29 +1073,6 @@ checksum = "f7c44f8e672c00fe5308fa235f821cb4198414e1c77935c1ab6948d3fd78550e"
 dependencies = [
  "mime",
  "unicase",
-]
-
-[[package]]
-name = "mini-ai-1c-server"
-version = "0.1.0"
-dependencies = [
- "axum",
- "chrono",
- "clap",
- "jsonwebtoken",
- "notify",
- "reqwest",
- "rusqlite",
- "rust-embed",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tokio",
- "tower",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]

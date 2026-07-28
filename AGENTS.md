@@ -6,11 +6,12 @@
 
 ## Состояние проекта
 
-Скелет (этап 1 из 11):
-- `src/main.rs` — CLI (clap: `--data-dir`, `--http-port`, `--admin-dir`) + пустой Axum router
-- Директории модулей (`api/`, `db/`, `mcp/`, `auth/`, `watcher/`, `updater/`) — **без `mod.rs`**, Rust не соберётся
-- `admin-ui/` — React 19 + Vite скелет (App.tsx-заглушка, api/client.ts). Tailwind НЕ подключён
-- `migrate` subcommand описана в плане, но **не реализована**
+Завершён этап 1 из 11 (каркас):
+- `src/main.rs` — CLI с subcommand `migrate` + `run` (default)
+- `src/db/` — SQLite init + авто-применение миграций из `migrations/`
+- GET `/health` — живой endpoint
+- Admin UI (React 19 + Vite): скелет, Tailwind НЕ подключён
+- Модули (`api/`, `db/`, `mcp/`, `auth/`, `watcher/`, `updater/`, `web/`) — `mod.rs` созданы
 
 ## Сборка и разработка
 

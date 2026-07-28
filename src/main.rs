@@ -1,8 +1,22 @@
-use clap::Parser;
+mod api;
+mod auth;
+mod db;
+mod mcp;
+mod updater;
+mod watcher;
+mod web;
+
+use clap::{Parser, Subcommand};
+use std::path::Path;
+use tower_http::cors::CorsLayer;
+use tower_http::services::ServeDir;
 
 #[derive(Parser, Debug)]
 #[command(name = "ai-1c-server", about = "AI 1C Enterprise Server")]
 struct Cli {
+    #[command(subcommand)]
+    command: Option<Commands>,
+
     #[arg(long, default_value = "/data/mini-ai-1c")]
     data_dir: String,
 
@@ -13,8 +27,13 @@ struct Cli {
     admin_dir: Option<String>,
 }
 
+#[derive(Subcommand, Debug)]
+enum Commands {
+    Migrate,
+}
+
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -23,15 +42,32 @@ async fn main() {
         .init();
 
     let cli = Cli::parse();
-    tracing::info!("Starting AI 1C Server (data_dir: {}, port: {})", cli.data_dir, cli.http_port);
-    tracing::info!("Server initializing...");
 
-    // TODO: init DB, MCP manager, file watcher, API routes
+    match &cli.command {
+        Some(Commands::Migrate) => {
+            let db = db::Database::open(Path::new(&cli.data_dir))?;
+            db.run_migrations()?;
+            tracing::info!("Migrations applied");
+        }
+        None => {
+            let db = db::Database::open(Path::new(&cli.data_dir))?;
+            db.run_migrations()?;
 
-    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", cli.http_port))
-        .await
-        .expect("Failed to bind address");
+            let mut app = api::routes().layer(CorsLayer::permissive());
 
-    tracing::info!("Listening on http://0.0.0.0:{}", cli.http_port);
-    axum::serve(listener, axum::Router::new()).await.unwrap();
+            if let Some(admin_dir) = &cli.admin_dir {
+                let serve_dir = ServeDir::new(admin_dir)
+                    .append_index_html_on_directories(true);
+                app = app.fallback_service(serve_dir);
+            }
+
+            let addr = format!("0.0.0.0:{}", cli.http_port);
+            tracing::info!("Listening on http://{}", addr);
+
+            let listener = tokio::net::TcpListener::bind(&addr).await?;
+            axum::serve(listener, app).await?;
+        }
+    }
+
+    Ok(())
 }
