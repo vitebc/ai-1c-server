@@ -1,0 +1,51 @@
+{
+  "name": "ai-1c-server",
+  "description": "Mini AI 1C Enterprise Server — централизованное управление MCP-серверами, конфигурациями 1С и развёртывание клиентов",
+  "skills": [
+    {
+      "name": "rust-engineer",
+      "description": "Rust backend: axum, tokio, SQLite, MCP протокол"
+    },
+    {
+      "name": "mcp-builder",
+      "description": "Создание MCP-серверов и работа с Model Context Protocol"
+    },
+    {
+      "name": "desktop-framework-tauri",
+      "description": "Tauri 2 — для доработки клиента mini-ai-1c"
+    },
+    {
+      "name": "frontend-design",
+      "description": "Admin Dashboard на React + Tailwind CSS v4"
+    },
+    {
+      "name": "typescript-pro",
+      "description": "Типизация API, навыки TypeScript для админ-панели"
+    },
+    {
+      "name": "graphify",
+      "description": "Анализ архитектуры и связей в коде"
+    }
+  ],
+  "customModes": [
+    {
+      "slug": "build",
+      "name": "Сборка",
+      "description": "Режим сборки проекта",
+      "settings": {
+        "toolGroups": [
+          "read",
+          "edit",
+          "terminal",
+          "browser",
+          "mcp"
+        ]
+      }
+    },
+    {
+      "slug": "plan",
+      "name": "Планирование",
+      "description": "Архитектурное планирование и анализ"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+target/
+admin-ui/node_modules/
+admin-ui/dist/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+*.exe
+*.pdb
+*.log
+.env
+data/
+
+
+# Added by cargo
+
+/target
