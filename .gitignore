@@ -16,3 +16,5 @@ main-*.md
 # Added by cargo
 
 /target
+
+*.jar

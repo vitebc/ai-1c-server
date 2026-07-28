@@ -28,6 +28,7 @@ pub struct BslLsConfigDto {
     pub jar_path: String,
     pub port: u16,
     pub enabled: bool,
+    pub data_dir: String,
 }
 
 pub async fn get_state(State(state): State<Arc<AppState>>) -> Json<BslLsState> {
@@ -48,6 +49,7 @@ pub async fn get_state(State(state): State<Arc<AppState>>) -> Json<BslLsState> {
             jar_path: cfg.jar_path,
             port: cfg.port,
             enabled: cfg.enabled,
+            data_dir: cfg.data_dir.clone(),
         },
     })
 }
@@ -90,6 +92,7 @@ pub async fn update_config(
             jar_path: cfg.jar_path,
             port: cfg.port,
             enabled: cfg.enabled,
+            data_dir: cfg.data_dir.clone(),
         };
         {
             let guard = state.db.lock().await;

@@ -69,6 +69,7 @@ export interface BslLsConfig {
   jar_path: string;
   port: number;
   enabled: boolean;
+  data_dir: string;
 }
 
 export interface BslLsState {

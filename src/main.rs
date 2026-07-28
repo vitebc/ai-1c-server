@@ -58,10 +58,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mcp_manager = Arc::new(mcp::McpManager::new());
             mcp_manager.load_from_db(&db).await;
 
-            let bsl_ls = Arc::new(mcp::BslLsManager::new());
+            let bsl_ls = Arc::new(mcp::BslLsManager::new(&cli.data_dir));
             {
                 let guard = db.lock().await;
-                bsl_ls.load_config(&*guard).await;
+                bsl_ls.load_config(&*guard, &cli.data_dir).await;
             }
 
             let state = Arc::new(api::AppState {

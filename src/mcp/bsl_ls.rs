@@ -9,21 +9,23 @@ pub struct BslLsConfig {
     pub jar_path: String,
     pub port: u16,
     pub enabled: bool,
+    pub data_dir: String,
 }
 
-impl Default for BslLsConfig {
-    fn default() -> Self {
+impl BslLsConfig {
+    pub fn new(data_dir: &str) -> Self {
         Self {
             java_path: "java".into(),
-            jar_path: "bsl-language-server.jar".into(),
+            jar_path: format!("{}/bsl-language-server.jar", data_dir),
             port: 8025,
             enabled: false,
+            data_dir: data_dir.into(),
         }
     }
 }
 
 impl BslLsConfig {
-    pub fn load(db: &crate::db::Database) -> Self {
+    pub fn load(db: &crate::db::Database, default_data_dir: &str) -> Self {
         fn get_val(conn: &rusqlite::Connection, key: &str) -> Option<String> {
             conn.query_row(
                 "SELECT value FROM server_settings WHERE key = ?1",
@@ -32,22 +34,25 @@ impl BslLsConfig {
             ).ok()
         }
         let conn = &db.conn;
+        let data_dir = get_val(conn, "bsl_ls_data_dir").unwrap_or_else(|| default_data_dir.into());
         Self {
             java_path: get_val(conn, "bsl_ls_java_path").unwrap_or_else(|| "java".into()),
-            jar_path: get_val(conn, "bsl_ls_jar_path").unwrap_or_else(|| "bsl-language-server.jar".into()),
+            jar_path: get_val(conn, "bsl_ls_jar_path").unwrap_or_else(|| format!("{}/bsl-language-server.jar", data_dir)),
             port: get_val(conn, "bsl_ls_port").and_then(|v| v.parse().ok()).unwrap_or(8025),
             enabled: get_val(conn, "bsl_ls_enabled").map(|v| v == "true").unwrap_or(false),
+            data_dir,
         }
     }
 
     pub fn save(&self, db: &crate::db::Database) -> Result<(), Box<dyn std::error::Error>> {
         let conn = &db.conn;
         let enabled_str = if self.enabled { "true".to_string() } else { "false".to_string() };
-        let pairs: [(&str, &String); 4] = [
+        let pairs: [(&str, &String); 5] = [
             ("bsl_ls_java_path", &self.java_path),
             ("bsl_ls_jar_path", &self.jar_path),
             ("bsl_ls_port", &self.port.to_string()),
             ("bsl_ls_enabled", &enabled_str),
+            ("bsl_ls_data_dir", &self.data_dir),
         ];
         for (key, value) in &pairs {
             conn.execute(
@@ -74,16 +79,16 @@ pub struct BslLsManager {
 }
 
 impl BslLsManager {
-    pub fn new() -> Self {
+    pub fn new(data_dir: &str) -> Self {
         Self {
-            config: Mutex::new(BslLsConfig::default()),
+            config: Mutex::new(BslLsConfig::new(data_dir)),
             process: Mutex::new(None),
             last_error: Mutex::new(None),
         }
     }
 
-    pub async fn load_config(&self, db: &crate::db::Database) {
-        let config = BslLsConfig::load(db);
+    pub async fn load_config(&self, db: &crate::db::Database, data_dir: &str) {
+        let config = BslLsConfig::load(db, data_dir);
         let start_it = config.enabled;
         *self.config.lock().await = config;
         if start_it {
