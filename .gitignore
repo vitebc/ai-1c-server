@@ -10,6 +10,7 @@ Thumbs.db
 *.log
 .env
 data/
+main-*.md
 
 
 # Added by cargo
