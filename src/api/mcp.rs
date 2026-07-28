@@ -6,14 +6,16 @@ use axum::{
 };
 use axum::http::StatusCode;
 
-use crate::mcp::{JsonRpcRequest, JsonRpcResponse, McpError, McpManager};
+use crate::mcp::{JsonRpcRequest, JsonRpcResponse, McpError};
+
+use super::AppState;
 
 pub async fn call_server(
-    State(manager): State<Arc<McpManager>>,
+    State(state): State<Arc<AppState>>,
     Path(server_id): Path<String>,
     Json(request): Json<JsonRpcRequest>,
 ) -> Result<Json<JsonRpcResponse>, McpError> {
-    let response = manager.call(&server_id, request).await?;
+    let response = state.mcp.call(&server_id, request).await?;
     Ok(Json(response))
 }
 

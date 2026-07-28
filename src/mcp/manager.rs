@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use super::config::McpServerConfig;
@@ -16,8 +17,9 @@ impl McpManager {
         }
     }
 
-    pub async fn load_from_db(&self, db: &crate::db::Database) {
-        let configs = match McpServerConfig::load_all(db) {
+    pub async fn load_from_db(&self, db: &Arc<tokio::sync::Mutex<crate::db::Database>>) {
+        let guard = db.lock().await;
+        let configs = match McpServerConfig::load_all(&*guard) {
             Ok(c) => c,
             Err(e) => {
                 tracing::error!("Failed to load MCP configs: {}", e);

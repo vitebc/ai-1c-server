@@ -6,11 +6,13 @@
 
 ## Состояние проекта
 
-Завершён этап 1 из 11 (каркас):
+Завершены этапы 1-2, 5-6 (каркас, MCP Gateway, Admin CRUD API, Admin Dashboard):
 - `src/main.rs` — CLI с subcommand `migrate` + `run` (default)
 - `src/db/` — SQLite init + авто-применение миграций из `migrations/`
 - GET `/health` — живой endpoint
-- Admin UI (React 19 + Vite): скелет, Tailwind НЕ подключён
+- `src/mcp/` — MCP Gateway (subprocess lifecycle, JSON-RPC через stdio)
+- `src/api/admin/` — полный CRUD: MCP servers, skills, configs, client versions, clients, status
+- Admin UI (React 19 + Vite + Tailwind CSS v4 + react-router): Dashboard, MCP Servers, Skills, Configs, Client Versions, Clients, Logs
 - Модули (`api/`, `db/`, `mcp/`, `auth/`, `watcher/`, `updater/`, `web/`) — `mod.rs` созданы
 
 ## Сборка и разработка
@@ -48,7 +50,7 @@ main.rs           — точка входа, clap CLI
 ## Ключевые факты
 
 - **`data/` в `.gitignore`** — runtime-директория (БД, индексы, сборки)
-- **`admin-ui/dist/`** вшивается в бинарник через `rust-embed`
+- **`admin-ui/dist/`** вшивается в бинарник через `rust-embed` (сборка: `cd admin-ui && npm run build`)
 - **Миграции БД**: `migrations/001_initial.sql` (7 таблиц)
 - **Зависимости**: см. `Cargo.toml` (включая `tower`, которого нет в старой схеме)
 - **Тесты отсутствуют** (ни Rust, ни JS)
