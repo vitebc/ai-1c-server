@@ -77,3 +77,9 @@ export interface BslLsState {
   error: string | null;
   config: BslLsConfig;
 }
+
+export interface BslLsRelease {
+  version: string;
+  jar_url: string | null;
+  published_at: string;
+}

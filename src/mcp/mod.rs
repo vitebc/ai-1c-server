@@ -6,6 +6,6 @@ mod session;
 
 #[allow(unused_imports)]
 pub use config::McpServerConfig;
-pub use bsl_ls::{BslLsConfig, BslLsManager, BslLsStatus};
+pub use bsl_ls::{check_bsl_ls_release, check_java_version, download_bsl_ls_jar, BslLsConfig, BslLsManager, BslLsRelease, BslLsStatus};
 pub use manager::{McpError, McpManager};
 pub use protocol::{JsonRpcRequest, JsonRpcResponse};

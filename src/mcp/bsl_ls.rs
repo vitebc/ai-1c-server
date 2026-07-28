@@ -1,4 +1,5 @@
 use std::path::Path;
+use serde::Serialize;
 use tokio::sync::Mutex;
 use tokio::process::{Command, Child};
 
@@ -206,6 +207,75 @@ impl BslLsManager {
     pub async fn last_error(&self) -> Option<String> {
         self.last_error.lock().await.clone()
     }
+}
+
+pub async fn check_java_at_path(java_path: &str) -> Result<String, String> {
+    let path = java_path.to_string();
+    tokio::task::spawn_blocking(move || {
+        let output = std::process::Command::new(&path)
+            .arg("-version")
+            .output()
+            .map_err(|e| format!("Java not found at '{}': {}", path, e))?;
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let first = stderr.lines().next().unwrap_or("").to_string();
+        if first.is_empty() { Err("No output".into()) } else { Ok(first) }
+    }).await.map_err(|e| format!("Task failed: {}", e))?
+}
+
+pub async fn check_java_version() -> Result<String, String> {
+    let output = tokio::task::spawn_blocking(|| {
+        std::process::Command::new("java")
+            .arg("-version")
+            .output()
+    }).await.map_err(|e| format!("Task failed: {}", e))?
+    .map_err(|e| format!("Java not found: {}", e))?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let first_line = stderr.lines().next().unwrap_or("").to_string();
+    if first_line.is_empty() {
+        return Err("No output from java -version".into());
+    }
+    Ok(first_line)
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BslLsRelease {
+    pub version: String,
+    pub jar_url: Option<String>,
+    pub published_at: String,
+}
+
+pub async fn check_bsl_ls_release() -> Result<BslLsRelease, Box<dyn std::error::Error>> {
+    let client = reqwest::Client::builder()
+        .user_agent("ai-1c-server/0.1.0")
+        .build()?;
+    let resp = client
+        .get("https://api.github.com/repos/1c-syntax/bsl-language-server/releases/latest")
+        .header("Accept", "application/vnd.github.v3+json")
+        .send()
+        .await?;
+    let release: serde_json::Value = resp.json().await?;
+    let version = release["tag_name"].as_str().unwrap_or("unknown").trim_start_matches('v').to_string();
+    let published_at = release["published_at"].as_str().unwrap_or("").to_string();
+    let jar_url = release["assets"].as_array().and_then(|assets| {
+        assets.iter().find(|a| {
+            a["name"].as_str().map(|n| n.ends_with(".jar")).unwrap_or(false)
+        }).and_then(|a| a["browser_download_url"].as_str().map(String::from))
+    });
+    Ok(BslLsRelease { version, jar_url, published_at })
+}
+
+pub async fn download_bsl_ls_jar(url: &str, dest: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let client = reqwest::Client::builder()
+        .user_agent("ai-1c-server/0.1.0")
+        .build()?;
+    let response = client.get(url).send().await?;
+    let bytes = response.bytes().await?;
+    if let Some(parent) = dest.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    tokio::fs::write(dest, bytes).await?;
+    tracing::info!("BSL LS JAR downloaded to: {}", dest.display());
+    Ok(())
 }
 
 impl Drop for BslLsManager {
