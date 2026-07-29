@@ -112,28 +112,53 @@ impl BslLsManager {
         }
         let cfg = self.config.lock().await.clone();
 
-        let java_path = cfg.java_path.trim();
-        let jar_path = cfg.jar_path.trim();
+        let (java_path, jar_path) = {
+            let jp = cfg.java_path.trim().to_string();
+            let jarp = cfg.jar_path.trim().to_string();
 
-        if java_path.contains('/') || java_path.contains('\\') {
-            if !Path::new(java_path).exists() {
-                let msg = format!("Java not found: {}", java_path);
-                tracing::error!("{}", msg);
-                *self.last_error.lock().await = Some(msg);
-                return;
-            }
-        }
-        if jar_path.contains('/') || jar_path.contains('\\') {
-            if !Path::new(jar_path).exists() {
-                let msg = format!("BSL LS JAR not found: {}", jar_path);
-                tracing::error!("{}", msg);
-                *self.last_error.lock().await = Some(msg);
-                return;
-            }
-        }
+            // If java_path is just a name (no path separators), check PATH
+            // If that fails, try data/java/ as fallback
+            let resolved_java = if !jp.contains('/') && !jp.contains('\\') {
+                let jp_clone = jp.clone();
+                // Check if java is available via PATH
+                match tokio::task::spawn_blocking(move || {
+                    std::process::Command::new(&jp_clone).arg("-version").output()
+                }).await {
+                    Ok(Ok(out)) if out.status.success() => jp,
+                    _ => {
+                        // Fallback: scan data/java/ for java binary
+                        let java_dir = Path::new(&cfg.data_dir).join("java");
+                        find_java_in_dir(&java_dir).unwrap_or(jp)
+                    }
+                }
+            } else {
+                if !Path::new(&jp).exists() {
+                    let msg = format!("Java not found: {}", jp);
+                    tracing::error!("{}", msg);
+                    *self.last_error.lock().await = Some(msg);
+                    return;
+                }
+                jp
+            };
 
-        let mut cmd = Command::new(java_path);
-        cmd.args(["-jar", jar_path, "--tcp", &cfg.port.to_string()]);
+            // Resolve jar path
+            let resolved_jar = if jarp.contains('/') || jarp.contains('\\') {
+                if !Path::new(&jarp).exists() {
+                    let msg = format!("BSL LS JAR not found: {}", jarp);
+                    tracing::error!("{}", msg);
+                    *self.last_error.lock().await = Some(msg);
+                    return;
+                }
+                jarp
+            } else {
+                jarp
+            };
+
+            (resolved_java, resolved_jar)
+        };
+
+        let mut cmd = Command::new(&java_path);
+        cmd.args(["-jar", &jar_path, "--tcp", &cfg.port.to_string()]);
         cmd.stdin(std::process::Stdio::null());
         cmd.stdout(std::process::Stdio::null());
         cmd.stderr(std::process::Stdio::piped());
