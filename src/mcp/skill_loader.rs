@@ -80,10 +80,10 @@ fn import_single_file(
     db: &crate::db::Database,
     root: &Path,
 ) -> Result<bool, Box<dyn std::error::Error>> {
-    let content = std::fs::read_to_string(path)?;
-
-    // Strip UTF-8 BOM if present
-    let content = content.trim_start_matches('\u{feff}').trim();
+    let content = std::fs::read_to_string(path)?
+        .trim_start_matches('\u{feff}')
+        .trim()
+        .to_string();
     if !content.starts_with("---") {
         return Ok(false);
     }
@@ -127,6 +127,14 @@ fn import_single_file(
         }
     });
 
+    // Merge YAML description with the full body content
+    let full_description = match (&fm.description, body.is_empty()) {
+        (Some(d), false) => format!("{}\n\n---\n\n{}", d.trim(), body),
+        (Some(d), true) => d.trim().to_string(),
+        (None, false) => body.to_string(),
+        (None, true) => String::new(),
+    };
+
     let id = format!("skill-{}", tool_name);
 
     // Build metadata JSON from extra fields
@@ -151,7 +159,7 @@ fn import_single_file(
             tool_schema = ?6, category = ?7, version = ?8, metadata = ?9,
             updated_at = datetime('now')",
         rusqlite::params![
-            id, fm.name, fm.description, fm.server_id, tool_name, tool_schema, category, fm.version, metadata
+            id, fm.name, full_description, fm.server_id, tool_name, tool_schema, category, fm.version, metadata
         ],
     );
     if let Err(rusqlite::Error::SqliteFailure(e, _)) = &result {
@@ -164,7 +172,7 @@ fn import_single_file(
                     tool_schema = ?5, category = ?6, version = ?7, metadata = ?8,
                     updated_at = datetime('now')",
                 rusqlite::params![
-                    id, fm.name, fm.description, tool_name, tool_schema, category, fm.version, metadata
+                    id, fm.name, full_description, tool_name, tool_schema, category, fm.version, metadata
                 ],
             )?;
         } else {
