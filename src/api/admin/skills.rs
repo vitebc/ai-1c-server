@@ -196,3 +196,36 @@ pub async fn import_skills(
     let result = crate::mcp::import_skills_from_dir(&db, FilePath::new(&body.dir))?;
     Ok(Json(result))
 }
+
+#[derive(Debug, Deserialize)]
+pub struct UploadReq {
+    pub files: Vec<UploadedFile>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UploadedFile {
+    pub path: String,
+    pub content: String,
+}
+
+pub async fn upload_skills(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<UploadReq>,
+) -> Result<Json<crate::mcp::ImportResult>, super::AppError> {
+    let tmp = std::env::temp_dir().join("ai-1c-skills-upload");
+    if tmp.exists() {
+        std::fs::remove_dir_all(&tmp)?;
+    }
+    for file in &body.files {
+        if !file.path.ends_with(".md") { continue; }
+        let dest = tmp.join(&file.path);
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&dest, &file.content)?;
+    }
+    let db = state.db.lock().await;
+    let result = crate::mcp::import_skills_from_dir(&db, &tmp)?;
+    let _ = std::fs::remove_dir_all(&tmp);
+    Ok(Json(result))
+}

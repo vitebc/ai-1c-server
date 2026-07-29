@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, Upload, CheckCircle, XCircle } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Plus, Pencil, Trash2, Upload, CheckCircle, XCircle, FolderOpen } from 'lucide-react';
 import { api } from '../api/client';
 import type { Skill } from '../types';
 
@@ -12,6 +12,7 @@ export default function Skills() {
   const [importDir, setImportDir] = useState('');
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<string | null>(null);
+  const folderRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { load(); }, []);
   function load() { api.getSkills().then(setItems); }
@@ -27,13 +28,47 @@ export default function Skills() {
         body: JSON.stringify({ dir: importDir }),
       });
       const data = await r.json();
-      const errs = data.errors?.length ? `, errors: ${data.errors.join('; ')}` : '';
+      const errs = data.errors?.length ? `\nErrors: ${data.errors.join('; ')}` : '';
       setImportResult(`Imported: ${data.imported}, skipped: ${data.skipped}${errs}`);
       load();
     } catch (e: any) {
       setImportResult(`Error: ${e.message}`);
     } finally {
       setImporting(false);
+    }
+  }
+
+  async function handleFolderPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setImporting(true);
+    setImportResult(null);
+
+    const mdFiles: { path: string; content: string }[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (!file.name.endsWith('.md')) continue;
+      const relativePath = file.webkitRelativePath || file.name;
+      const content = await file.text();
+      mdFiles.push({ path: relativePath, content });
+    }
+
+    try {
+      const r = await fetch(`${BASE}/api/admin/skills/upload`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files: mdFiles }),
+      });
+      const data = await r.json();
+      const errs = data.errors?.length ? `\nErrors: ${data.errors.join('; ')}` : '';
+      setImportResult(`Imported: ${data.imported}, skipped: ${data.skipped}${errs}`);
+      load();
+    } catch (e: any) {
+      setImportResult(`Error: ${e.message}`);
+    } finally {
+      setImporting(false);
+      if (folderRef.current) folderRef.current.value = '';
     }
   }
 
@@ -47,19 +82,33 @@ export default function Skills() {
       </div>
 
       <div className="bg-gray-100 rounded-xl border border-gray-200 p-4 mb-6">
-        <h3 className="text-sm font-semibold text-gray-800 mb-3">Import from .md files</h3>
+        <h3 className="text-sm font-semibold text-gray-800 mb-3">Import from local folder</h3>
         <div className="flex items-center gap-3">
+          <input type="file" ref={folderRef} onChange={handleFolderPick} multiple
+            style={{ display: 'none' }}
+            // @ts-ignore
+            webkitdirectory="" directory="" />
+          <button onClick={() => folderRef.current?.click()} disabled={importing}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-500 disabled:opacity-50">
+            <FolderOpen size={16} /> Choose Folder
+          </button>
+          <span className="text-sm text-gray-400">{importing ? 'Reading files...' : 'Pick a folder with .md skill files'}</span>
+        </div>
+
+        <div className="flex items-center gap-3 mt-3 pt-3 border-t border-gray-200">
           <input type="text" value={importDir} onChange={e => setImportDir(e.target.value)}
-            placeholder="Path to directory with .md skills"
+            placeholder="Or type server path to skills directory"
             className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
           <button onClick={handleImport} disabled={importing || !importDir}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-500 disabled:opacity-50">
-            <Upload size={16} /> {importing ? 'Importing...' : 'Import'}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-400 rounded-lg text-sm hover:bg-gray-200 disabled:opacity-50">
+            <Upload size={16} /> Import
           </button>
         </div>
+
         {importResult && (
-          <div className={`mt-3 flex items-center gap-2 text-sm ${importResult.startsWith('Error') ? 'text-red-500' : 'text-green-500'}`}>
-            {importResult.startsWith('Error') ? <XCircle size={16} /> : <CheckCircle size={16} />}
+          <div className={`mt-3 text-sm ${importResult.startsWith('Error') ? 'text-red-500' : 'text-green-500'}`}
+            style={{ whiteSpace: 'pre-wrap' }}>
+            {importResult.startsWith('Error') ? <XCircle size={16} className="inline mr-1" /> : <CheckCircle size={16} className="inline mr-1" />}
             {importResult}
           </div>
         )}

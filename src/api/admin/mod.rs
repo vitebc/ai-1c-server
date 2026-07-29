@@ -85,6 +85,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/skills", get(skills::list).post(skills::create))
         .route("/skills/{id}", get(skills::get_by_id).put(skills::update).delete(skills::delete))
         .route("/skills/import", post(skills::import_skills))
+        .route("/skills/upload", post(skills::upload_skills))
         .route("/config-profiles", get(configs::list).post(configs::create))
         .route("/config-profiles/{id}", get(configs::get_by_id).put(configs::update).delete(configs::delete))
         .route("/client-versions", get(client_versions::list).post(client_versions::create))
