@@ -115,6 +115,31 @@ pub async fn restart(State(state): State<Arc<AppState>>) -> Json<BslLsState> {
     get_state(State(state)).await
 }
 
+pub async fn install_java_endpoint(
+    State(state): State<Arc<AppState>>,
+) -> Json<serde_json::Value> {
+    let data_dir_path = {
+        let cfg = state.bsl_ls.get_config().await;
+        cfg.data_dir.clone()
+    };
+    let data_dir = std::path::PathBuf::from(&data_dir_path);
+    let info = match crate::mcp::install_java(&data_dir).await {
+        Ok(i) => i,
+        Err(e) => return Json(serde_json::json!({"ok": false, "error": e.to_string()})),
+    };
+    let mut new_cfg = {
+        let cfg = state.bsl_ls.get_config().await;
+        cfg
+    };
+    new_cfg.java_path = info.java_path.clone();
+    {
+        let guard = state.db.lock().await;
+        let _ = new_cfg.save(&*guard);
+    }
+    state.bsl_ls.update_config(new_cfg).await;
+    Json(serde_json::json!({"ok": true, "version": info.version, "java_path": info.java_path}))
+}
+
 pub async fn stop(State(state): State<Arc<AppState>>) -> Json<BslLsState> {
     state.bsl_ls.stop().await;
     get_state(State(state)).await

@@ -283,6 +283,119 @@ pub async fn download_bsl_ls_jar(url: &str, dest: &Path) -> Result<(), Box<dyn s
     Ok(())
 }
 
+/// Synchronous URL fetch via system command (curl on Linux, PowerShell on Windows)
+fn fetch_url_sync(url: &str) -> Result<String, String> {
+    use std::process::Command;
+    if cfg!(windows) {
+        let out = Command::new("powershell")
+            .args(["-Command", &format!("(Invoke-WebRequest -Uri '{}' -UseBasicParsing).Content", url)])
+            .output().map_err(|e| format!("PowerShell failed: {}", e))?;
+        if !out.status.success() {
+            return Err(format!("PowerShell HTTP error: {}", String::from_utf8_lossy(&out.stderr)));
+        }
+        Ok(String::from_utf8_lossy(&out.stdout).to_string())
+    } else {
+        let out = Command::new("curl")
+            .args(["-sL", url])
+            .output().map_err(|e| format!("curl failed: {}", e))?;
+        if !out.status.success() {
+            return Err(format!("curl HTTP error: {}", String::from_utf8_lossy(&out.stderr)));
+        }
+        Ok(String::from_utf8_lossy(&out.stdout).to_string())
+    }
+}
+
+/// Synchronous file download via system command
+fn fetch_to_file_sync(url: &str, dest: &Path) -> Result<(), String> {
+    use std::process::Command;
+    if cfg!(windows) {
+        let out = Command::new("powershell")
+            .args(["-Command", &format!("Invoke-WebRequest -Uri '{}' -OutFile '{}' -UseBasicParsing", url, dest.display())])
+            .output().map_err(|e| format!("PowerShell download failed: {}", e))?;
+        if !out.status.success() {
+            return Err(format!("Download error: {}", String::from_utf8_lossy(&out.stderr)));
+        }
+    } else {
+        let out = Command::new("curl")
+            .args(["-sL", "-o", &dest.to_string_lossy(), url])
+            .output().map_err(|e| format!("curl download failed: {}", e))?;
+        if !out.status.success() {
+            return Err(format!("Download error: {}", String::from_utf8_lossy(&out.stderr)));
+        }
+    }
+    Ok(())
+}
+
+/// Find `java` binary inside an extracted JDK directory
+fn find_java_in_dir(dir: &Path) -> Option<String> {
+    let bin_name = if cfg!(windows) { "java.exe" } else { "java" };
+    for entry in walkdir::WalkDir::new(dir).into_iter().filter_map(|e| e.ok()) {
+        if entry.file_name() == bin_name {
+            return Some(entry.path().to_string_lossy().to_string());
+        }
+    }
+    None
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct JavaInstallInfo {
+    pub version: String,
+    pub java_path: String,
+    pub archive_name: String,
+}
+
+pub async fn install_java(data_dir: &Path) -> Result<JavaInstallInfo, Box<dyn std::error::Error>> {
+    let data_dir_owned = data_dir.to_path_buf();
+    let os = if cfg!(windows) { "windows" } else { "linux" };
+
+    let result: JavaInstallInfo = tokio::task::spawn_blocking(move || {
+        use std::process::Command as SyncCommand;
+
+        let api_url = format!(
+            "https://api.adoptium.net/v3/assets/latest/17/hotspot?os={}&arch=x64&image_type=jdk", os
+        );
+
+        let meta_json = fetch_url_sync(&api_url)?;
+        let assets: serde_json::Value = serde_json::from_str(&meta_json).map_err(|e| format!("JSON parse: {}", e))?;
+        let asset = assets.as_array().and_then(|a| a.first()).ok_or("No JDK assets")?;
+        let version = asset["version"]["semver"].as_str().unwrap_or("unknown").to_string();
+        let pkg = &asset["binary"]["package"];
+        let archive_url = pkg["link"].as_str().ok_or("No package link")?.to_string();
+        let archive_name = pkg["name"].as_str().unwrap_or("jdk.tar.gz");
+
+        let java_dir = data_dir_owned.join("java");
+        std::fs::create_dir_all(&java_dir).map_err(|e| format!("mkdir: {}", e))?;
+        let archive_path = java_dir.join(&archive_name);
+
+        let _ = std::fs::remove_file(&archive_path);
+        fetch_to_file_sync(&archive_url, &archive_path)?;
+
+        let r = if cfg!(windows) {
+            SyncCommand::new("powershell")
+                .args(["-Command", &format!("Expand-Archive -Path '{}' -DestinationPath '{}' -Force", archive_path.display(), java_dir.display())])
+                .output()
+        } else {
+            SyncCommand::new("tar")
+                .args(["-xzf", &archive_path.to_string_lossy(), "-C", &java_dir.to_string_lossy()])
+                .output()
+        };
+        match r {
+            Ok(out) if out.status.success() => {}
+            Ok(out) => return Err(format!("Extraction failed: {}", String::from_utf8_lossy(&out.stderr))),
+            Err(e) => return Err(format!("Extraction error: {}", e)),
+        }
+        let _ = std::fs::remove_file(&archive_path);
+        let java_bin = find_java_in_dir(&java_dir)
+            .ok_or_else(|| format!("java binary not found in {}", java_dir.display()))?;
+
+        Ok(JavaInstallInfo { version, java_path: java_bin, archive_name: archive_name.to_string() })
+    }).await.map_err(|e| format!("Task panicked: {}", e))?
+      .map_err(|e: String| -> Box<dyn std::error::Error> { e.into() })?;
+
+    tracing::info!("Java installed at: {}", result.java_path);
+    Ok(result)
+}
+
 impl Drop for BslLsManager {
     fn drop(&mut self) {
         if let Some(mut child) = self.process.get_mut().take() {

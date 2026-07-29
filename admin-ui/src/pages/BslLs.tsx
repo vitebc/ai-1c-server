@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Play, Square, RefreshCw, Terminal, AlertCircle, Download, CheckCircle, XCircle } from 'lucide-react';
+import { Play, Square, RefreshCw, Terminal, AlertCircle, Download, CheckCircle, XCircle, Coffee } from 'lucide-react';
 import { api } from '../api/client';
 import type { BslLsState } from '../types';
 
@@ -16,6 +16,8 @@ export default function BslLs() {
   const [loadingVer, setLoadingVer] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [dlResult, setDlResult] = useState<string | null>(null);
+  const [installingJava, setInstallingJava] = useState(false);
+  const [javaInstallResult, setJavaInstallResult] = useState<string | null>(null);
   const [javaPath, setJavaPath] = useState('java');
   const [jarPath, setJarPath] = useState('bsl-language-server.jar');
   const [port, setPort] = useState('8025');
@@ -88,6 +90,26 @@ export default function BslLs() {
       setState(result);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleInstallJava() {
+    setInstallingJava(true);
+    setJavaInstallResult(null);
+    try {
+      const r = await fetch(`${BASE}/api/admin/bsl-ls/install-java`, { method: 'POST' });
+      const data = await r.json();
+      if (data.ok) {
+        setJavaInstallResult(`Java ${data.version} installed → ${data.java_path}`);
+        load();
+        checkVersions();
+      } else {
+        setJavaInstallResult(`Error: ${data.error}`);
+      }
+    } catch (e: any) {
+      setJavaInstallResult(`Error: ${e.message}`);
+    } finally {
+      setInstallingJava(false);
     }
   }
 
@@ -238,6 +260,26 @@ export default function BslLs() {
               </p>
             )}
           </div>
+        </div>
+
+        <div className="mt-4 p-4 border border-gray-200 rounded-lg">
+          <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">Java JDK</p>
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-sm text-gray-700 font-mono">{ver?.java || 'Not detected'}</p>
+              <p className="text-xs text-gray-400">Auto-download and install JDK 17</p>
+            </div>
+            <button onClick={handleInstallJava} disabled={installingJava}
+              className="flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-500 disabled:opacity-50">
+              <Coffee size={14} /> {installingJava ? 'Installing...' : 'Install Java'}
+            </button>
+          </div>
+          {javaInstallResult && (
+            <p className={`mt-2 text-xs ${javaInstallResult.startsWith('Error') ? 'text-red-500' : 'text-green-500'}`}>
+              {javaInstallResult.startsWith('Error') ? <XCircle size={12} className="inline mr-1" /> : <CheckCircle size={12} className="inline mr-1" />}
+              {javaInstallResult}
+            </p>
+          )}
         </div>
       </div>
 
