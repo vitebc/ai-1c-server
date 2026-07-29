@@ -84,6 +84,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/mcp-servers/{id}", get(mcp_servers::get_by_id).put(mcp_servers::update).delete(mcp_servers::delete))
         .route("/skills", get(skills::list).post(skills::create))
         .route("/skills/{id}", get(skills::get_by_id).put(skills::update).delete(skills::delete))
+        .route("/skills/import", post(skills::import_skills))
         .route("/config-profiles", get(configs::list).post(configs::create))
         .route("/config-profiles/{id}", get(configs::get_by_id).put(configs::update).delete(configs::delete))
         .route("/client-versions", get(client_versions::list).post(client_versions::create))

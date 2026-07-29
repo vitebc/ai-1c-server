@@ -21,3 +21,4 @@ reqwest = { version = "0.12", features = ["json"] }
 jsonwebtoken = "9"
 sha2 = "0.10"
 tower = "0.5"
+serde_yaml = "0.9"

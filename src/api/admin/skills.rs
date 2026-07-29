@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::path::Path as FilePath;
 use axum::{
     extract::{Path, State},
     Json,
@@ -180,4 +181,18 @@ pub async fn delete(
         return Err(super::NotFound.into());
     }
     Ok(Json(()))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ImportReq {
+    pub dir: String,
+}
+
+pub async fn import_skills(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<ImportReq>,
+) -> Result<Json<crate::mcp::ImportResult>, super::AppError> {
+    let db = state.db.lock().await;
+    let result = crate::mcp::import_skills_from_dir(&db, FilePath::new(&body.dir))?;
+    Ok(Json(result))
 }
