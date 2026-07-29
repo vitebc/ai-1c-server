@@ -118,36 +118,57 @@ impl BslLsManager {
 
             // If java_path is just a name (no path separators), check PATH
             // If that fails, try data/java/ as fallback
-            let resolved_java = if !jp.contains('/') && !jp.contains('\\') {
-                let jp_clone = jp.clone();
-                // Check if java is available via PATH
-                match tokio::task::spawn_blocking(move || {
-                    std::process::Command::new(&jp_clone).arg("-version").output()
-                }).await {
-                    Ok(Ok(out)) if out.status.success() => jp,
-                    _ => {
-                        // Fallback: scan data/java/ for java binary
+            let resolved_java = {
+                // 1. Try configured java_path
+                let can_try = |path: &str| -> Option<String> {
+                    let p = Path::new(path);
+                    if !p.exists() {
+                        return None;
+                    }
+                    if p.is_dir() {
+                        // It's a directory — search for java inside
+                        return find_java_in_dir(p);
+                    }
+                    #[cfg(unix)]
+                    if !is_executable(p) {
+                        tracing::debug!("Java at {} exists but not executable", path);
+                        return None;
+                    }
+                    Some(path.to_string())
+                };
+
+                if jp.contains('/') || jp.contains('\\') {
+                    // Absolute or relative path — try it directly
+                    can_try(&jp).unwrap_or_else(|| {
+                        // Also try data/java/ as fallback
                         let java_dir = Path::new(&cfg.data_dir).join("java");
-                        match find_java_in_dir(&java_dir) {
-                            Some(found) => {
-                                tracing::info!("Found java in data/java: {}", found);
-                                found
-                            }
-                            None => {
-                                tracing::warn!("Java not in PATH and not found in {}", java_dir.display());
-                                jp
+                        find_java_in_dir(&java_dir).unwrap_or_else(|| {
+                            tracing::warn!("Java not found at '{}' or in {}", jp, java_dir.display());
+                            jp
+                        })
+                    })
+                } else {
+                    // Simple name — try PATH, then data/java/
+                    let jp_clone = jp.clone();
+                    match tokio::task::spawn_blocking(move || {
+                        std::process::Command::new(&jp_clone).arg("-version").output()
+                    }).await {
+                        Ok(Ok(out)) if out.status.success() => jp,
+                        _ => {
+                            let java_dir = Path::new(&cfg.data_dir).join("java");
+                            match find_java_in_dir(&java_dir) {
+                                Some(found) => {
+                                    tracing::info!("Found java in data/java: {}", found);
+                                    found
+                                }
+                                None => {
+                                    tracing::warn!("Java not in PATH and not found in {}", java_dir.display());
+                                    jp
+                                }
                             }
                         }
                     }
                 }
-            } else {
-                if !Path::new(&jp).exists() {
-                    let msg = format!("Java not found: {}", jp);
-                    tracing::error!("{}", msg);
-                    *self.last_error.lock().await = Some(msg);
-                    return;
-                }
-                jp
             };
 
             // Resolve jar path
