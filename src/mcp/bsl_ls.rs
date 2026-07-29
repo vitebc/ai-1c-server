@@ -128,7 +128,16 @@ impl BslLsManager {
                     _ => {
                         // Fallback: scan data/java/ for java binary
                         let java_dir = Path::new(&cfg.data_dir).join("java");
-                        find_java_in_dir(&java_dir).unwrap_or(jp)
+                        match find_java_in_dir(&java_dir) {
+                            Some(found) => {
+                                tracing::info!("Found java in data/java: {}", found);
+                                found
+                            }
+                            None => {
+                                tracing::warn!("Java not in PATH and not found in {}", java_dir.display());
+                                jp
+                            }
+                        }
                     }
                 }
             } else {
@@ -413,12 +422,27 @@ fn fetch_to_file_sync(url: &str, dest: &Path) -> Result<(), String> {
 /// Find `java` binary inside an extracted JDK directory
 fn find_java_in_dir(dir: &Path) -> Option<String> {
     let bin_name = if cfg!(windows) { "java.exe" } else { "java" };
+    if !dir.exists() {
+        tracing::debug!("find_java_in_dir: {} does not exist", dir.display());
+        return None;
+    }
     for entry in walkdir::WalkDir::new(dir).into_iter().filter_map(|e| e.ok()) {
         if entry.file_name() == bin_name {
+            #[cfg(unix)]
+            if !is_executable(&entry.path()) {
+                tracing::debug!("Found java at {} but not executable", entry.path().display());
+                continue;
+            }
             return Some(entry.path().to_string_lossy().to_string());
         }
     }
     None
+}
+
+#[cfg(unix)]
+fn is_executable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path).map(|m| m.permissions().mode() & 0o111 != 0).unwrap_or(false)
 }
 
 #[derive(Debug, Clone, Serialize)]
