@@ -176,9 +176,9 @@ impl BslLsManager {
             Ok(c) => c,
             Err(e) => {
                 let hint = match e.raw_os_error() {
-                    Some(2) => " (java not found in PATH, use Install Java)",
-                    Some(13) => " (permission denied, check java executable permissions)",
-                    _ => "",
+                    Some(2) => format!(". Java not found at '{}' — use Install Java button", java_path),
+                    Some(13) => format!(". Permission denied for '{}' — check java executable permissions", java_path),
+                    _ => "".into(),
                 };
                 let msg = format!("Failed to spawn BSL LS: {}{}", e, hint);
                 tracing::error!("{}", msg);
