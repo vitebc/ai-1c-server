@@ -278,7 +278,7 @@ export default function BslLs() {
           <div className="flex items-start justify-between gap-2">
             <div>
               <p className="text-sm text-gray-700 font-mono">{ver?.java || 'Not detected'}</p>
-              <p className="text-xs text-gray-400">Auto-download and install JDK 17</p>
+              <p className="text-xs text-gray-400">Auto-download and install JDK 21</p>
             </div>
             <button onClick={handleInstallJava} disabled={installingJava}
               className="flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-500 disabled:opacity-50">

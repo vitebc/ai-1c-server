@@ -481,7 +481,7 @@ pub async fn install_java(data_dir: &Path) -> Result<JavaInstallInfo, Box<dyn st
         use std::process::Command as SyncCommand;
 
         let api_url = format!(
-            "https://api.adoptium.net/v3/assets/latest/17/hotspot?os={}&arch=x64&image_type=jdk", os
+            "https://api.adoptium.net/v3/assets/latest/21/hotspot?os={}&arch=x64&image_type=jdk", os
         );
 
         let meta_json = fetch_url_sync(&api_url)?;
