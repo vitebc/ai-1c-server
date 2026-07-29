@@ -3,6 +3,7 @@ use serde::Serialize;
 use tokio::sync::Mutex;
 use tokio::process::{Command, Child};
 
+
 #[derive(Debug, Clone)]
 pub struct BslLsConfig {
     pub java_path: String,
@@ -269,18 +270,54 @@ pub async fn check_bsl_ls_release() -> Result<BslLsRelease, Box<dyn std::error::
     Ok(BslLsRelease { version, jar_url, published_at })
 }
 
-pub async fn download_bsl_ls_jar(url: &str, dest: &Path) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn download_bsl_ls_jar(url: &str, version: &str, data_dir: &Path) -> Result<String, Box<dyn std::error::Error>> {
+    let jar_dir = data_dir.join("bsl-ls");
+    tokio::fs::create_dir_all(&jar_dir).await?;
+
+    // Clean old versioned jars
+    let mut old_jars = Vec::new();
+    if let Ok(mut entries) = tokio::fs::read_dir(&jar_dir).await {
+        while let Ok(Some(e)) = entries.next_entry().await {
+            let name = e.file_name().to_string_lossy().to_string();
+            if name.starts_with("bsl-language-server-") && name.ends_with(".jar") {
+                old_jars.push(e.path());
+            }
+        }
+    }
+    for old in &old_jars {
+        let _ = tokio::fs::remove_file(old).await;
+    }
+
+    let jar_name = format!("bsl-language-server-{}.jar", version);
+    let dest = jar_dir.join(&jar_name);
+
     let client = reqwest::Client::builder()
         .user_agent("ai-1c-server/0.1.0")
         .build()?;
     let response = client.get(url).send().await?;
     let bytes = response.bytes().await?;
-    if let Some(parent) = dest.parent() {
-        tokio::fs::create_dir_all(parent).await?;
+    tokio::fs::write(&dest, bytes).await?;
+    tracing::info!("BSL LS JAR downloaded: {}", dest.display());
+    Ok(dest.to_string_lossy().to_string())
+}
+
+pub fn detect_installed_bsl_ls(data_dir: &Path) -> Option<(String, String)> {
+    let jar_dir = data_dir.join("bsl-ls");
+    let mut best: Option<(String, String)> = None;
+    if let Ok(entries) = std::fs::read_dir(&jar_dir) {
+        for entry in entries.filter_map(|e| e.ok()) {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !name.starts_with("bsl-language-server-") || !name.ends_with(".jar") {
+                continue;
+            }
+            let ver = name.trim_start_matches("bsl-language-server-").trim_end_matches(".jar").to_string();
+            let replace = best.as_ref().map_or(true, |(b, _)| ver > *b);
+            if replace {
+                best = Some((ver, entry.path().to_string_lossy().to_string()));
+            }
+        }
     }
-    tokio::fs::write(dest, bytes).await?;
-    tracing::info!("BSL LS JAR downloaded to: {}", dest.display());
-    Ok(())
+    best
 }
 
 /// Synchronous URL fetch via system command (curl on Linux, PowerShell on Windows)

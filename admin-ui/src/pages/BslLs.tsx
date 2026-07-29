@@ -5,6 +5,7 @@ import type { BslLsState } from '../types';
 
 interface VersionInfo {
   java: string | null;
+  bsl_ls_current: string | null;
   bsl_ls_latest: { version: string; jar_url: string | null; published_at: string } | null;
 }
 
@@ -242,23 +243,33 @@ export default function BslLs() {
             )}
           </div>
           <div className="p-4 border border-gray-200 rounded-lg">
-            <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">BSL LS — Latest Release</p>
-            {ver?.bsl_ls_latest ? (
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-sm text-gray-700 font-mono">v{ver.bsl_ls_latest.version}</p>
-                  <p className="text-xs text-gray-400">{ver.bsl_ls_latest.published_at?.slice(0, 10)}</p>
-                </div>
-                <button onClick={downloadBslLs} disabled={downloading || !ver.bsl_ls_latest.jar_url}
+            <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">BSL LS</p>
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="text-sm text-gray-700 font-mono">
+                  Current: {ver?.bsl_ls_current ? `v${ver.bsl_ls_current}` : '—'}
+                </p>
+                {ver?.bsl_ls_latest ? (
+                  <p className="text-xs mt-0.5">
+                    <span className="text-gray-400">Latest: v{ver.bsl_ls_latest.version} </span>
+                    {ver.bsl_ls_latest.jar_url && ver.bsl_ls_current !== ver.bsl_ls_latest.version && (
+                      <span className="text-yellow-500 font-medium">(update available)</span>
+                    )}
+                    {ver.bsl_ls_current === ver.bsl_ls_latest.version && (
+                      <span className="text-green-500">✓ up to date</span>
+                    )}
+                  </p>
+                ) : (
+                  <p className="text-xs text-gray-400">{loadingVer ? 'Checking...' : ''}</p>
+                )}
+              </div>
+              {ver?.bsl_ls_latest?.jar_url && (
+                <button onClick={downloadBslLs} disabled={downloading}
                   className="flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-500 disabled:opacity-50">
                   <Download size={14} /> {downloading ? 'Downloading...' : 'Download'}
                 </button>
-              </div>
-            ) : (
-              <p className="text-sm text-gray-400">
-                {loadingVer ? 'Checking...' : 'Click "Check" to see version'}
-              </p>
-            )}
+              )}
+            </div>
           </div>
         </div>
 

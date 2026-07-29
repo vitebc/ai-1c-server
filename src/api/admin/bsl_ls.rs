@@ -19,6 +19,7 @@ pub struct BslLsState {
 #[derive(Debug, Serialize)]
 pub struct VersionsInfo {
     pub java: Option<String>,
+    pub bsl_ls_current: Option<String>,
     pub bsl_ls_latest: Option<BslLsRelease>,
 }
 
@@ -54,10 +55,15 @@ pub async fn get_state(State(state): State<Arc<AppState>>) -> Json<BslLsState> {
     })
 }
 
-pub async fn get_versions() -> Json<VersionsInfo> {
+pub async fn get_versions(State(state): State<Arc<AppState>>) -> Json<VersionsInfo> {
     let java = crate::mcp::check_java_version().await.ok();
+    let cfg = state.bsl_ls.get_config().await;
+    let bsl_ls_current = {
+        let data_dir = std::path::Path::new(&cfg.data_dir);
+        crate::mcp::detect_installed_bsl_ls(data_dir).map(|(v, _)| v)
+    };
     let bsl_ls_latest = crate::mcp::check_bsl_ls_release().await.ok();
-    Json(VersionsInfo { java, bsl_ls_latest })
+    Json(VersionsInfo { java, bsl_ls_current, bsl_ls_latest })
 }
 
 pub async fn download_bsl_ls(
@@ -68,13 +74,30 @@ pub async fn download_bsl_ls(
         Ok(r) => r,
         Err(e) => return Json(serde_json::json!({"error": format!("Failed to check release: {}", e)})),
     };
-    let jar_url = release.jar_url.as_ref().ok_or("No JAR in release").unwrap();
-    let cfg = state.bsl_ls.get_config().await;
-    let dest = std::path::Path::new(&cfg.jar_path);
-    if let Err(e) = crate::mcp::download_bsl_ls_jar(jar_url, dest).await {
-        return Json(serde_json::json!({"error": format!("Download failed: {}", e)}));
+    let jar_url = match &release.jar_url {
+        Some(u) => u.clone(),
+        None => return Json(serde_json::json!({"error": "No JAR in release"})),
+    };
+    let data_dir = {
+        let cfg = state.bsl_ls.get_config().await;
+        std::path::PathBuf::from(&cfg.data_dir)
+    };
+    let jar_path = match crate::mcp::download_bsl_ls_jar(&jar_url, &release.version, &data_dir).await {
+        Ok(p) => p,
+        Err(e) => return Json(serde_json::json!({"error": format!("Download failed: {}", e)})),
+    };
+    // Update config with new jar path
+    let mut new_cfg = {
+        let cfg = state.bsl_ls.get_config().await;
+        cfg
+    };
+    new_cfg.jar_path = jar_path.clone();
+    {
+        let guard = state.db.lock().await;
+        let _ = new_cfg.save(&*guard);
     }
-    Json(serde_json::json!({"ok": true, "version": release.version, "path": cfg.jar_path}))
+    state.bsl_ls.update_config(new_cfg).await;
+    Json(serde_json::json!({"ok": true, "version": release.version, "path": jar_path}))
 }
 
 #[derive(Debug, Deserialize)]
