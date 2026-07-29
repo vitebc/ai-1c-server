@@ -1,5 +1,7 @@
 use std::path::Path;
+use std::sync::Arc;
 use serde::Serialize;
+use std::sync::Mutex as StdMutex;
 use tokio::sync::Mutex;
 use tokio::process::{Command, Child};
 
@@ -77,6 +79,7 @@ pub struct BslLsManager {
     config: Mutex<BslLsConfig>,
     process: Mutex<Option<Child>>,
     last_error: Mutex<Option<String>>,
+    logs: Arc<StdMutex<Vec<String>>>,
 }
 
 impl BslLsManager {
@@ -85,7 +88,22 @@ impl BslLsManager {
             config: Mutex::new(BslLsConfig::new(data_dir)),
             process: Mutex::new(None),
             last_error: Mutex::new(None),
+            logs: Arc::new(StdMutex::new(Vec::with_capacity(500))),
         }
+    }
+
+    pub fn push_log(&self, line: String) {
+        let mut logs = self.logs.lock().unwrap();
+        if logs.len() >= 500 { logs.remove(0); }
+        logs.push(line);
+    }
+
+    pub fn get_logs(&self) -> Vec<String> {
+        self.logs.lock().unwrap().clone()
+    }
+
+    pub fn clear_logs(&self) {
+        self.logs.lock().unwrap().clear();
     }
 
     pub async fn load_config(&self, db: &crate::db::Database, data_dir: &str) {
@@ -212,14 +230,21 @@ impl BslLsManager {
         let pid = child.id().unwrap_or(0);
         *self.last_error.lock().await = None;
 
-        let log_id = pid;
         if let Some(stderr) = child.stderr.take() {
+            let log_arc = self.logs.clone();
+            let pid_str = pid.to_string();
             tokio::spawn(async move {
                 use tokio::io::AsyncBufReadExt;
                 let mut reader = tokio::io::BufReader::new(stderr);
                 let mut line = String::new();
                 while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
-                    tracing::info!("[bsl-ls:{}] {}", log_id, line.trim());
+                    let trimmed = line.trim().to_string();
+                    if trimmed.is_empty() { line.clear(); continue; }
+                    tracing::info!("[bsl-ls:{}] {}", pid_str, trimmed);
+                    log_arc.lock().unwrap().push(trimmed);
+                    if log_arc.lock().unwrap().len() > 500 {
+                        log_arc.lock().unwrap().remove(0);
+                    }
                     line.clear();
                 }
             });

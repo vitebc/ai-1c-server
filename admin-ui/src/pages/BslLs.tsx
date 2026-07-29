@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Play, Square, RefreshCw, Terminal, AlertCircle, Download, CheckCircle, XCircle, Coffee } from 'lucide-react';
 import { api } from '../api/client';
 import type { BslLsState } from '../types';
@@ -19,6 +19,9 @@ export default function BslLs() {
   const [dlResult, setDlResult] = useState<string | null>(null);
   const [installingJava, setInstallingJava] = useState(false);
   const [javaInstallResult, setJavaInstallResult] = useState<string | null>(null);
+  const [logs, setLogs] = useState<string[]>([]);
+  const logsRef = useRef<HTMLDivElement>(null);
+  const [autoScroll, setAutoScroll] = useState(true);
   const [javaPath, setJavaPath] = useState('java');
   const [jarPath, setJarPath] = useState('bsl-language-server.jar');
   const [port, setPort] = useState('8025');
@@ -27,7 +30,27 @@ export default function BslLs() {
 
   useEffect(() => {
     load().then(() => checkVersions());
+    const interval = setInterval(fetchLogs, 2000);
+    return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (autoScroll && logsRef.current) {
+      logsRef.current.scrollTop = logsRef.current.scrollHeight;
+    }
+  }, [logs, autoScroll]);
+
+  async function fetchLogs() {
+    try {
+      const r = await fetch(`${BASE}/api/admin/bsl-ls/logs`);
+      setLogs(await r.json());
+    } catch {}
+  }
+
+  async function clearLogs() {
+    await fetch(`${BASE}/api/admin/bsl-ls/logs/clear`, { method: 'POST' });
+    setLogs([]);
+  }
 
   async function load() {
     const s = await api.getBslLs();
@@ -294,10 +317,36 @@ export default function BslLs() {
         </div>
       </div>
 
-      <div className="bg-gray-900 text-green-400 font-mono text-xs p-4 rounded-xl border border-gray-200 min-h-[200px]">
-        <div className="flex items-center gap-2 text-gray-400 mb-2">
-          <Terminal size={14} />
-          <span>BSL LS stderr output will appear here</span>
+      <div className="bg-gray-900 rounded-xl border border-gray-200">
+        <div className="flex items-center justify-between px-4 py-2 border-b border-gray-700">
+          <div className="flex items-center gap-2 text-gray-400">
+            <Terminal size={14} />
+            <span className="text-xs">BSL LS logs</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer">
+              <input type="checkbox" checked={autoScroll} onChange={e => setAutoScroll(e.target.checked)} className="rounded" />
+              Auto-scroll
+            </label>
+            <button onClick={clearLogs} className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Clear</button>
+          </div>
+        </div>
+        <div ref={logsRef} className="h-64 overflow-y-auto p-4 font-mono text-xs leading-relaxed">
+          {logs.length === 0 ? (
+            <p className="text-gray-600 italic">No logs yet</p>
+          ) : (
+            logs.map((line, i) => (
+              <div key={i} className={
+                line.includes('ERROR') || line.includes('Error') || line.includes('Exception')
+                  ? 'text-red-400'
+                  : line.includes('WARN') || line.includes('WARNING')
+                  ? 'text-yellow-500'
+                  : 'text-green-400'
+              }>
+                {line}
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>

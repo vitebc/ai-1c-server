@@ -163,6 +163,15 @@ pub async fn install_java_endpoint(
     Json(serde_json::json!({"ok": true, "version": info.version, "java_path": info.java_path}))
 }
 
+pub async fn get_logs(State(state): State<Arc<AppState>>) -> Json<Vec<String>> {
+    Json(state.bsl_ls.get_logs())
+}
+
+pub async fn clear_logs_endpoint(State(state): State<Arc<AppState>>) -> Json<()> {
+    state.bsl_ls.clear_logs();
+    Json(())
+}
+
 pub async fn stop(State(state): State<Arc<AppState>>) -> Json<BslLsState> {
     state.bsl_ls.stop().await;
     get_state(State(state)).await

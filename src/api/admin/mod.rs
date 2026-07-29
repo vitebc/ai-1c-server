@@ -99,6 +99,8 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/bsl-ls/restart", post(bsl_ls::restart))
         .route("/bsl-ls/stop", post(bsl_ls::stop))
         .route("/bsl-ls/install-java", post(bsl_ls::install_java_endpoint))
+        .route("/bsl-ls/logs", get(bsl_ls::get_logs))
+        .route("/bsl-ls/logs/clear", post(bsl_ls::clear_logs_endpoint))
         .route("/bsl-ls/versions", get(bsl_ls::get_versions))
         .route("/bsl-ls/download/{version}", post(bsl_ls::download_bsl_ls))
 }
