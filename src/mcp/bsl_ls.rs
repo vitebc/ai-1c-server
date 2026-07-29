@@ -426,7 +426,7 @@ fn find_java_in_dir(dir: &Path) -> Option<String> {
         tracing::debug!("find_java_in_dir: {} does not exist", dir.display());
         return None;
     }
-    for entry in walkdir::WalkDir::new(dir).into_iter().filter_map(|e| e.ok()) {
+    for entry in walkdir::WalkDir::new(dir).min_depth(1).into_iter().filter_map(|e| e.ok()) {
         if entry.file_name() == bin_name {
             #[cfg(unix)]
             if !is_executable(&entry.path()) {
