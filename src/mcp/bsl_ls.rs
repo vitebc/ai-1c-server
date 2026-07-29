@@ -141,7 +141,12 @@ impl BslLsManager {
         let mut child = match cmd.spawn() {
             Ok(c) => c,
             Err(e) => {
-                let msg = format!("Failed to spawn BSL LS: {}", e);
+                let hint = match e.raw_os_error() {
+                    Some(2) => " (java not found in PATH, use Install Java)",
+                    Some(13) => " (permission denied, check java executable permissions)",
+                    _ => "",
+                };
+                let msg = format!("Failed to spawn BSL LS: {}{}", e, hint);
                 tracing::error!("{}", msg);
                 *self.last_error.lock().await = Some(msg);
                 return;
@@ -332,35 +337,52 @@ fn fetch_url_sync(url: &str) -> Result<String, String> {
         }
         Ok(String::from_utf8_lossy(&out.stdout).to_string())
     } else {
-        let out = Command::new("curl")
-            .args(["-sL", url])
-            .output().map_err(|e| format!("curl failed: {}", e))?;
-        if !out.status.success() {
-            return Err(format!("curl HTTP error: {}", String::from_utf8_lossy(&out.stderr)));
-        }
+        let out = try_cmd(&[&["curl", "-sL", url], &["wget", "-qO-", url]], None)?;
         Ok(String::from_utf8_lossy(&out.stdout).to_string())
     }
 }
 
-/// Synchronous file download via system command
-fn fetch_to_file_sync(url: &str, dest: &Path) -> Result<(), String> {
+/// Try a series of commands, return first successful output
+fn try_cmd(cmds: &[&[&str]], dest: Option<&Path>) -> Result<std::process::Output, String> {
     use std::process::Command;
-    if cfg!(windows) {
-        let out = Command::new("powershell")
-            .args(["-Command", &format!("Invoke-WebRequest -Uri '{}' -OutFile '{}' -UseBasicParsing", url, dest.display())])
-            .output().map_err(|e| format!("PowerShell download failed: {}", e))?;
-        if !out.status.success() {
-            return Err(format!("Download error: {}", String::from_utf8_lossy(&out.stderr)));
+    let mut last_err = String::new();
+    for cmd in cmds {
+        let mut child = Command::new(cmd[0]);
+        if let Some(d) = dest {
+            let d_str = d.to_string_lossy().to_string();
+            if cmd[0] == "curl" {
+                child.args(&cmd[1..]).arg("-o").arg(&d_str);
+            } else {
+                child.args(&cmd[1..]).arg("-O").arg(&d_str);
+            }
+        } else {
+            child.args(&cmd[1..]);
         }
-    } else {
-        let out = Command::new("curl")
-            .args(["-sL", "-o", &dest.to_string_lossy(), url])
-            .output().map_err(|e| format!("curl download failed: {}", e))?;
-        if !out.status.success() {
-            return Err(format!("Download error: {}", String::from_utf8_lossy(&out.stderr)));
+        match child.output() {
+            Ok(out) if out.status.success() => return Ok(out),
+            Ok(out) => last_err = String::from_utf8_lossy(&out.stderr).to_string(),
+            Err(e) => last_err = format!("{}: {}", cmd[0], e),
         }
     }
-    Ok(())
+    Err(format!("All download methods failed. Last: {}", last_err))
+}
+
+/// Synchronous file download via system command
+fn fetch_to_file_sync(url: &str, dest: &Path) -> Result<(), String> {
+    if cfg!(windows) {
+        use std::process::Command;
+        let out = Command::new("powershell")
+            .args(["-Command", &format!("Invoke-WebRequest -Uri '{}' -OutFile '{}' -UseBasicParsing", url, dest.display())])
+            .output().map_err(|e| format!("PowerShell failed: {}", e))?;
+        if !out.status.success() {
+            return Err(format!("Download error: {}", String::from_utf8_lossy(&out.stderr)));
+        }
+        Ok(())
+    } else {
+        try_cmd(&[&["curl", "-sL", url]], Some(dest)).map(|_| ()).or_else(|_| {
+            try_cmd(&[&["wget", "-q", url]], Some(dest)).map(|_| ())
+        })
+    }
 }
 
 /// Find `java` binary inside an extracted JDK directory
