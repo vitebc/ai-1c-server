@@ -206,8 +206,7 @@ impl BslLsManager {
         };
 
         let mut cmd = Command::new(&java_path);
-        cmd.args(["-jar", &jar_path]);
-        cmd.env("BSL_LS_TCP_PORT", cfg.port.to_string());
+        cmd.args(["-jar", &jar_path, "--websocket", "--server.port", &cfg.port.to_string()]);
         cmd.stdin(std::process::Stdio::null());
         cmd.stdout(std::process::Stdio::null());
         cmd.stderr(std::process::Stdio::piped());
