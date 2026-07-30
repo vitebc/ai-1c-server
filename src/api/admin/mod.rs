@@ -15,7 +15,7 @@ mod client_versions;
 mod clients;
 mod configs;
 mod mcp_servers;
-mod skills;
+pub mod skills;
 
 #[derive(Debug)]
 pub struct NotFound;

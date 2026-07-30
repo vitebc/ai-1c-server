@@ -253,7 +253,7 @@ pub async fn export_skills(State(state): State<Arc<AppState>>) -> impl IntoRespo
     (headers, buffer).into_response()
 }
 
-fn write_skills_zip(skills_dir: &FilePath, buffer: &mut Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
+pub fn write_skills_zip(skills_dir: &FilePath, buffer: &mut Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
     let mut zip = zip::ZipWriter::new(std::io::Cursor::new(buffer));
     let options: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
