@@ -68,6 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 db,
                 mcp: mcp_manager,
                 bsl_ls,
+                data_dir: cli.data_dir.clone(),
             });
 
             let mut app = api::routes(state).layer(CorsLayer::permissive());

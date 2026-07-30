@@ -18,6 +18,7 @@ export interface Skill {
   id: string;
   name: string;
   description: string | null;
+  instruction: string | null;
   server_id: string | null;
   tool_name: string;
   tool_schema: string;

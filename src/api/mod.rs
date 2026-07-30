@@ -12,6 +12,7 @@ pub struct AppState {
     pub db: Arc<Mutex<Database>>,
     pub mcp: Arc<McpManager>,
     pub bsl_ls: Arc<BslLsManager>,
+    pub data_dir: String,
 }
 
 async fn health() -> &'static str {
