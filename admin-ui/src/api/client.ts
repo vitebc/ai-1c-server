@@ -64,6 +64,9 @@ export const api = {
   updateConfigProfile: (id: string, data: Partial<ConfigProfile>) =>
     request<ConfigProfile>(`/config-profiles/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteConfigProfile: (id: string) => request<void>(`/config-profiles/${id}`, { method: 'DELETE' }),
+  getSettings: () => request<{ key: string; value: string | null }[]>('/settings'),
+  putSetting: (key: string, value: string) =>
+    request<{ key: string; value: string | null }>('/settings', { method: 'PUT', body: JSON.stringify({ key, value }) }),
 
   getClientVersions: () => request<ClientVersion[]>('/client-versions'),
   getClientVersion: (id: string) => request<ClientVersion>(`/client-versions/${id}`),

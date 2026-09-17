@@ -35,6 +35,7 @@ export interface ConfigProfile {
   name: string;
   path: string;
   active: boolean;
+  parent_id: string | null;
   last_indexed: string | null;
   created_at: string;
   updated_at: string;

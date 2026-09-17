@@ -73,8 +73,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             let mcp_manager = Arc::new(mcp::McpManager::new());
-            mcp_manager.load_from_db(&db).await;
-
             let bsl_ls = Arc::new(mcp::BslLsManager::new(&cli.data_dir));
             {
                 let guard = db.lock().await;
@@ -88,6 +86,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 logs: log_buffer.clone(),
                 data_dir: cli.data_dir.clone(),
             });
+
+            // (Re)build auto `search-*` rows from config_profiles, then start all.
+            crate::api::admin::search_sync::resync_search_servers(&state).await;
+            state.mcp.load_from_db(&state.db).await;
 
             let mut app = api::routes(state.clone())
                 .layer(axum::middleware::from_fn_with_state(

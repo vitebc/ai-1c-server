@@ -19,6 +19,8 @@ mod clients;
 mod configs;
 mod fs;
 mod mcp_servers;
+pub(crate) mod search_sync;
+mod settings;
 pub mod skills;
 
 #[derive(Debug)]
@@ -157,6 +159,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/client-versions/{id}", get(client_versions::get_by_id).put(client_versions::update).delete(client_versions::delete))
         .route("/clients", get(clients::list))
         .route("/status", get(status))
+        .route("/settings", get(settings::list).put(settings::upsert))
         .route("/logs", get(logs))
         .route("/logs/clear", post(clear_logs))
         .route("/fs/browse", get(fs::browse))

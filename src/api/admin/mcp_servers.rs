@@ -238,7 +238,7 @@ pub async fn delete(
 
 /// (Re)start the session for `id` from the current DB row.
 /// Disabled or missing rows only stop the session.
-async fn sync_server(state: &Arc<AppState>, id: &str) {
+pub(super) async fn sync_server(state: &Arc<AppState>, id: &str) {
     state.mcp.stop_server(id).await;
     let cfg: Option<McpServerConfig> = {
         let db = state.db.lock().await;
