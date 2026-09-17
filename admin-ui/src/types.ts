@@ -65,6 +65,13 @@ export interface ServerStatus {
   status: string;
 }
 
+export interface LogEntry {
+  ts: string;
+  level: string;
+  target: string;
+  msg: string;
+}
+
 export interface BslLsConfig {
   java_path: string;
   jar_path: string;

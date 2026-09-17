@@ -38,9 +38,35 @@ impl McpManager {
             tracing::warn!("MCP server '{}': transport '{}' not yet supported", config.id, config.transport);
             return Ok(());
         }
+        // Hot-reload safe: stop previous session for this id first.
+        self.stop_server(&config.id).await;
         let session = McpSession::start(config).await?;
         self.sessions.write().await.insert(config.id.clone(), session);
+        tracing::info!("MCP server '{}' started", config.id);
         Ok(())
+    }
+
+    pub async fn stop_server(&self, id: &str) {
+        let mut sessions = self.sessions.write().await;
+        if let Some(mut session) = sessions.remove(id) {
+            session.shutdown().await;
+            tracing::info!("MCP server '{}' stopped", id);
+        }
+    }
+
+    pub async fn is_running(&self, id: &str) -> bool {
+        self.sessions.read().await.contains_key(id)
+    }
+
+    /// Ask a running session for its tool list (used by the aggregated gateway).
+    pub async fn list_tools(&self, server_id: &str) -> Result<Vec<serde_json::Value>, McpError> {
+        let req = JsonRpcRequest::new("tools/list", serde_json::json!({}));
+        let resp = self.call(server_id, req).await?;
+        Ok(resp
+            .result
+            .and_then(|r| r.get("tools").cloned())
+            .and_then(|t| t.as_array().cloned())
+            .unwrap_or_default())
     }
 
     pub async fn call(&self, server_id: &str, request: JsonRpcRequest) -> Result<JsonRpcResponse, McpError> {

@@ -1,4 +1,4 @@
-import type { BslLsState, Client, ClientVersion, ConfigProfile, McpServer, ServerStatus, Skill } from '../types';
+import type { BslLsState, Client, ClientVersion, ConfigProfile, LogEntry, McpServer, ServerStatus, Skill } from '../types';
 
 const BASE = import.meta.env.VITE_API_BASE || '';
 
@@ -21,6 +21,10 @@ export const api = {
   updateMcpServer: (id: string, data: Partial<McpServer>) =>
     request<McpServer>(`/mcp-servers/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteMcpServer: (id: string) => request<void>(`/mcp-servers/${id}`, { method: 'DELETE' }),
+  restartMcpServer: (id: string) =>
+    request<{ id: string; running: boolean }>(`/mcp-servers/${id}/restart`, { method: 'POST' }),
+  exportMcpConfig: (format: string, base?: string) =>
+    request<unknown>(`/mcp-servers/export?format=${format}${base ? `&base=${encodeURIComponent(base)}` : ''}`),
 
   getSkills: () => request<Skill[]>('/skills'),
   getSkill: (id: string) => request<Skill>(`/skills/${id}`),
@@ -52,6 +56,16 @@ export const api = {
     request<BslLsState>('/bsl-ls/config', { method: 'POST', body: JSON.stringify(data) }),
   restartBslLs: () => request<BslLsState>('/bsl-ls/restart', { method: 'POST' }),
   stopBslLs: () => request<BslLsState>('/bsl-ls/stop', { method: 'POST' }),
-  getLogs: () => request<unknown[]>('/logs'),
+  getLogs: (params?: { level?: string; limit?: number; search?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.level) q.set('level', params.level);
+    if (params?.limit) q.set('limit', String(params.limit));
+    if (params?.search) q.set('search', params.search);
+    const qs = q.toString();
+    return request<LogEntry[]>(`/logs${qs ? `?${qs}` : ''}`);
+  },
+  clearLogs: () => request<{ ok: boolean }>('/logs/clear', { method: 'POST' }),
+  getBslLsLogs: () => request<string[]>('/bsl-ls/logs'),
+  clearBslLsLogs: () => request<void>('/bsl-ls/logs/clear', { method: 'POST' }),
   reindex: () => request<void>('/reindex', { method: 'POST' }),
 };

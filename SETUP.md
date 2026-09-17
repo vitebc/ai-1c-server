@@ -99,18 +99,50 @@ docker run -d --restart always -p 7681:7681 tsl0922/ttyd tmux new -A -s dev
 # → http://<vps-ip>:7681
 ```
 
-## 6. Подключение MCP skills к OpenCode
+## 6. Подключение MCP к OpenCode и другим агентам
 
-На клиенте (локальная машина) в `opencode.json`:
+Единая точка входа — агрегированный MCP (все включённые серверы, тулзы с
+префиксом `<server>__<tool>`):
+
+```bash
+# Скопировать готовый конфиг (форматы: opencode, opencode-legacy, claude, cursor)
+curl -s "http://<vps-ip>:9224/api/admin/mcp-servers/export?format=opencode"
+```
+
+Или вручную. Для **OpenCode** (sst, `opencode.json`):
 
 ```json
 {
-  "mcpServers": {
-    "ai-1c-skills": {
-      "url": "http://<vps-ip>:9224/api/mcp-skills/rpc"
+  "mcp": {
+    "ai-1c-all": {
+      "type": "remote",
+      "url": "http://<vps-ip>:9224/api/mcp-aggregated/mcp",
+      "headers": {
+        "Authorization": "Bearer <api-token>"
+      },
+      "enabled": true
     }
   }
 }
+```
+
+API-токен генерируется при первом старте (см. лог `server.log`:
+`Generated new API token`) и хранится хешем в `server_settings`.
+Все `/api/*` (кроме `/health`) требуют `Authorization: Bearer <token>`.
+Ротация: `POST /api/admin/auth/rotate` (нужен старый токен, новый
+показывается один раз). Готовые сниппеты с токеном:
+`GET /api/admin/mcp-servers/export?format=opencode&token=<api-token>`.
+
+Для **Claude Code**: `claude mcp add --transport http ai-1c-all http://<vps-ip>:9224/api/mcp-aggregated/mcp`
+Для **Cursor** (`mcp.json`): `{ "mcpServers": { "ai-1c-all": { "url": "http://<vps-ip>:9224/api/mcp-aggregated/mcp" } } }`
+
+Per-server URL: `http://<vps-ip>:9224/api/mcp/<id|name>/mcp`
+(GET — SSE для legacy-клиентов, POST — Streamable HTTP).
+Кнопки копирования всех форматов — в Admin UI на странице MCP Servers.
+
+Hot-reload: добавление/изменение/удаление сервера через API или Admin UI
+сразу (пере)запускает сессию — ребут сервера не нужен. Вручную:
+`POST /api/admin/mcp-servers/{id}/restart`.
 ```
 
 ## 7. Импорт скилов

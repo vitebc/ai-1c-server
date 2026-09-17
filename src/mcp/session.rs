@@ -25,11 +25,11 @@ impl McpSession {
     pub async fn start(config: &McpServerConfig) -> Result<Self, Box<dyn std::error::Error>> {
         let command = config.command.as_deref().ok_or("mcp.command is required")?;
         let mut cmd = Command::new(command);
-        if let Some(args_json) = &config.args {
+        if let Some(args_json) = config.args.as_deref().filter(|s| !s.trim().is_empty()) {
             let args: Vec<String> = serde_json::from_str(args_json)?;
             cmd.args(&args);
         }
-        if let Some(env_json) = &config.env {
+        if let Some(env_json) = config.env.as_deref().filter(|s| !s.trim().is_empty()) {
             let env: HashMap<String, String> = serde_json::from_str(env_json)?;
             cmd.envs(&env);
         }

@@ -1,14 +1,17 @@
 use std::sync::Arc;
 use axum::{
-    extract::State,
+    extract::{Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use tracing::Level;
 
 use super::AppState;
+use crate::log_buffer::LogEntry;
 
 mod bsl_ls;
 mod client_versions;
@@ -48,6 +51,21 @@ impl From<NotFound> for AppError {
     }
 }
 
+#[derive(Debug)]
+pub struct BadRequest(pub String);
+
+impl IntoResponse for BadRequest {
+    fn into_response(self) -> axum::response::Response {
+        (StatusCode::BAD_REQUEST, self.0).into_response()
+    }
+}
+
+impl From<BadRequest> for AppError {
+    fn from(e: BadRequest) -> Self {
+        AppError(e.0.into())
+    }
+}
+
 #[derive(Debug, Serialize)]
 struct McpServerStatus {
     id: String,
@@ -56,22 +74,59 @@ struct McpServerStatus {
 }
 
 async fn status(State(state): State<Arc<AppState>>) -> Json<Vec<McpServerStatus>> {
-    let db = state.db.lock().await;
-    let mut stmt = db.conn.prepare(
-        "SELECT id, name FROM mcp_servers WHERE enabled = 1 ORDER BY name"
-    ).unwrap();
-    let rows = stmt.query_map([], |row| {
-        Ok(McpServerStatus {
-            id: row.get(0)?,
-            name: row.get(1)?,
-            status: "unknown".into(),
-        })
-    }).unwrap();
-    Json(rows.flatten().collect())
+    let rows: Vec<(String, String)> = {
+        let db = state.db.lock().await;
+        let mut stmt = db.conn.prepare(
+            "SELECT id, name FROM mcp_servers WHERE enabled = 1 ORDER BY name"
+        ).unwrap();
+        stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        }).unwrap().flatten().collect()
+    };
+    let mut out = Vec::new();
+    for (id, name) in rows {
+        let live = state.mcp.is_running(&id).await;
+        out.push(McpServerStatus {
+            id,
+            name,
+            status: if live { "running".into() } else { "stopped".into() },
+        });
+    }
+    Json(out)
 }
 
-async fn logs() -> Json<Vec<serde_json::Value>> {
-    Json(Vec::new())
+#[derive(Debug, Deserialize)]
+struct LogsQuery {
+    level: Option<String>,
+    limit: Option<usize>,
+    search: Option<String>,
+}
+
+fn parse_level(s: Option<&str>) -> Option<Level> {
+    match s?.to_uppercase().as_str() {
+        "ERROR" => Some(Level::ERROR),
+        "WARN" | "WARNING" => Some(Level::WARN),
+        "INFO" => Some(Level::INFO),
+        "DEBUG" => Some(Level::DEBUG),
+        "TRACE" => Some(Level::TRACE),
+        _ => None,
+    }
+}
+
+async fn logs(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<LogsQuery>,
+) -> Json<Vec<LogEntry>> {
+    Json(state.logs.entries(
+        parse_level(q.level.as_deref()),
+        q.limit.unwrap_or(300),
+        q.search.as_deref(),
+    ))
+}
+
+async fn clear_logs(State(state): State<Arc<AppState>>) -> Json<Value> {
+    state.logs.clear();
+    Json(json!({ "ok": true }))
 }
 
 async fn reindex() -> &'static str {
@@ -81,7 +136,9 @@ async fn reindex() -> &'static str {
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/mcp-servers", get(mcp_servers::list).post(mcp_servers::create))
+        .route("/mcp-servers/export", get(mcp_servers::export))
         .route("/mcp-servers/{id}", get(mcp_servers::get_by_id).put(mcp_servers::update).delete(mcp_servers::delete))
+        .route("/mcp-servers/{id}/restart", post(mcp_servers::restart))
         .route("/skills", get(skills::list).post(skills::create))
         .route("/skills/{id}", get(skills::get_by_id).put(skills::update).delete(skills::delete))
         .route("/skills/import", post(skills::import_skills))
@@ -94,6 +151,8 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/clients", get(clients::list))
         .route("/status", get(status))
         .route("/logs", get(logs))
+        .route("/logs/clear", post(clear_logs))
+        .route("/auth/rotate", post(crate::auth::rotate_handler))
         .route("/reindex", post(reindex))
         .route("/bsl-ls", get(bsl_ls::get_state))
         .route("/bsl-ls/config", post(bsl_ls::update_config))

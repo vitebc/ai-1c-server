@@ -3,16 +3,19 @@ use axum::{Router, routing::{get, post}};
 use tokio::sync::Mutex;
 
 use crate::db::Database;
+use crate::log_buffer::LogBuffer;
 use crate::mcp::{BslLsManager, McpManager};
 
-mod admin;
+pub(crate) mod admin;
 mod mcp;
+mod mcp_http;
 mod mcp_skills;
 
 pub struct AppState {
     pub db: Arc<Mutex<Database>>,
     pub mcp: Arc<McpManager>,
     pub bsl_ls: Arc<BslLsManager>,
+    pub logs: LogBuffer,
     pub data_dir: String,
 }
 
@@ -24,6 +27,8 @@ pub fn routes(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/api/mcp/{server_id}", post(mcp::call_server))
+        .route("/api/mcp/{server_id}/mcp", get(mcp_http::server_sse).post(mcp_http::server_rpc))
+        .route("/api/mcp-aggregated/mcp", get(mcp_http::aggregated_sse).post(mcp_http::aggregated_rpc))
         .route("/api/mcp-skills/rpc", get(mcp_skills::sse_handler).post(mcp_skills::handle_mcp_skills))
         .nest("/api/admin", admin::routes())
         .with_state(state)

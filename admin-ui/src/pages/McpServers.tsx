@@ -1,16 +1,25 @@
 import { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, RotateCcw, Copy, Check } from 'lucide-react';
 import { api } from '../api/client';
-import type { McpServer } from '../types';
+import type { McpServer, ServerStatus } from '../types';
 
 export default function McpServers() {
   const [items, setItems] = useState<McpServer[]>([]);
+  const [live, setLive] = useState<Record<string, string>>({});
   const [edit, setEdit] = useState<McpServer | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
 
   useEffect(() => { load(); }, []);
 
-  function load() { api.getMcpServers().then(setItems); }
+  function load() {
+    api.getMcpServers().then(setItems);
+    api.getStatus().then(s => {
+      const map: Record<string, string> = {};
+      (s as ServerStatus[]).forEach(x => { map[x.id] = x.status; });
+      setLive(map);
+    }).catch(() => {});
+  }
 
   function openCreate() { setEdit(null); setShowForm(true); }
 
@@ -21,6 +30,26 @@ export default function McpServers() {
     await api.deleteMcpServer(id);
     load();
   }
+
+  async function handleRestart(id: string) {
+    await api.restartMcpServer(id);
+    load();
+  }
+
+  async function copyExport(format: string) {
+    const data = await api.exportMcpConfig(format, window.location.origin);
+    await navigator.clipboard.writeText(JSON.stringify(data, null, 2));
+    setCopied(format);
+    setTimeout(() => setCopied(null), 1500);
+  }
+
+  const aggUrl = `${window.location.origin}/api/mcp-aggregated/mcp`;
+  const formats = [
+    { key: 'opencode', label: 'opencode' },
+    { key: 'opencode-legacy', label: 'opencode-legacy' },
+    { key: 'claude', label: 'Claude Code' },
+    { key: 'cursor', label: 'Cursor' },
+  ];
 
   return (
     <div>
@@ -34,6 +63,20 @@ export default function McpServers() {
       {showForm && (
         <ServerForm item={edit} onClose={() => setShowForm(false)} onSaved={load} />
       )}
+
+      <div className="bg-gray-100 rounded-xl border border-gray-200 p-4 mb-4">
+        <div className="text-sm font-medium text-gray-700 mb-1">Single entry point (all enabled servers)</div>
+        <code className="block text-xs font-mono text-gray-600 bg-gray-50 border border-gray-200 rounded px-2 py-1.5 mb-3 break-all">{aggUrl}</code>
+        <div className="flex flex-wrap gap-2">
+          {formats.map(f => (
+            <button key={f.key} onClick={() => copyExport(f.key)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-700 hover:bg-gray-200 transition-colors">
+              {copied === f.key ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
+              Copy {f.label}.json
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div className="bg-gray-100 rounded-xl border border-gray-200 overflow-hidden">
         <table className="w-full text-sm">
@@ -58,8 +101,14 @@ export default function McpServers() {
                   <span className={`text-xs px-2 py-0.5 rounded-full ${item.enabled ? 'bg-green-50 text-green-500' : 'bg-gray-200 text-gray-400'}`}>
                     {item.enabled ? 'Enabled' : 'Disabled'}
                   </span>
+                  {item.enabled && live[item.id] && (
+                    <span className={`ml-1.5 text-xs px-2 py-0.5 rounded-full ${live[item.id] === 'running' ? 'bg-green-600 text-white' : 'bg-red-100 text-red-600'}`}>
+                      {live[item.id]}
+                    </span>
+                  )}
                 </td>
-                <td className="px-4 py-3 text-right">
+                <td className="px-4 py-3 text-right whitespace-nowrap">
+                  <button title="Restart (hot-reload)" onClick={() => handleRestart(item.id)} className="p-1.5 text-gray-400 hover:text-green-600 transition-colors"><RotateCcw size={16} /></button>
                   <button onClick={() => openEdit(item)} className="p-1.5 text-gray-400 hover:text-blue-600 transition-colors"><Pencil size={16} /></button>
                   <button onClick={() => handleDelete(item.id)} className="p-1.5 text-gray-400 hover:text-red-600 transition-colors"><Trash2 size={16} /></button>
                 </td>
