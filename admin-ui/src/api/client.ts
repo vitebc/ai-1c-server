@@ -89,7 +89,11 @@ export const api = {
   clearLogs: () => request<{ ok: boolean }>('/logs/clear', { method: 'POST' }),
   getBslLsLogs: () => request<string[]>('/bsl-ls/logs'),
   clearBslLsLogs: () => request<void>('/bsl-ls/logs/clear', { method: 'POST' }),
-  browseFs: (path?: string) =>
-    request<FsBrowseResult>(`/fs/browse${path ? `?path=${encodeURIComponent(path)}` : ''}`),
+  browseFs: (path?: string, showHidden = true) => {
+    const q = new URLSearchParams();
+    if (path) q.set('path', path);
+    q.set('show_hidden', String(showHidden));
+    return request<FsBrowseResult>(`/fs/browse?${q.toString()}`);
+  },
   reindex: () => request<void>('/reindex', { method: 'POST' }),
 };

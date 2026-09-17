@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, RotateCcw, Copy, Check, FolderOpen, Folder, File, ChevronUp } from 'lucide-react';
+import { Plus, Pencil, Trash2, RotateCcw, Copy, Check, FolderOpen, Folder, File, ChevronUp, Eye, EyeOff } from 'lucide-react';
 import { api } from '../api/client';
 import type { FsBrowseResult, McpServer, ServerStatus } from '../types';
 
@@ -307,14 +307,21 @@ function FileBrowser({ initialPath, onPick, onClose }: { initialPath?: string; o
   const [data, setData] = useState<FsBrowseResult | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [showHidden, setShowHidden] = useState(true);
 
-  function load(path?: string) {
+  function load(path?: string, hidden = showHidden) {
     setError('');
     setSelected(null);
-    api.browseFs(path).then(setData).catch(e => setError(e instanceof Error ? e.message : 'Failed to list'));
+    api.browseFs(path, hidden).then(setData).catch(e => setError(e instanceof Error ? e.message : 'Failed to list'));
   }
 
-  useEffect(() => { load(initialPath); }, [initialPath]);
+  useEffect(() => { load(initialPath, true); }, [initialPath]);
+
+  function toggleHidden() {
+    const next = !showHidden;
+    setShowHidden(next);
+    load(data?.path, next);
+  }
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60]" onClick={onClose}>
@@ -331,6 +338,10 @@ function FileBrowser({ initialPath, onPick, onClose }: { initialPath?: string; o
             <code className="flex-1 text-xs font-mono text-gray-600 bg-gray-50 border border-gray-200 rounded px-2 py-1.5 truncate">
               {data?.path || '…'}
             </code>
+            <button type="button" onClick={toggleHidden} title={showHidden ? 'Hide dotfiles' : 'Show dotfiles'}
+              className={`p-1.5 rounded transition-colors ${showHidden ? 'text-blue-500 bg-blue-50' : 'text-gray-500 hover:text-gray-800 hover:bg-gray-200'}`}>
+              {showHidden ? <Eye size={16} /> : <EyeOff size={16} />}
+            </button>
           </div>
           {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
         </div>
@@ -348,7 +359,7 @@ function FileBrowser({ initialPath, onPick, onClose }: { initialPath?: string; o
               {e.is_dir
                 ? <Folder size={16} className="text-yellow-600 shrink-0" />
                 : <File size={16} className="text-gray-400 shrink-0" />}
-              <span className="flex-1 truncate font-mono text-xs">{e.name}</span>
+              <span className={`flex-1 truncate font-mono text-xs ${e.name.startsWith('.') ? 'opacity-50' : ''}`}>{e.name}</span>
               {!e.is_dir && e.size != null && (
                 <span className="text-[11px] text-gray-400 shrink-0">{formatSize(e.size)}</span>
               )}

@@ -18,6 +18,8 @@ use super::super::AppState;
 #[derive(Debug, Deserialize)]
 pub struct BrowseQuery {
     pub path: Option<String>,
+    /// Show dotfiles/dotdirs. Default: true.
+    pub show_hidden: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -56,13 +58,15 @@ pub async fn browse(
         std::path::PathBuf::from("/").join(dir)
     };
 
+    let show_hidden = q.show_hidden.unwrap_or(true);
+
     let read = std::fs::read_dir(&dir)
         .map_err(|e| super::AppError::msg(format!("Cannot list '{}': {e}", dir.display())))?;
 
     let mut entries: Vec<FsEntry> = Vec::new();
     for entry in read.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
-        if name.starts_with('.') {
+        if !show_hidden && name.starts_with('.') {
             continue;
         }
         let ft = match entry.file_type() {
