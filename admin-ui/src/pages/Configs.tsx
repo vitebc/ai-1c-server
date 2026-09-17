@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, FolderOpen } from 'lucide-react';
 import { api } from '../api/client';
+import FileBrowser from '../components/FileBrowser';
 import type { ConfigProfile } from '../types';
 
 export default function Configs() {
@@ -75,6 +76,7 @@ function ConfigForm({ item, mains, onClose, onSaved }: { item?: ConfigProfile | 
   const [path, setPath] = useState(item?.path || '');
   const [active, setActive] = useState(item?.active ?? false);
   const [parentId, setParentId] = useState<string>(item?.parent_id || '');
+  const [browse, setBrowse] = useState(false);
   const [error, setError] = useState('');
 
   // A main with extensions cannot become an extension (server also enforces).
@@ -108,8 +110,15 @@ function ConfigForm({ item, mains, onClose, onSaved }: { item?: ConfigProfile | 
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Path</label>
-            <input type="text" value={path} onChange={e => setPath(e.target.value)} required
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <div className="flex gap-2">
+              <input type="text" value={path} onChange={e => setPath(e.target.value)} required
+                placeholder="/data/1c-src/erp"
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <button type="button" onClick={() => setBrowse(true)}
+                className="flex items-center gap-1.5 px-3 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm hover:bg-gray-300 transition-colors shrink-0">
+                <FolderOpen size={16} /> Browse
+              </button>
+            </div>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Parent (empty = main config)</label>
@@ -130,6 +139,15 @@ function ConfigForm({ item, mains, onClose, onSaved }: { item?: ConfigProfile | 
           </div>
         </form>
       </div>
+      {browse && (
+        <FileBrowser
+          dirsOnly
+          title="Select configuration folder"
+          initialPath={path || undefined}
+          onPick={p => { setPath(p); setBrowse(false); }}
+          onClose={() => setBrowse(false)}
+        />
+      )}
     </div>
   );
 }
