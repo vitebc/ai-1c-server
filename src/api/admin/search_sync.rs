@@ -120,7 +120,9 @@ fn build_env(
     let mut map: HashMap<String, String> = tpl_extra.clone();
     map.insert(
         KEY_PROFILES.to_string(),
-        serde_json::to_string(&profiles).unwrap_or_else(|_| "[]".into()),
+        // Pretty (multi-line) — readable in the Admin UI form; stays a JSON
+        // *array*, which is what mcp-1c-search parses (single object fails).
+        serde_json::to_string_pretty(&profiles).unwrap_or_else(|_| "[]".into()),
     );
     map.insert(KEY_ACTIVE.to_string(), main.id.clone());
     map.insert(KEY_INDEX_DIR.to_string(), index_dir.to_string());
