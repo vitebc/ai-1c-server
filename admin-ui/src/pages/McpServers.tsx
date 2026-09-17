@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Plus, Pencil, Trash2, RotateCcw, Copy, Check, FolderOpen, Folder, File, ChevronUp, Eye, EyeOff } from 'lucide-react';
 import { api } from '../api/client';
+import { copyText } from '../clipboard';
 import type { FsBrowseResult, McpServer, ServerStatus } from '../types';
 
 const SERVER_TYPES = ['custom', 'local', 'remote', 'builtin'];
@@ -12,6 +13,7 @@ export default function McpServers() {
   const [edit, setEdit] = useState<McpServer | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  const [copyError, setCopyError] = useState('');
 
   useEffect(() => { load(); }, []);
 
@@ -40,10 +42,15 @@ export default function McpServers() {
   }
 
   async function copyExport(format: string) {
-    const data = await api.exportMcpConfig(format, window.location.origin);
-    await navigator.clipboard.writeText(JSON.stringify(data, null, 2));
-    setCopied(format);
-    setTimeout(() => setCopied(null), 1500);
+    setCopyError('');
+    try {
+      const data = await api.exportMcpConfig(format, window.location.origin);
+      await copyText(JSON.stringify(data, null, 2));
+      setCopied(format);
+      setTimeout(() => setCopied(null), 1500);
+    } catch (e) {
+      setCopyError(e instanceof Error ? e.message : 'Copy failed');
+    }
   }
 
   const aggUrl = `${window.location.origin}/api/mcp-aggregated/mcp`;
@@ -79,6 +86,7 @@ export default function McpServers() {
             </button>
           ))}
         </div>
+        {copyError && <p className="text-xs text-red-600 mt-2">{copyError}</p>}
       </div>
 
       <div className="bg-gray-100 rounded-xl border border-gray-200 overflow-hidden">

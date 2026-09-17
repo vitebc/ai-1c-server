@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Server, Brain, FileJson, Users, Code, KeyRound, Copy, Check, RefreshCw, ShieldCheck, ShieldOff } from 'lucide-react';
 import { api, setToken } from '../api/client';
+import { copyText } from '../clipboard';
 import type { BslLsState, ServerStatus } from '../types';
 
 export default function Dashboard() {
@@ -112,6 +113,7 @@ function ApiAccess() {
   const [token, setTokenState] = useState<string | null>(null);
   const [revealed, setRevealed] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
   const [busy, setBusy] = useState(false);
 
   async function load() {
@@ -152,9 +154,14 @@ function ApiAccess() {
 
   async function copy() {
     if (!token) return;
-    await navigator.clipboard.writeText(token);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    setCopyError(false);
+    try {
+      await copyText(token);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopyError(true);
+    }
   }
 
   return (
@@ -185,8 +192,8 @@ function ApiAccess() {
           </button>
         )}
         {token && (
-          <button onClick={copy} className="p-1.5 text-gray-500 hover:text-gray-800 hover:bg-gray-200 rounded-lg transition-colors" title="Copy token">
-            {copied ? <Check size={16} className="text-green-600" /> : <Copy size={16} />}
+          <button onClick={copy} className="p-1.5 text-gray-500 hover:text-gray-800 hover:bg-gray-200 rounded-lg transition-colors" title={copyError ? 'Copy failed — select manually' : 'Copy token'}>
+            {copied ? <Check size={16} className="text-green-600" /> : <Copy size={16} className={copyError ? 'text-red-500' : ''} />}
           </button>
         )}
         <button onClick={regenerate} disabled={busy}
