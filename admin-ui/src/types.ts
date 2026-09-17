@@ -72,6 +72,19 @@ export interface LogEntry {
   msg: string;
 }
 
+export interface FsEntry {
+  name: string;
+  path: string;
+  is_dir: boolean;
+  size: number | null;
+}
+
+export interface FsBrowseResult {
+  path: string;
+  parent: string | null;
+  entries: FsEntry[];
+}
+
 export interface BslLsConfig {
   java_path: string;
   jar_path: string;

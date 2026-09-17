@@ -1,7 +1,9 @@
+import { useEffect, useState } from 'react';
 import { Route, Routes, NavLink } from 'react-router-dom';
 import {
-  LayoutDashboard, Server, Brain, FileJson, Package, Users, ScrollText, Code,
+  LayoutDashboard, Server, Brain, FileJson, Package, Users, ScrollText, Code, KeyRound, LogOut,
 } from 'lucide-react';
+import { getToken, setToken } from './api/client';
 import Dashboard from './pages/Dashboard';
 import McpServers from './pages/McpServers';
 import Skills from './pages/Skills';
@@ -23,6 +25,16 @@ const nav = [
 ];
 
 export default function App() {
+  const [authed, setAuthed] = useState(() => !!getToken());
+
+  useEffect(() => {
+    const onToken = () => setAuthed(!!getToken());
+    window.addEventListener('ai1c:token', onToken);
+    return () => window.removeEventListener('ai1c:token', onToken);
+  }, []);
+
+  if (!authed) return <Login onDone={() => setAuthed(true)} />;
+
   return (
     <div className="flex h-dvh bg-gray-50">
       <aside className="w-60 bg-gray-100 border-r border-gray-200 flex flex-col shrink-0">
@@ -47,6 +59,12 @@ export default function App() {
             </NavLink>
           ))}
         </nav>
+        <div className="p-2 border-t border-gray-200">
+          <button onClick={() => setToken(null)}
+            className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-500 hover:bg-gray-200 w-full transition-colors">
+            <LogOut size={18} /> Logout
+          </button>
+        </div>
       </aside>
       <main className="flex-1 overflow-y-auto p-6">
         <Routes>
@@ -60,6 +78,53 @@ export default function App() {
           <Route path="/logs" element={<Logs />} />
         </Routes>
       </main>
+    </div>
+  );
+}
+
+function Login({ onDone }: { onDone: () => void }) {
+  const [value, setValue] = useState('');
+  const [error, setError] = useState('');
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+    const token = value.trim();
+    if (!token) return;
+    // Verify before saving: any admin endpoint, 401 on bad token.
+    try {
+      const res = await fetch('/api/admin/status', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('Invalid token');
+      setToken(token);
+      onDone();
+    } catch {
+      setError('Invalid token — check server.log for the generated one');
+    }
+  }
+
+  return (
+    <div className="flex h-dvh items-center justify-center bg-gray-50">
+      <form onSubmit={submit} className="bg-gray-100 border border-gray-200 rounded-xl p-8 w-full max-w-sm shadow-lg">
+        <div className="flex items-center gap-3 mb-1">
+          <KeyRound size={22} className="text-blue-600" />
+          <h1 className="text-lg font-bold text-gray-800">AI 1C Admin</h1>
+        </div>
+        <p className="text-sm text-gray-500 mb-5">Enter the API token (generated on first server start, see server.log)</p>
+        <input
+          type="password"
+          value={value}
+          onChange={e => setValue(e.target.value)}
+          placeholder="ai1c_…"
+          autoFocus
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3"
+        />
+        {error && <p className="text-xs text-red-600 mb-3">{error}</p>}
+        <button type="submit" className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition-colors">
+          Sign in
+        </button>
+      </form>
     </div>
   );
 }

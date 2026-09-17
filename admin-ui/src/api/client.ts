@@ -1,14 +1,37 @@
-import type { BslLsState, Client, ClientVersion, ConfigProfile, LogEntry, McpServer, ServerStatus, Skill } from '../types';
+import type { BslLsState, Client, ClientVersion, ConfigProfile, FsBrowseResult, LogEntry, McpServer, ServerStatus, Skill } from '../types';
 
 const BASE = import.meta.env.VITE_API_BASE || '';
 
+const TOKEN_KEY = 'ai1c_token';
+
+export function getToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function setToken(token: string | null) {
+  if (token) localStorage.setItem(TOKEN_KEY, token);
+  else localStorage.removeItem(TOKEN_KEY);
+  window.dispatchEvent(new Event('ai1c:token'));
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}/api/admin${path}`, {
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    ...options,
-  });
-  if (!res.ok) throw new Error(`API error: ${res.status}`);
-  return res.json();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...((options?.headers as Record<string, string>) || {}),
+  };
+  const token = getToken();
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const res = await fetch(`${BASE}/api/admin${path}`, { ...options, headers });
+  if (res.status === 401) {
+    setToken(null);
+    throw new Error('Unauthorized: invalid or missing API token');
+  }
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(text || `API error: ${res.status}`);
+  }
+  const text = await res.text();
+  return (text ? JSON.parse(text) : undefined) as T;
 }
 
 export const api = {
@@ -56,8 +79,7 @@ export const api = {
     request<BslLsState>('/bsl-ls/config', { method: 'POST', body: JSON.stringify(data) }),
   restartBslLs: () => request<BslLsState>('/bsl-ls/restart', { method: 'POST' }),
   stopBslLs: () => request<BslLsState>('/bsl-ls/stop', { method: 'POST' }),
-  getLogs: (params?: { level?: string; limit?: number; search?: string }) => {
-    const q = new URLSearchParams();
+    getLogs: (params?: { level?: string; limit?: number; search?: string }) => {    const q = new URLSearchParams();
     if (params?.level) q.set('level', params.level);
     if (params?.limit) q.set('limit', String(params.limit));
     if (params?.search) q.set('search', params.search);
@@ -67,5 +89,7 @@ export const api = {
   clearLogs: () => request<{ ok: boolean }>('/logs/clear', { method: 'POST' }),
   getBslLsLogs: () => request<string[]>('/bsl-ls/logs'),
   clearBslLsLogs: () => request<void>('/bsl-ls/logs/clear', { method: 'POST' }),
+  browseFs: (path?: string) =>
+    request<FsBrowseResult>(`/fs/browse${path ? `?path=${encodeURIComponent(path)}` : ''}`),
   reindex: () => request<void>('/reindex', { method: 'POST' }),
 };

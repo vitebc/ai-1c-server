@@ -17,6 +17,7 @@ mod bsl_ls;
 mod client_versions;
 mod clients;
 mod configs;
+mod fs;
 mod mcp_servers;
 pub mod skills;
 
@@ -35,6 +36,12 @@ pub struct AppError(Box<dyn std::error::Error>);
 impl<T: Into<Box<dyn std::error::Error>>> From<T> for AppError {
     fn from(err: T) -> Self {
         Self(err.into())
+    }
+}
+
+impl AppError {
+    pub fn msg(s: impl Into<String>) -> Self {
+        Self(s.into().into())
     }
 }
 
@@ -152,6 +159,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/status", get(status))
         .route("/logs", get(logs))
         .route("/logs/clear", post(clear_logs))
+        .route("/fs/browse", get(fs::browse))
         .route("/auth/rotate", post(crate::auth::rotate_handler))
         .route("/reindex", post(reindex))
         .route("/bsl-ls", get(bsl_ls::get_state))
