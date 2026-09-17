@@ -127,16 +127,17 @@ curl -s "http://<vps-ip>:9224/api/admin/mcp-servers/export?format=opencode"
 ```
 
 API-токен генерируется при первом старте (см. лог `server.log`:
-`Generated new API token`) и хранится хешем в `server_settings`.
-Все `/api/*` (кроме `/health`) требуют `Authorization: Bearer <token>`.
-Ротация: `POST /api/admin/auth/rotate` (нужен старый токен, новый
-показывается один раз). Готовые сниппеты с токеном:
-`GET /api/admin/mcp-servers/export?format=opencode&token=<api-token>`.
-
-Авторизацию можно отключить для изолированной локалки (не рекомендуется):
-`PUT /api/admin/settings {"key":"auth_required","value":"0"}` — тогда все
-`/api/*` открыты без токена. Включить обратно:
-`{"key":"auth_required","value":"1"}`.
+`Generated new API token`) и хранится в `server_settings`.
+По умолчанию авторизация **выключена** (открытая локалка).
+Включить: Dashboard → API Access → Auth ON (или
+`PUT /api/admin/settings {"key":"auth_required","value":"1"}`) —
+после этого все `/api/*` (кроме `/health`) требуют
+`Authorization: Bearer <token>`. Токен виден там же
+(Show/Copy/Regenerate). Выключить: Auth OFF.
+Ротация: кнопка Regenerate или `POST /api/admin/auth/rotate`.
+Готовые сниппеты: `GET /api/admin/mcp-servers/export?format=opencode`
+(токен подставляется сам, когда auth включён; `&token=...` — вручную,
+`&notoken=1` — без него).
 
 Для **Claude Code**: `claude mcp add --transport http ai-1c-all http://<vps-ip>:9224/api/mcp-aggregated/mcp`
 Для **Cursor** (`mcp.json`): `{ "mcpServers": { "ai-1c-all": { "url": "http://<vps-ip>:9224/api/mcp-aggregated/mcp" } } }`

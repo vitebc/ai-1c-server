@@ -164,6 +164,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/logs/clear", post(clear_logs))
         .route("/fs/browse", get(fs::browse))
         .route("/auth/rotate", post(crate::auth::rotate_handler))
+        .route("/auth/token", get(crate::auth::token_handler))
         .route("/reindex", post(reindex))
         .route("/bsl-ls", get(bsl_ls::get_state))
         .route("/bsl-ls/config", post(bsl_ls::update_config))

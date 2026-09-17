@@ -1,5 +1,6 @@
 //! Generic `server_settings` key/value CRUD (used for `search_binary`,
-//! `search_index_dir`, etc.). The API token hash is never exposed.
+//! `search_index_dir`, `auth_required`, etc.). Token material is never exposed
+//! here — use `/api/admin/auth/token`.
 
 use std::sync::Arc;
 use axum::{
@@ -37,7 +38,11 @@ pub async fn list(State(state): State<Arc<AppState>>) -> Json<Vec<Setting>> {
         rows
             .flatten()
             .map(|(k, v)| Setting {
-                value: if k == "api_token_hash" { None } else { Some(v) },
+                value: if k == "api_token_hash" || k == "api_token" {
+                    None
+                } else {
+                    Some(v)
+                },
                 key: k,
             })
             .collect(),
@@ -48,7 +53,10 @@ pub async fn upsert(
     State(state): State<Arc<AppState>>,
     Json(body): Json<PutSetting>,
 ) -> Result<Json<Setting>, super::AppError> {
-    if body.key.trim().is_empty() || body.key == "api_token_hash" {
+    if body.key.trim().is_empty()
+        || body.key == "api_token_hash"
+        || body.key == "api_token"
+    {
         return Err(super::AppError::msg("invalid key"));
     }
     let db = state.db.lock().await;

@@ -1,10 +1,14 @@
-//! Bearer-token auth for the HTTP API.
+//! Bearer-token auth for the HTTP API (opt-in, OFF by default).
 //!
-//! * Token hash is stored in `server_settings(api_token_hash)` (SHA-256, hex).
+//! * Plaintext token in `server_settings(api_token)` — shown in Admin UI.
+//! * Legacy hash in `server_settings(api_token_hash)` still verifies
+//!   (installs predating plaintext storage).
 //! * On first boot a random token is generated and printed to the log **once**.
-//! * `Authorization: Bearer <token>` is required for every `/api/*` route
-//!   except `/health`. `OPTIONS` (CORS preflight) always passes.
-//! * Rotate via `POST /api/admin/auth/rotate` (returns the new plaintext token).
+//! * When `server_settings(auth_required)` is truthy, `Authorization: Bearer`
+//!   is required for every `/api/*` route except `/health`.
+//!   `OPTIONS` (CORS preflight) always passes.
+//! * Manage via Admin UI (Dashboard → API Access) or API:
+//!   `GET /api/admin/auth/token`, `POST /api/admin/auth/rotate`.
 
 use std::sync::Arc;
 
@@ -21,7 +25,8 @@ use sha2::{Digest, Sha256};
 use super::api::AppState;
 use crate::db::Database;
 
-const SETTING_KEY: &str = "api_token_hash";
+const HASH_KEY: &str = "api_token_hash";
+const TOKEN_KEY: &str = "api_token";
 
 fn hash_token(token: &str) -> String {
     let mut h = Sha256::new();
@@ -29,8 +34,8 @@ fn hash_token(token: &str) -> String {
     format!("{:x}", h.finalize())
 }
 
-/// Auth can be disabled via `server_settings(auth_required = 0/false/no/off)`.
-/// Default when the setting is absent: enabled.
+/// Auth is opt-in: required only when `server_settings(auth_required)`
+/// is set to a truthy value. Absent (fresh installs) = open API.
 pub fn is_auth_required(db: &Database) -> bool {
     let val: Result<String, _> = db.conn.query_row(
         "SELECT value FROM server_settings WHERE key = 'auth_required'",
@@ -40,9 +45,9 @@ pub fn is_auth_required(db: &Database) -> bool {
     match val {
         Ok(v) => !matches!(
             v.trim().to_lowercase().as_str(),
-            "0" | "false" | "no" | "off"
+            "" | "0" | "false" | "no" | "off"
         ),
-        Err(_) => true,
+        Err(_) => false,
     }
 }
 
@@ -50,43 +55,54 @@ fn new_token() -> String {
     format!("ai1c_{}", uuid::Uuid::new_v4().simple())
 }
 
+fn get_setting(db: &Database, key: &str) -> Option<String> {
+    db.conn
+        .query_row(
+            "SELECT value FROM server_settings WHERE key = ?1",
+            [key],
+            |row| row.get(0),
+        )
+        .ok()
+}
+
 /// Ensure a token exists. Returns `Some(plaintext)` only when newly generated.
 pub fn ensure_token(db: &Database) -> Result<Option<String>, Box<dyn std::error::Error>> {
-    let exists: bool = db.conn.query_row(
-        "SELECT COUNT(*) > 0 FROM server_settings WHERE key = ?1",
-        [SETTING_KEY],
-        |row| row.get(0),
-    )?;
-    if exists {
+    if get_setting(db, TOKEN_KEY).is_some() || get_setting(db, HASH_KEY).is_some() {
         return Ok(None);
     }
     let token = new_token();
     db.conn.execute(
-        "INSERT INTO server_settings (key, value) VALUES (?1, ?2)",
-        rusqlite::params![SETTING_KEY, hash_token(&token)],
+        "INSERT INTO server_settings (key, value) VALUES (?1, ?2), (?3, ?4)",
+        rusqlite::params![TOKEN_KEY, token, HASH_KEY, hash_token(&token)],
     )?;
     Ok(Some(token))
 }
 
+/// Current plaintext token, if stored (legacy installs: None until rotate).
+pub fn current_token(db: &Database) -> Option<String> {
+    get_setting(db, TOKEN_KEY).filter(|s| !s.trim().is_empty())
+}
+
 pub fn verify(db: &Database, bearer: &str) -> bool {
-    let stored: Result<String, _> = db.conn.query_row(
-        "SELECT value FROM server_settings WHERE key = ?1",
-        [SETTING_KEY],
-        |row| row.get(0),
-    );
-    match stored {
-        Ok(h) => h == hash_token(bearer),
-        Err(_) => false,
+    if let Some(t) = current_token(db) {
+        if t == bearer {
+            return true;
+        }
+    }
+    // Legacy hash fallback.
+    match get_setting(db, HASH_KEY) {
+        Some(h) => h == hash_token(bearer),
+        None => false,
     }
 }
 
-/// Generate a replacement token, store its hash, return plaintext.
+/// Generate a replacement token, store it (plaintext + hash), return plaintext.
 pub fn rotate(db: &Database) -> Result<String, Box<dyn std::error::Error>> {
     let token = new_token();
     db.conn.execute(
-        "INSERT INTO server_settings (key, value) VALUES (?1, ?2)
+        "INSERT INTO server_settings (key, value) VALUES (?1, ?2), (?3, ?4)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        rusqlite::params![SETTING_KEY, hash_token(&token)],
+        rusqlite::params![TOKEN_KEY, token, HASH_KEY, hash_token(&token)],
     )?;
     Ok(token)
 }
@@ -145,4 +161,16 @@ pub async fn rotate_handler(
     let token = rotate(&db)?;
     tracing::warn!("API token rotated");
     Ok(Json(json!({ "token": token })))
+}
+
+/// GET /api/admin/auth/token — current token (for Admin UI display) +
+/// whether auth is enforced. Reachable without a token only when auth is off.
+pub async fn token_handler(
+    State(state): State<Arc<AppState>>,
+) -> Json<serde_json::Value> {
+    let db = state.db.lock().await;
+    Json(json!({
+        "token": current_token(&db),
+        "auth_required": is_auth_required(&db),
+    }))
 }

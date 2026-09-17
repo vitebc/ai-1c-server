@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Server, Brain, FileJson, Users, Code } from 'lucide-react';
-import { api } from '../api/client';
+import { Server, Brain, FileJson, Users, Code, KeyRound, Copy, Check, RefreshCw, ShieldCheck, ShieldOff } from 'lucide-react';
+import { api, setToken } from '../api/client';
 import type { BslLsState, ServerStatus } from '../types';
 
 export default function Dashboard() {
@@ -101,6 +101,102 @@ export default function Dashboard() {
           )}
         </div>
       </div>
+
+      <ApiAccess />
+    </div>
+  );
+}
+
+function ApiAccess() {
+  const [required, setRequired] = useState(false);
+  const [token, setTokenState] = useState<string | null>(null);
+  const [revealed, setRevealed] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  async function load() {
+    try {
+      const info = await api.getAuthToken();
+      setRequired(info.auth_required);
+      setTokenState(info.token);
+    } catch {
+      /* unreachable while probing */
+    }
+  }
+
+  useEffect(() => { load(); }, []);
+
+  async function toggle() {
+    setBusy(true);
+    try {
+      await api.putSetting('auth_required', required ? '0' : '1');
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function regenerate() {
+    if (!confirm('Generate a new API token? The old one stops working immediately.')) return;
+    setBusy(true);
+    try {
+      const res = await api.rotateToken();
+      setToken(res.token);
+      setTokenState(res.token);
+      setRevealed(true);
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copy() {
+    if (!token) return;
+    await navigator.clipboard.writeText(token);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+
+  return (
+    <div className="bg-gray-100 rounded-xl border border-gray-200 p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+          {required ? <ShieldCheck size={18} className="text-green-500" /> : <ShieldOff size={18} className="text-gray-400" />}
+          API Access
+        </h3>
+        <button onClick={toggle} disabled={busy}
+          className={`px-3 py-1.5 text-xs rounded-lg transition-colors disabled:opacity-40 ${required ? 'bg-green-50 text-green-500 border border-green-200' : 'bg-gray-200 text-gray-500 border border-gray-300'}`}>
+          {required ? 'Auth ON' : 'Auth OFF'}
+        </button>
+      </div>
+      <p className="text-xs text-gray-500 mb-3">
+        {required
+          ? 'Clients must send Authorization: Bearer. Token is auto-embedded into MCP export presets.'
+          : 'API is open (default). Turn on to require the token.'}
+      </p>
+      <div className="flex items-center gap-2">
+        <KeyRound size={16} className="text-gray-400 shrink-0" />
+        <code className="flex-1 text-xs font-mono text-gray-600 bg-gray-50 border border-gray-200 rounded px-2 py-1.5 truncate">
+          {token ? (revealed ? token : '••••••••••••••••') : 'legacy token — press Regenerate to display it here'}
+        </code>
+        {token && (
+          <button onClick={() => setRevealed(r => !r)} className="px-3 py-1.5 text-xs text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-200 transition-colors">
+            {revealed ? 'Hide' : 'Show'}
+          </button>
+        )}
+        {token && (
+          <button onClick={copy} className="p-1.5 text-gray-500 hover:text-gray-800 hover:bg-gray-200 rounded-lg transition-colors" title="Copy token">
+            {copied ? <Check size={16} className="text-green-600" /> : <Copy size={16} />}
+          </button>
+        )}
+        <button onClick={regenerate} disabled={busy}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-200 disabled:opacity-40 transition-colors">
+          <RefreshCw size={14} /> {token ? 'Regenerate' : 'Generate'}
+        </button>
+      </div>
+      {required && token && (
+        <p className="text-[11px] text-yellow-600 mt-2">Auth is ON — copy the token now, you need it to log back in after logout.</p>
+      )}
     </div>
   );
 }

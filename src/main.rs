@@ -66,13 +66,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let guard = db.lock().await;
                 if let Some(token) = auth::ensure_token(&guard)? {
                     tracing::warn!("Generated new API token (shown once): {token}");
-                    tracing::warn!(
-                        "Pass it as 'Authorization: Bearer <token>' for all /api/* requests"
-                    );
                 }
-                if !auth::is_auth_required(&guard) {
-                    tracing::warn!(
-                        "API auth is DISABLED (server_settings auth_required=0) — all /api/* open"
+                if auth::is_auth_required(&guard) {
+                    tracing::info!(
+                        "API auth is ENABLED — pass 'Authorization: Bearer <token>' for /api/*"
+                    );
+                } else {
+                    tracing::info!(
+                        "API auth is disabled (default) — enable via Admin UI or settings auth_required=1"
                     );
                 }
             }

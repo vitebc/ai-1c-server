@@ -301,7 +301,10 @@ pub async fn restart(
 pub struct ExportQuery {
     pub format: Option<String>,
     pub base: Option<String>,
+    /// Explicit token override. When absent, the stored token is embedded
+    /// automatically if auth is enforced; pass `notoken=1` to skip it.
     pub token: Option<String>,
+    pub notoken: Option<String>,
 }
 
 /// GET /api/admin/mcp-servers/export?format=opencode|opencode-legacy|claude|cursor
@@ -340,9 +343,26 @@ pub async fn export(
         entries.push((key, format!("{base}/api/mcp/{sid}/mcp")));
     }
 
-    let headers_json = q
-        .token
-        .map(|t| json!({ "Authorization": format!("Bearer {t}") }));
+    let headers_json = {
+        let explicit = q.token.clone().filter(|t| !t.trim().is_empty());
+        let skip = matches!(
+            q.notoken.as_deref().map(str::trim),
+            Some("1") | Some("true") | Some("yes")
+        );
+        let stored = if skip {
+            None
+        } else {
+            let db = state.db.lock().await;
+            if crate::auth::is_auth_required(&db) {
+                crate::auth::current_token(&db)
+            } else {
+                None
+            }
+        };
+        explicit
+            .or(stored)
+            .map(|t| json!({ "Authorization": format!("Bearer {t}") }))
+    };
     let with_headers = |mut obj: serde_json::Map<String, Value>| -> Value {
         if let Some(h) = &headers_json {
             obj.insert("headers".into(), h.clone());

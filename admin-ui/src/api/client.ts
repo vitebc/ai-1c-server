@@ -67,6 +67,8 @@ export const api = {
   getSettings: () => request<{ key: string; value: string | null }[]>('/settings'),
   putSetting: (key: string, value: string) =>
     request<{ key: string; value: string | null }>('/settings', { method: 'PUT', body: JSON.stringify({ key, value }) }),
+  getAuthToken: () => request<{ token: string | null; auth_required: boolean }>('/auth/token'),
+  rotateToken: () => request<{ token: string }>('/auth/rotate', { method: 'POST' }),
 
   getClientVersions: () => request<ClientVersion[]>('/client-versions'),
   getClientVersion: (id: string) => request<ClientVersion>(`/client-versions/${id}`),
