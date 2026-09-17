@@ -217,7 +217,7 @@ function ServerForm({ item, onClose, onSaved }: { item?: McpServer | null; onClo
       </div>
       {browse && (
         <FileBrowser
-          initialPath={form.command.includes('/') ? form.command.slice(0, form.command.lastIndexOf('/')) || '/' : '/root'}
+          initialPath={form.command.includes('/') ? form.command.slice(0, form.command.lastIndexOf('/')) || '/' : undefined}
           onPick={p => { setForm(f => ({ ...f, command: p })); setBrowse(false); }}
           onClose={() => setBrowse(false)}
         />
@@ -303,12 +303,12 @@ function JsonField({ label, value, onChange, placeholder, kind }: {
   );
 }
 
-function FileBrowser({ initialPath, onPick, onClose }: { initialPath: string; onPick: (p: string) => void; onClose: () => void }) {
+function FileBrowser({ initialPath, onPick, onClose }: { initialPath?: string; onPick: (p: string) => void; onClose: () => void }) {
   const [data, setData] = useState<FsBrowseResult | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState('');
 
-  function load(path: string) {
+  function load(path?: string) {
     setError('');
     setSelected(null);
     api.browseFs(path).then(setData).catch(e => setError(e instanceof Error ? e.message : 'Failed to list'));
@@ -329,7 +329,7 @@ function FileBrowser({ initialPath, onPick, onClose }: { initialPath: string; on
               </button>
             )}
             <code className="flex-1 text-xs font-mono text-gray-600 bg-gray-50 border border-gray-200 rounded px-2 py-1.5 truncate">
-              {data?.path || initialPath}
+              {data?.path || '…'}
             </code>
           </div>
           {error && <p className="text-xs text-red-600 mt-2">{error}</p>}

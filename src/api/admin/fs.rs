@@ -39,8 +39,16 @@ pub async fn browse(
     State(_state): State<Arc<AppState>>,
     Query(q): Query<BrowseQuery>,
 ) -> Result<Json<BrowseResult>, super::AppError> {
-    let raw = q.path.as_deref().unwrap_or("/").trim();
-    let raw = if raw.is_empty() { "/" } else { raw };
+    // No path → home dir of the server process owner (not hardcoded /root).
+    let raw = q.path.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let raw_owned;
+    let raw: &str = match raw {
+        Some(p) => p,
+        None => {
+            raw_owned = std::env::var("HOME").unwrap_or_else(|_| "/".into());
+            &raw_owned
+        }
+    };
     let dir = std::path::PathBuf::from(raw);
     let dir = if dir.is_absolute() {
         dir
