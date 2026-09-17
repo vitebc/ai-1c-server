@@ -29,6 +29,23 @@ fn hash_token(token: &str) -> String {
     format!("{:x}", h.finalize())
 }
 
+/// Auth can be disabled via `server_settings(auth_required = 0/false/no/off)`.
+/// Default when the setting is absent: enabled.
+pub fn is_auth_required(db: &Database) -> bool {
+    let val: Result<String, _> = db.conn.query_row(
+        "SELECT value FROM server_settings WHERE key = 'auth_required'",
+        [],
+        |row| row.get(0),
+    );
+    match val {
+        Ok(v) => !matches!(
+            v.trim().to_lowercase().as_str(),
+            "0" | "false" | "no" | "off"
+        ),
+        Err(_) => true,
+    }
+}
+
 fn new_token() -> String {
     format!("ai1c_{}", uuid::Uuid::new_v4().simple())
 }
@@ -89,6 +106,15 @@ pub async fn bearer_auth(
 ) -> Response {
     let path = req.uri().path().to_string();
     if !path.starts_with("/api/") || req.method() == axum::http::Method::OPTIONS {
+        return next.run(req).await;
+    }
+    // NOTE: the db guard must be dropped BEFORE next.run — otherwise the
+    // downstream handler deadlocks trying to lock the same mutex.
+    let auth_disabled = {
+        let db = state.db.lock().await;
+        !is_auth_required(&db)
+    };
+    if auth_disabled {
         return next.run(req).await;
     }
     let bearer: Option<String> = req

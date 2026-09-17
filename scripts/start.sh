@@ -34,7 +34,8 @@ fi
 
 "$BINARY" --data-dir "$DATA_DIR" --http-port "$PORT" --admin-dir "$DIR/admin-ui/dist" migrate
 
-nohup "$BINARY" \
+# setsid detaches the daemon into its own session (survives parent kills).
+setsid nohup "$BINARY" \
   --data-dir "$DATA_DIR" \
   --http-port "$PORT" \
   --admin-dir "$DIR/admin-ui/dist" \

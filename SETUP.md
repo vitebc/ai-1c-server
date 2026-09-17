@@ -133,6 +133,11 @@ API-токен генерируется при первом старте (см. 
 показывается один раз). Готовые сниппеты с токеном:
 `GET /api/admin/mcp-servers/export?format=opencode&token=<api-token>`.
 
+Авторизацию можно отключить для изолированной локалки (не рекомендуется):
+`PUT /api/admin/settings {"key":"auth_required","value":"0"}` — тогда все
+`/api/*` открыты без токена. Включить обратно:
+`{"key":"auth_required","value":"1"}`.
+
 Для **Claude Code**: `claude mcp add --transport http ai-1c-all http://<vps-ip>:9224/api/mcp-aggregated/mcp`
 Для **Cursor** (`mcp.json`): `{ "mcpServers": { "ai-1c-all": { "url": "http://<vps-ip>:9224/api/mcp-aggregated/mcp" } } }`
 

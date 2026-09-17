@@ -70,6 +70,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         "Pass it as 'Authorization: Bearer <token>' for all /api/* requests"
                     );
                 }
+                if !auth::is_auth_required(&guard) {
+                    tracing::warn!(
+                        "API auth is DISABLED (server_settings auth_required=0) — all /api/* open"
+                    );
+                }
             }
 
             let mcp_manager = Arc::new(mcp::McpManager::new());

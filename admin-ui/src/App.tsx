@@ -25,14 +25,39 @@ const nav = [
 ];
 
 export default function App() {
-  const [authed, setAuthed] = useState(() => !!getToken());
+  // null = probing access (covers auth-disabled servers and stored tokens).
+  const [authed, setAuthed] = useState<boolean | null>(null);
 
   useEffect(() => {
+    const probe = async () => {
+      try {
+        const headers: Record<string, string> = {};
+        const token = getToken();
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const res = await fetch('/api/admin/status', { headers });
+        if (res.ok) {
+          setAuthed(true);
+        } else {
+          setToken(null);
+          setAuthed(false);
+        }
+      } catch {
+        setAuthed(false);
+      }
+    };
+    probe();
     const onToken = () => setAuthed(!!getToken());
     window.addEventListener('ai1c:token', onToken);
     return () => window.removeEventListener('ai1c:token', onToken);
   }, []);
 
+  if (authed === null) {
+    return (
+      <div className="flex h-dvh items-center justify-center bg-gray-50">
+        <p className="text-sm text-gray-500">Connecting…</p>
+      </div>
+    );
+  }
   if (!authed) return <Login onDone={() => setAuthed(true)} />;
 
   return (
