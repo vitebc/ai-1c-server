@@ -335,6 +335,158 @@ pub async fn stats(
     }
 }
 
+/// FNV hash identical to `mcp-1c-search` `fnv_hash` (multiply-then-xor).
+/// The binary stores per-root indexes as `{INDEX_DIR}/{hash:016x}.db`.
+fn search_index_hash(path: &str) -> u64 {
+    let mut hash: u64 = 14695981039346656037;
+    for byte in path.bytes() {
+        hash = hash.wrapping_mul(1099511628211);
+        hash ^= byte as u64;
+    }
+    hash
+}
+
+/// Collect indexed source roots for a search row: from its env
+/// (`ONEC_CONFIG_PROFILES_JSON`) or, as fallback, from the linked
+/// config profile (`mcp_servers.config`).
+fn search_roots(
+    db: &crate::db::Database,
+    env: Option<&str>,
+    profile_id: Option<&str>,
+) -> (Vec<String>, Option<String>) {
+    if let Some(e) = env.and_then(|s| serde_json::from_str::<Value>(s).ok()) {
+        let index_dir = e
+            .get("MINI_AI_1C_SEARCH_INDEX_DIR")
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+        let mut roots = Vec::new();
+        if let Some(profiles) = e.get("ONEC_CONFIG_PROFILES_JSON").and_then(|v| v.as_str()) {
+            if let Ok(arr) = serde_json::from_str::<Vec<Value>>(profiles) {
+                for p in &arr {
+                    if let Some(m) = p.get("main_path").and_then(|v| v.as_str()) {
+                        if !m.trim().is_empty() {
+                            roots.push(m.trim().to_string());
+                        }
+                    }
+                    if let Some(exts) = p.get("extensions").and_then(|v| v.as_array()) {
+                        for x in exts {
+                            if let Some(xp) = x.get("path").and_then(|v| v.as_str()) {
+                                if !xp.trim().is_empty() {
+                                    roots.push(xp.trim().to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if !roots.is_empty() {
+            return (roots, index_dir);
+        }
+    }
+    // Fallback: linked config profile + its extensions.
+    if let Some(pid) = profile_id {
+        let profiles = super::configs::load_all(db);
+        if let Some(main) = profiles.iter().find(|p| p.id == pid) {
+            let mut roots = vec![main.path.clone()];
+            roots.extend(
+                profiles
+                    .iter()
+                    .filter(|p| p.parent_id.as_deref() == Some(pid))
+                    .map(|p| p.path.clone()),
+            );
+            let index_dir = db
+                .conn
+                .query_row(
+                    "SELECT value FROM server_settings WHERE key = 'search_index_dir'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .ok();
+            return (roots, index_dir);
+        }
+    }
+    (Vec::new(), None)
+}
+
+/// POST /api/admin/mcp-servers/{id}/reindex — full search reindex:
+/// deletes per-root SQLite index files and restarts the session.
+/// The binary rebuilds the index from scratch in the background.
+pub async fn reindex(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, axum::response::Response> {
+    use axum::response::IntoResponse;
+    let row: Option<(String, Option<String>, Option<String>, Option<String>)> = {
+        let db = state.db.lock().await;
+        db.conn
+            .query_row(
+                "SELECT id, env, config, command FROM mcp_servers WHERE id = ?1 OR name = ?1",
+                [&id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                    ))
+                },
+            )
+            .ok()
+    };
+    let (sid, env, profile_id, command) = match row {
+        Some(r) => r,
+        None => return Err(super::NotFound.into_response()),
+    };
+    if command.as_deref().is_none_or(|c| !c.contains("mcp-1c-search")) {
+        return Err(super::BadRequest("reindex is only supported for mcp-1c-search rows".into())
+            .into_response());
+    }
+    let (roots, index_dir) = {
+        let db = state.db.lock().await;
+        search_roots(&db, env.as_deref(), profile_id.as_deref())
+    };
+    if roots.is_empty() {
+        return Err(super::BadRequest("no indexed roots found for this server".into())
+            .into_response());
+    }
+    let index_dir = index_dir.unwrap_or_else(|| {
+        format!(
+            "{}/search-index",
+            state.data_dir.trim_end_matches('/')
+        )
+    });
+
+    // Stop the session first so no process holds the index files.
+    state.mcp.stop_server(&sid).await;
+
+    let mut deleted: Vec<String> = Vec::new();
+    for root in &roots {
+        let base = std::path::Path::new(&index_dir)
+            .join(format!("{:016x}.db", search_index_hash(root)));
+        for suffix in ["", "-wal", "-shm", "-journal"] {
+            let p = format!("{}{}", base.display(), suffix);
+            match std::fs::remove_file(&p) {
+                Ok(()) => deleted.push(p),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => {
+                    tracing::warn!("reindex: cannot remove '{p}': {e}");
+                }
+            }
+        }
+    }
+
+    sync_server(&state, &sid).await;
+    let running = state.mcp.is_running(&sid).await;
+    Ok(Json(json!({
+        "id": sid,
+        "roots": roots,
+        "index_dir": index_dir,
+        "deleted": deleted,
+        "running": running,
+    })))
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ExportQuery {
     pub format: Option<String>,

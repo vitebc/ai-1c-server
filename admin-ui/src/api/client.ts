@@ -48,6 +48,9 @@ export const api = {
     request<{ id: string; running: boolean }>(`/mcp-servers/${id}/restart`, { method: 'POST' }),
   getMcpStats: (id: string) =>
     request<{ id: string; text: string; raw: unknown }>(`/mcp-servers/${id}/stats`),
+  reindexMcp: (id: string) =>
+    request<{ id: string; roots: string[]; index_dir: string; deleted: string[]; running: boolean }>(
+      `/mcp-servers/${id}/reindex`, { method: 'POST' }),
   exportMcpConfig: (format: string, base?: string) =>
     request<unknown>(`/mcp-servers/export?format=${format}${base ? `&base=${encodeURIComponent(base)}` : ''}`),
 

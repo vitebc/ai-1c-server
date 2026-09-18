@@ -149,6 +149,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/mcp-servers/{id}", get(mcp_servers::get_by_id).put(mcp_servers::update).delete(mcp_servers::delete))
         .route("/mcp-servers/{id}/restart", post(mcp_servers::restart))
         .route("/mcp-servers/{id}/stats", get(mcp_servers::stats))
+        .route("/mcp-servers/{id}/reindex", post(mcp_servers::reindex))
         .route("/skills", get(skills::list).post(skills::create))
         .route("/skills/{id}", get(skills::get_by_id).put(skills::update).delete(skills::delete))
         .route("/skills/import", post(skills::import_skills))

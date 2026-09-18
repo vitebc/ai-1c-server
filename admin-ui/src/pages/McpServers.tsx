@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, RotateCcw, Copy, Check, FolderOpen, BarChart3, X } from 'lucide-react';
+import { Plus, Pencil, Trash2, RotateCcw, Copy, Check, FolderOpen, BarChart3, X, DatabaseZap } from 'lucide-react';
 import { api } from '../api/client';
 import { copyText } from '../clipboard';
 import FileBrowser from '../components/FileBrowser';
@@ -16,6 +16,7 @@ export default function McpServers() {
   const [copied, setCopied] = useState<string | null>(null);
   const [copyError, setCopyError] = useState('');
   const [statsFor, setStatsFor] = useState<McpServer | null>(null);
+  const [opMsg, setOpMsg] = useState('');
 
   useEffect(() => { load(); }, []);
 
@@ -41,6 +42,18 @@ export default function McpServers() {
   async function handleRestart(id: string) {
     await api.restartMcpServer(id);
     load();
+  }
+
+  async function handleReindex(item: McpServer) {
+    if (!confirm(`Full reindex of "${item.name}"? Index files will be deleted and rebuilt in background (may take minutes).`)) return;
+    setOpMsg('');
+    try {
+      const res = await api.reindexMcp(item.id);
+      setOpMsg(`Reindex started for "${item.name}": ${res.deleted.length} index file(s) removed, rebuilding in background.`);
+      load();
+    } catch (e) {
+      setOpMsg(e instanceof Error ? `Reindex failed: ${e.message}` : 'Reindex failed');
+    }
   }
 
   async function copyExport(format: string) {
@@ -77,6 +90,9 @@ export default function McpServers() {
       )}
       {statsFor && (
         <StatsModal item={statsFor} onClose={() => setStatsFor(null)} />
+      )}
+      {opMsg && (
+        <p className={`text-xs px-3 py-2 rounded-lg border mb-4 ${opMsg.startsWith('Reindex failed') ? 'text-red-600 bg-red-50 border-red-200' : 'text-green-600 bg-green-50 border-green-200'}`}>{opMsg}</p>
       )}
 
       <div className="bg-gray-100 rounded-xl border border-gray-200 p-4 mb-4">
@@ -126,6 +142,9 @@ export default function McpServers() {
                 <td className="px-4 py-3 text-right whitespace-nowrap">
                   {item.server_type.startsWith('search') && (
                     <button title="Index stats" onClick={() => setStatsFor(item)} className="p-1.5 text-gray-400 hover:text-purple-500 transition-colors"><BarChart3 size={16} /></button>
+                  )}
+                  {item.server_type.startsWith('search') && (
+                    <button title="Full reindex (deletes index, rebuilds in background)" onClick={() => handleReindex(item)} className="p-1.5 text-gray-400 hover:text-orange-500 transition-colors"><DatabaseZap size={16} /></button>
                   )}
                   <button title="Restart (hot-reload)" onClick={() => handleRestart(item.id)} className="p-1.5 text-gray-400 hover:text-green-600 transition-colors"><RotateCcw size={16} /></button>
                   <button onClick={() => openEdit(item)} className="p-1.5 text-gray-400 hover:text-blue-600 transition-colors"><Pencil size={16} /></button>
