@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, RotateCcw, Copy, Check, FolderOpen } from 'lucide-react';
+import { Plus, Pencil, Trash2, RotateCcw, Copy, Check, FolderOpen, BarChart3, X } from 'lucide-react';
 import { api } from '../api/client';
 import { copyText } from '../clipboard';
 import FileBrowser from '../components/FileBrowser';
@@ -15,6 +15,7 @@ export default function McpServers() {
   const [showForm, setShowForm] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [copyError, setCopyError] = useState('');
+  const [statsFor, setStatsFor] = useState<McpServer | null>(null);
 
   useEffect(() => { load(); }, []);
 
@@ -74,6 +75,9 @@ export default function McpServers() {
       {showForm && (
         <ServerForm item={edit} onClose={() => setShowForm(false)} onSaved={load} />
       )}
+      {statsFor && (
+        <StatsModal item={statsFor} onClose={() => setStatsFor(null)} />
+      )}
 
       <div className="bg-gray-100 rounded-xl border border-gray-200 p-4 mb-4">
         <div className="text-sm font-medium text-gray-700 mb-1">Single entry point (all enabled servers)</div>
@@ -120,6 +124,9 @@ export default function McpServers() {
                   )}
                 </td>
                 <td className="px-4 py-3 text-right whitespace-nowrap">
+                  {item.server_type.startsWith('search') && (
+                    <button title="Index stats" onClick={() => setStatsFor(item)} className="p-1.5 text-gray-400 hover:text-purple-500 transition-colors"><BarChart3 size={16} /></button>
+                  )}
                   <button title="Restart (hot-reload)" onClick={() => handleRestart(item.id)} className="p-1.5 text-gray-400 hover:text-green-600 transition-colors"><RotateCcw size={16} /></button>
                   <button onClick={() => openEdit(item)} className="p-1.5 text-gray-400 hover:text-blue-600 transition-colors"><Pencil size={16} /></button>
                   <button onClick={() => handleDelete(item.id)} className="p-1.5 text-gray-400 hover:text-red-600 transition-colors"><Trash2 size={16} /></button>
@@ -308,6 +315,33 @@ function JsonField({ label, value, onChange, placeholder, kind }: {
         spellCheck={false}
         className={`w-full px-3 py-2 border rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${error ? 'border-red-400 bg-red-50/50' : 'border-gray-300'}`}
       />
+    </div>
+  );
+}
+
+function StatsModal({ item, onClose }: { item: McpServer; onClose: () => void }) {
+  const [text, setText] = useState<string | null>(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    api.getMcpStats(item.id)
+      .then(r => setText(r.text || '(empty — index may still be building)'))
+      .catch(e => setError(e instanceof Error ? e.message : 'Failed to load stats'));
+  }, [item.id]);
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-gray-100 rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-4 border-b border-gray-200">
+          <h4 className="text-sm font-semibold text-gray-800">Index stats: {item.name}</h4>
+          <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-700 transition-colors"><X size={18} /></button>
+        </div>
+        <div className="p-4 overflow-y-auto">
+          {error && <p className="text-xs text-red-600">{error}</p>}
+          {!text && !error && <p className="text-sm text-gray-400">Loading…</p>}
+          {text && <pre className="text-xs font-mono text-gray-700 bg-gray-50 border border-gray-200 rounded-lg p-3 whitespace-pre-wrap break-all">{text}</pre>}
+        </div>
+      </div>
     </div>
   );
 }

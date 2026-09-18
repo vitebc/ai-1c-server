@@ -69,6 +69,24 @@ impl McpManager {
             .unwrap_or_default())
     }
 
+    /// Call a single tool on a running session, return the raw `result`.
+    pub async fn call_tool(
+        &self,
+        server_id: &str,
+        tool: &str,
+        arguments: serde_json::Value,
+    ) -> Result<serde_json::Value, McpError> {
+        let req = JsonRpcRequest::new(
+            "tools/call",
+            serde_json::json!({ "name": tool, "arguments": arguments }),
+        );
+        let resp = self.call(server_id, req).await?;
+        if let Some(err) = resp.error {
+            return Err(McpError::CallError(err.message));
+        }
+        Ok(resp.result.unwrap_or(serde_json::Value::Null))
+    }
+
     pub async fn call(&self, server_id: &str, request: JsonRpcRequest) -> Result<JsonRpcResponse, McpError> {
         let client_id = request.id.clone();
         let sessions = self.sessions.read().await;

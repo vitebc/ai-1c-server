@@ -46,6 +46,8 @@ export const api = {
   deleteMcpServer: (id: string) => request<void>(`/mcp-servers/${id}`, { method: 'DELETE' }),
   restartMcpServer: (id: string) =>
     request<{ id: string; running: boolean }>(`/mcp-servers/${id}/restart`, { method: 'POST' }),
+  getMcpStats: (id: string) =>
+    request<{ id: string; text: string; raw: unknown }>(`/mcp-servers/${id}/stats`),
   exportMcpConfig: (format: string, base?: string) =>
     request<unknown>(`/mcp-servers/export?format=${format}${base ? `&base=${encodeURIComponent(base)}` : ''}`),
 

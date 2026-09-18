@@ -22,10 +22,60 @@ const KEY_PROFILES: &str = "ONEC_CONFIG_PROFILES_JSON";
 const KEY_ACTIVE: &str = "ONEC_CONFIG_ACTIVE_PROFILE_ID";
 const KEY_INDEX_DIR: &str = "MINI_AI_1C_SEARCH_INDEX_DIR";
 
+/// Transliterate Cyrillic → Latin so profile names like «КА РС» become
+/// readable slugs (`ka-rs`) instead of collapsing to `cfg`.
+fn translit(c: char) -> Option<&'static str> {
+    match c {
+        'а' | 'a' => Some("a"),
+        'б' => Some("b"),
+        'в' => Some("v"),
+        'г' => Some("g"),
+        'д' => Some("d"),
+        'е' => Some("e"),
+        'ё' => Some("yo"),
+        'ж' => Some("zh"),
+        'з' => Some("z"),
+        'и' => Some("i"),
+        'й' => Some("y"),
+        'к' => Some("k"),
+        'л' => Some("l"),
+        'м' => Some("m"),
+        'н' => Some("n"),
+        'о' => Some("o"),
+        'п' => Some("p"),
+        'р' => Some("r"),
+        'с' => Some("s"),
+        'т' => Some("t"),
+        'у' => Some("u"),
+        'ф' => Some("f"),
+        'х' => Some("h"),
+        'ц' => Some("ts"),
+        'ч' => Some("ch"),
+        'ш' => Some("sh"),
+        'щ' => Some("sch"),
+        'ъ' | 'ь' => Some(""),
+        'ы' => Some("y"),
+        'э' => Some("e"),
+        'ю' => Some("yu"),
+        'я' => Some("ya"),
+        _ => None,
+    }
+}
+
 fn slug(name: &str) -> String {
+    let mut latin = String::new();
+    for c in name.to_lowercase().chars() {
+        if c.is_ascii_alphanumeric() {
+            latin.push(c);
+        } else if let Some(t) = translit(c) {
+            latin.push_str(t);
+        } else {
+            latin.push('-');
+        }
+    }
     let mut s = String::new();
     let mut prev_dash = false;
-    for c in name.to_lowercase().chars() {
+    for c in latin.chars() {
         if c.is_ascii_alphanumeric() {
             s.push(c);
             prev_dash = false;
@@ -34,8 +84,10 @@ fn slug(name: &str) -> String {
             prev_dash = true;
         }
     }
-    let s = s.trim_matches('-').to_string();
-    let mut s = if s.is_empty() { "cfg".to_string() } else { s };
+    let mut s = s.trim_matches('-').to_string();
+    if s.is_empty() {
+        s = "cfg".to_string();
+    }
     s.truncate(40);
     s.trim_end_matches('-').to_string()
 }
@@ -167,14 +219,24 @@ pub async fn resync_search_servers(state: &Arc<AppState>) {
         .collect();
 
     let mut desired: Vec<Desired> = Vec::new();
+    let mut used_names: HashMap<String, usize> = HashMap::new();
     for main in &mains {
         let exts: Vec<&ConfigProfileRow> = profiles
             .iter()
             .filter(|p| p.parent_id.as_deref() == Some(main.id.as_str()))
             .collect();
+        // Deduplicate: second identical slug becomes `<slug>-2`, etc.
+        let base = slug(&main.name);
+        let n = used_names.entry(base.clone()).or_insert(0);
+        *n += 1;
+        let name = if *n == 1 {
+            format!("search-{base}")
+        } else {
+            format!("search-{base}-{}", *n)
+        };
         desired.push(Desired {
             profile_id: main.id.clone(),
-            name: format!("search-{}", slug(&main.name)),
+            name,
             command: tpl.command.clone(),
             args: tpl.args.clone(),
             env: build_env(&tpl.extra_env, main, &exts, &index_dir),

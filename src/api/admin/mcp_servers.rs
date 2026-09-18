@@ -297,6 +297,44 @@ pub async fn restart(
     Ok(Json(json!({ "id": id, "running": state.mcp.is_running(&id).await })))
 }
 
+/// GET /api/admin/mcp-servers/{id}/stats — call the `stats` tool on a running
+/// session (used for search index stats). Returns the tool text output.
+pub async fn stats(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, axum::response::Response> {
+    use axum::response::IntoResponse;
+    // Accept id or name.
+    let sid: Option<String> = {
+        let db = state.db.lock().await;
+        db.conn
+            .query_row(
+                "SELECT id FROM mcp_servers WHERE id = ?1 OR name = ?1",
+                [&id],
+                |row| row.get::<_, String>(0),
+            )
+            .ok()
+    };
+    let sid = match sid {
+        Some(s) => s,
+        None => return Err(super::NotFound.into_response()),
+    };
+    match state.mcp.call_tool(&sid, "stats", json!({})).await {
+        Ok(result) => {
+            let text = result
+                .get("content")
+                .and_then(|c| c.as_array())
+                .and_then(|a| a.first())
+                .and_then(|b| b.get("text"))
+                .and_then(|t| t.as_str())
+                .unwrap_or("")
+                .to_string();
+            Ok(Json(json!({ "id": sid, "text": text, "raw": result })))
+        }
+        Err(e) => Err((axum::http::StatusCode::BAD_GATEWAY, e.to_string()).into_response()),
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ExportQuery {
     pub format: Option<String>,
