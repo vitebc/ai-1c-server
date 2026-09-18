@@ -49,8 +49,14 @@ export const api = {
   getMcpStats: (id: string) =>
     request<{ id: string; text: string; raw: unknown }>(`/mcp-servers/${id}/stats`),
   reindexMcp: (id: string) =>
-    request<{ id: string; roots: string[]; index_dir: string; deleted: string[]; running: boolean }>(
+    request<{ job_id: string; server_id: string }>(
       `/mcp-servers/${id}/reindex`, { method: 'POST' }),
+  getReindexJob: (jobId: string) =>
+    request<{
+      job_id: string; server_id: string; server_name: string; state: string;
+      progress: number; message: string; roots: string[]; neighbors: string[];
+      deleted: string[]; error: string | null; started_at: string; finished_at: string | null;
+    }>(`/mcp-servers/reindex/job/${jobId}`),
   exportMcpConfig: (format: string, base?: string) =>
     request<unknown>(`/mcp-servers/export?format=${format}${base ? `&base=${encodeURIComponent(base)}` : ''}`),
 

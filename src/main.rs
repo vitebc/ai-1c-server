@@ -91,6 +91,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 bsl_ls,
                 logs: log_buffer.clone(),
                 data_dir: cli.data_dir.clone(),
+                reindex_jobs: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             });
 
             // (Re)build auto `search-*` rows from config_profiles, then start all.

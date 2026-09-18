@@ -1,5 +1,7 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use axum::{Router, routing::{get, post}};
+use serde::Serialize;
 use tokio::sync::Mutex;
 
 use crate::db::Database;
@@ -11,12 +13,31 @@ mod mcp;
 mod mcp_http;
 mod mcp_skills;
 
+/// Background full-reindex job (progress polled by Admin UI).
+#[derive(Debug, Clone, Serialize)]
+pub struct ReindexJob {
+    pub job_id: String,
+    pub server_id: String,
+    pub server_name: String,
+    /// running | done | error
+    pub state: String,
+    pub progress: u8,
+    pub message: String,
+    pub roots: Vec<String>,
+    pub neighbors: Vec<String>,
+    pub deleted: Vec<String>,
+    pub error: Option<String>,
+    pub started_at: String,
+    pub finished_at: Option<String>,
+}
+
 pub struct AppState {
     pub db: Arc<Mutex<Database>>,
     pub mcp: Arc<McpManager>,
     pub bsl_ls: Arc<BslLsManager>,
     pub logs: LogBuffer,
     pub data_dir: String,
+    pub reindex_jobs: Arc<std::sync::Mutex<HashMap<String, ReindexJob>>>,
 }
 
 async fn health() -> &'static str {

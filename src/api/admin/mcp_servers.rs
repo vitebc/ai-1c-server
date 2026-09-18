@@ -409,32 +409,38 @@ fn search_roots(
     (Vec::new(), None)
 }
 
-/// POST /api/admin/mcp-servers/{id}/reindex — full search reindex:
-/// deletes per-root SQLite index files and restarts the session.
-/// The binary rebuilds the index from scratch in the background.
+/// POST /api/admin/mcp-servers/{id}/reindex — full search reindex as a
+/// background job (returns immediately with `job_id`; poll
+/// `GET /api/admin/mcp-servers/reindex/job/{job_id}` for progress).
+///
+/// Serialized for shared roots: all search rows indexing any of the same
+/// roots are stopped first (concurrent writers corrupt the shared `.db`),
+/// index files are deleted, the owner restarts and rebuilds from scratch,
+/// neighbors restart after `ready`.
 pub async fn reindex(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, axum::response::Response> {
     use axum::response::IntoResponse;
-    let row: Option<(String, Option<String>, Option<String>, Option<String>)> = {
+    let row: Option<(String, String, Option<String>, Option<String>, Option<String>)> = {
         let db = state.db.lock().await;
         db.conn
             .query_row(
-                "SELECT id, env, config, command FROM mcp_servers WHERE id = ?1 OR name = ?1",
+                "SELECT id, name, env, config, command FROM mcp_servers WHERE id = ?1 OR name = ?1",
                 [&id],
                 |row| {
                     Ok((
                         row.get::<_, String>(0)?,
-                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, String>(1)?,
                         row.get::<_, Option<String>>(2)?,
                         row.get::<_, Option<String>>(3)?,
+                        row.get::<_, Option<String>>(4)?,
                     ))
                 },
             )
             .ok()
     };
-    let (sid, env, profile_id, command) = match row {
+    let (sid, name, env, profile_id, command) = match row {
         Some(r) => r,
         None => return Err(super::NotFound.into_response()),
     };
@@ -457,9 +463,180 @@ pub async fn reindex(
         )
     });
 
-    // Stop the session first so no process holds the index files.
-    state.mcp.stop_server(&sid).await;
+    let job_id = uuid::Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    {
+        let mut jobs = state.reindex_jobs.lock().unwrap();
+        jobs.insert(
+            job_id.clone(),
+            super::super::ReindexJob {
+                job_id: job_id.clone(),
+                server_id: sid.clone(),
+                server_name: name.clone(),
+                state: "running".into(),
+                progress: 0,
+                message: "Queued: stopping shared rows…".into(),
+                roots: roots.clone(),
+                neighbors: Vec::new(),
+                deleted: Vec::new(),
+                error: None,
+                started_at: now,
+                finished_at: None,
+            },
+        );
+    }
 
+    let worker_state = state.clone();
+    let (wjob, wsid) = (job_id.clone(), sid.clone());
+    tokio::spawn(async move {
+        run_reindex_job(worker_state, wjob, wsid, name, roots, index_dir).await;
+    });
+
+    Ok(Json(json!({ "job_id": job_id, "server_id": sid })))
+}
+
+/// GET /api/admin/mcp-servers/reindex/job/{job_id} — job progress/state.
+pub async fn reindex_job(
+    State(state): State<Arc<AppState>>,
+    Path(job_id): Path<String>,
+) -> Result<Json<Value>, super::NotFound> {
+    let jobs = state.reindex_jobs.lock().unwrap();
+    match jobs.get(&job_id) {
+        Some(j) => Ok(Json(serde_json::to_value(j).unwrap_or(Value::Null))),
+        None => Err(super::NotFound),
+    }
+}
+
+fn set_job_progress(state: &Arc<AppState>, job_id: &str, progress: u8, message: String) {
+    if let Ok(mut jobs) = state.reindex_jobs.lock() {
+        if let Some(j) = jobs.get_mut(job_id) {
+            j.progress = progress.min(100);
+            j.message = message;
+        }
+    }
+}
+
+fn finish_job(
+    state: &Arc<AppState>,
+    job_id: &str,
+    ok: bool,
+    message: String,
+    error: Option<String>,
+) {
+    if let Ok(mut jobs) = state.reindex_jobs.lock() {
+        if let Some(j) = jobs.get_mut(job_id) {
+            j.state = if ok { "done".into() } else { "error".into() };
+            j.progress = if ok { 100 } else { j.progress };
+            j.message = message;
+            j.error = error;
+            j.finished_at = Some(chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string());
+        }
+    }
+}
+
+/// Latest `SEARCH_STATUS_JSON` state for a session, from the log buffer:
+/// (progress 0-100, state, message).
+fn index_progress(logs: &crate::log_buffer::LogBuffer, sid: &str) -> Option<(u8, String, String)> {
+    let entries = logs.entries(None, 500, Some(sid));
+    for e in entries.iter().rev() {
+        if let Some(pos) = e.msg.find("SEARCH_STATUS_JSON:") {
+            let body = e.msg[pos + "SEARCH_STATUS_JSON:".len()..].trim();
+            if let Ok(v) = serde_json::from_str::<Value>(body) {
+                let progress = v
+                    .get("progress")
+                    .and_then(|p| p.as_u64())
+                    .unwrap_or(0)
+                    .min(100) as u8;
+                let state = v
+                    .get("state")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let message = v
+                    .get("message")
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                return Some((progress, state, message));
+            }
+        }
+    }
+    None
+}
+
+/// Roots indexed by every enabled search row: (row_id, row_name, roots).
+async fn all_search_roots(state: &Arc<AppState>) -> Vec<(String, String, Vec<String>)> {
+    let rows: Vec<(String, String, Option<String>, Option<String>)> = {
+        let db = state.db.lock().await;
+        let mut stmt = match db.conn.prepare(
+            "SELECT id, name, env, config FROM mcp_servers
+             WHERE (server_type = 'search' OR server_type = 'search-auto')
+               AND enabled = 1 AND command LIKE '%mcp-1c-search%'",
+        ) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+        stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+            ))
+        })
+        .map(|r| r.flatten().collect())
+        .unwrap_or_default()
+    };
+    let db = state.db.lock().await;
+    rows.into_iter()
+        .map(|(id, name, env, cfg)| {
+            let (roots, _) = search_roots(&db, env.as_deref(), cfg.as_deref());
+            (id, name, roots)
+        })
+        .collect()
+}
+
+async fn run_reindex_job(
+    state: Arc<AppState>,
+    job_id: String,
+    owner_id: String,
+    owner_name: String,
+    roots: Vec<String>,
+    index_dir: String,
+) {
+    // 1. Neighbors: search rows sharing any root with the owner.
+    let all = all_search_roots(&state).await;
+    let mut neighbors: Vec<(String, String)> = Vec::new();
+    for (id, name, rroots) in &all {
+        if id != &owner_id && rroots.iter().any(|r| roots.contains(r)) {
+            neighbors.push((id.clone(), name.clone()));
+        }
+    }
+    {
+        if let Ok(mut jobs) = state.reindex_jobs.lock() {
+            if let Some(j) = jobs.get_mut(&job_id) {
+                j.neighbors = neighbors.iter().map(|(_, n)| n.clone()).collect();
+            }
+        }
+    }
+    let neigh_names = neighbors
+        .iter()
+        .map(|(_, n)| n.clone())
+        .collect::<Vec<_>>()
+        .join(", ");
+    tracing::info!(
+        "reindex {job_id}: owner '{owner_name}', shared neighbors: [{}]",
+        if neigh_names.is_empty() { "none".into() } else { neigh_names }
+    );
+
+    // 2. Stop the whole group so nobody holds the shared `.db` files.
+    set_job_progress(&state, &job_id, 1, "Stopping shared rows…".into());
+    state.mcp.stop_server(&owner_id).await;
+    for (nid, _) in &neighbors {
+        state.mcp.stop_server(nid).await;
+    }
+
+    // 3. Delete per-root index files.
     let mut deleted: Vec<String> = Vec::new();
     for root in &roots {
         let base = std::path::Path::new(&index_dir)
@@ -469,22 +646,102 @@ pub async fn reindex(
             match std::fs::remove_file(&p) {
                 Ok(()) => deleted.push(p),
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(e) => {
-                    tracing::warn!("reindex: cannot remove '{p}': {e}");
-                }
+                Err(e) => tracing::warn!("reindex {job_id}: cannot remove '{p}': {e}"),
+            }
+        }
+    }
+    {
+        if let Ok(mut jobs) = state.reindex_jobs.lock() {
+            if let Some(j) = jobs.get_mut(&job_id) {
+                j.deleted = deleted.clone();
             }
         }
     }
 
-    sync_server(&state, &sid).await;
-    let running = state.mcp.is_running(&sid).await;
-    Ok(Json(json!({
-        "id": sid,
-        "roots": roots,
-        "index_dir": index_dir,
-        "deleted": deleted,
-        "running": running,
-    })))
+    // 4. Start the owner; it rebuilds from scratch in the background.
+    set_job_progress(
+        &state,
+        &job_id,
+        2,
+        format!("Starting '{owner_name}', full rebuild…"),
+    );
+    sync_server(&state, &owner_id).await;
+    if !state.mcp.is_running(&owner_id).await {
+        for (nid, _) in &neighbors {
+            sync_server(&state, nid).await;
+        }
+        finish_job(
+            &state,
+            &job_id,
+            false,
+            "Owner failed to start".into(),
+            Some("owner session did not start after index deletion".into()),
+        );
+        return;
+    }
+
+    // 5. Wait for `ready` via the log buffer (SEARCH_STATUS_JSON).
+    // Full ERP-size builds take 30-60 min; timeout 3h.
+    let mut waited: u64 = 0;
+    let mut last_progress: u8 = 0;
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        waited += 10;
+        if !state.mcp.is_running(&owner_id).await {
+            for (nid, _) in &neighbors {
+                sync_server(&state, nid).await;
+            }
+            finish_job(
+                &state,
+                &job_id,
+                false,
+                "Session died during rebuild".into(),
+                Some("owner session exited before ready".into()),
+            );
+            return;
+        }
+        if let Some((p, st, msg)) = index_progress(&state.logs, &owner_id) {
+            if p != last_progress || st == "ready" {
+                last_progress = p;
+                let label = if msg.is_empty() { st.clone() } else { msg };
+                set_job_progress(&state, &job_id, p.max(2), label);
+            }
+            if st == "ready" {
+                break;
+            }
+        }
+        if waited >= 3 * 3600 {
+            for (nid, _) in &neighbors {
+                sync_server(&state, nid).await;
+            }
+            finish_job(
+                &state,
+                &job_id,
+                false,
+                "Timed out waiting for ready (neighbors restarted)".into(),
+                Some("no ready state within 3h".into()),
+            );
+            return;
+        }
+    }
+
+    // 6. Owner ready — restart neighbors (incremental, they share the fresh DB).
+    set_job_progress(&state, &job_id, 99, "Index ready, restarting neighbors…".into());
+    for (nid, _) in &neighbors {
+        sync_server(&state, nid).await;
+    }
+    finish_job(
+        &state,
+        &job_id,
+        true,
+        format!(
+            "Index ready: {} root(s), {} file(s) removed, {} neighbor(s) restarted",
+            roots.len(),
+            deleted.len(),
+            neighbors.len()
+        ),
+        None,
+    );
 }
 
 #[derive(Debug, Deserialize)]

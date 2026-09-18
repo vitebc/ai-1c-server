@@ -16,6 +16,7 @@ export default function McpServers() {
   const [copied, setCopied] = useState<string | null>(null);
   const [copyError, setCopyError] = useState('');
   const [statsFor, setStatsFor] = useState<McpServer | null>(null);
+  const [reindexJob, setReindexJob] = useState<{ jobId: string; name: string } | null>(null);
   const [opMsg, setOpMsg] = useState('');
 
   useEffect(() => { load(); }, []);
@@ -45,12 +46,11 @@ export default function McpServers() {
   }
 
   async function handleReindex(item: McpServer) {
-    if (!confirm(`Full reindex of "${item.name}"? Index files will be deleted and rebuilt in background (may take minutes).`)) return;
+    if (!confirm(`Full reindex of "${item.name}"? Shared rows using the same folders will be stopped too, index files deleted and rebuilt in background (may take minutes).`)) return;
     setOpMsg('');
     try {
       const res = await api.reindexMcp(item.id);
-      setOpMsg(`Reindex started for "${item.name}": ${res.deleted.length} index file(s) removed, rebuilding in background.`);
-      load();
+      setReindexJob({ jobId: res.job_id, name: item.name });
     } catch (e) {
       setOpMsg(e instanceof Error ? `Reindex failed: ${e.message}` : 'Reindex failed');
     }
@@ -90,6 +90,13 @@ export default function McpServers() {
       )}
       {statsFor && (
         <StatsModal item={statsFor} onClose={() => setStatsFor(null)} />
+      )}
+      {reindexJob && (
+        <ReindexProgress
+          jobId={reindexJob.jobId}
+          name={reindexJob.name}
+          onClose={() => { setReindexJob(null); load(); }}
+        />
       )}
       {opMsg && (
         <p className={`text-xs px-3 py-2 rounded-lg border mb-4 ${opMsg.startsWith('Reindex failed') ? 'text-red-600 bg-red-50 border-red-200' : 'text-green-600 bg-green-50 border-green-200'}`}>{opMsg}</p>
@@ -338,8 +345,7 @@ function JsonField({ label, value, onChange, placeholder, kind }: {
   );
 }
 
-function StatsModal({ item, onClose }: { item: McpServer; onClose: () => void }) {
-  const [text, setText] = useState<string | null>(null);
+function StatsModal({ item, onClose }: { item: McpServer; onClose: () => void }) {  const [text, setText] = useState<string | null>(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -359,6 +365,75 @@ function StatsModal({ item, onClose }: { item: McpServer; onClose: () => void })
           {error && <p className="text-xs text-red-600">{error}</p>}
           {!text && !error && <p className="text-sm text-gray-400">Loading…</p>}
           {text && <pre className="text-xs font-mono text-gray-700 bg-gray-50 border border-gray-200 rounded-lg p-3 whitespace-pre-wrap break-all">{text}</pre>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ReindexProgress({ jobId, name, onClose }: { jobId: string; name: string; onClose: () => void }) {
+  const [job, setJob] = useState<{
+    state: string; progress: number; message: string; neighbors: string[];
+    deleted: string[]; roots: string[]; error: string | null;
+  } | null>(null);
+  const [fetchError, setFetchError] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    const poll = async () => {
+      try {
+        const j = await api.getReindexJob(jobId);
+        if (alive) setJob(j);
+      } catch (e) {
+        if (alive) setFetchError(e instanceof Error ? e.message : 'Poll failed');
+      }
+    };
+    poll();
+    const t = setInterval(poll, 3000);
+    return () => { alive = false; clearInterval(t); };
+  }, [jobId]);
+
+  const done = job?.state === 'done' || job?.state === 'error';
+  const pct = job?.progress ?? 0;
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => done && onClose()}>
+      <div className="bg-gray-100 rounded-xl shadow-xl w-full max-w-lg mx-4" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-4 border-b border-gray-200">
+          <h4 className="text-sm font-semibold text-gray-800">Reindex: {name}</h4>
+          {done && <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-700 transition-colors"><X size={18} /></button>}
+        </div>
+        <div className="p-4 space-y-3">
+          {fetchError && <p className="text-xs text-red-600">{fetchError}</p>}
+          {!job && !fetchError && <p className="text-sm text-gray-400">Starting…</p>}
+          {job && (
+            <>
+              <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
+                <div
+                  className={`h-2.5 rounded-full transition-all duration-500 ${job.state === 'error' ? 'bg-red-500' : 'bg-blue-600'}`}
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-gray-600 truncate">{job.message}</span>
+                <span className="text-gray-500 font-mono ml-2 shrink-0">{pct}%</span>
+              </div>
+              {job.neighbors.length > 0 && (
+                <p className="text-[11px] text-gray-500">Shared rows stopped too: {job.neighbors.join(', ')}</p>
+              )}
+              {job.deleted.length > 0 && (
+                <p className="text-[11px] text-gray-500">Removed {job.deleted.length} index file(s)</p>
+              )}
+              {job.state === 'done' && (
+                <button onClick={onClose} className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition-colors">
+                  Close
+                </button>
+              )}
+              {job.state === 'error' && (
+                <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{job.error || 'Reindex failed'}</p>
+              )}
+            </>
+          )}
         </div>
       </div>
     </div>
