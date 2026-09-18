@@ -6,6 +6,7 @@ cd "$DIR"
 
 git pull
 ./scripts/build-linux.sh
-./scripts/restart.sh
+./scripts/stop.sh
+./scripts/start.sh
 
 echo "Update complete"
