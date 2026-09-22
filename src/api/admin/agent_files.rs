@@ -23,7 +23,13 @@ use serde_json::{json, Value};
 
 use super::super::AppState;
 
-pub const DEFAULT_ROOT: &str = "/root/project/1c-ai-agent";
+/// Default project root follows the server process owner:
+/// `$HOME/project/1c-ai-agent` (e.g. `/root/...` or `/home/test/...`).
+/// Overridable via `server_settings(agent_project_root)`.
+pub fn default_root() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/root".into());
+    PathBuf::from(home).join("project/1c-ai-agent")
+}
 
 /// Tool names known to the agent backend (mock + live + built-in).
 /// Used for the editor multiselect; unknown names are only warned about.
@@ -48,7 +54,7 @@ fn project_root(db: &crate::db::Database) -> PathBuf {
             |row| row.get(0),
         )
         .ok();
-    PathBuf::from(custom.unwrap_or_else(|| DEFAULT_ROOT.into()))
+    custom.map(PathBuf::from).unwrap_or_else(default_root)
 }
 
 fn is_valid_name(name: &str) -> bool {

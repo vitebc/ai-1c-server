@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::super::AppState;
-use super::agent_files::DEFAULT_ROOT;
+use super::agent_files::default_root;
 
 const CMD_TIMEOUT: Duration = Duration::from_secs(120);
 
@@ -76,7 +76,7 @@ fn project_root(db: &crate::db::Database) -> PathBuf {
             |row| row.get(0),
         )
         .ok();
-    PathBuf::from(custom.unwrap_or_else(|| DEFAULT_ROOT.into()))
+    custom.map(PathBuf::from).unwrap_or_else(default_root)
 }
 
 fn backend_url(_db: &crate::db::Database, root: &std::path::Path) -> String {

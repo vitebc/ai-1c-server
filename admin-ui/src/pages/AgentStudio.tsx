@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, Play, Square, RotateCcw, RefreshCw, Server, AlertTriangle } from 'lucide-react';
+import { Plus, Pencil, Trash2, Play, Square, RotateCcw, RefreshCw, Server, AlertTriangle, FolderOpen } from 'lucide-react';
 import { api } from '../api/client';
+import FileBrowser from '../components/FileBrowser';
 import type { AgentItem, SkillFileItem, PatternItem, AgentOverview, AgentBackendStatus, EnvEntry } from '../types';
 
 type Tab = 'agents' | 'skills' | 'patterns' | 'backend' | 'env';
@@ -10,6 +11,7 @@ export default function AgentStudio() {
   const [ov, setOv] = useState<AgentOverview | null>(null);
   const [tools, setTools] = useState<string[]>([]);
   const [error, setError] = useState('');
+  const [browseRoot, setBrowseRoot] = useState(false);
 
   const load = useCallback(async () => {
     setError('');
@@ -24,6 +26,16 @@ export default function AgentStudio() {
 
   useEffect(() => { load(); }, [load]);
 
+  async function pickRoot(path: string) {
+    if (!confirm(`Switch agent project root to:\n${path}\nAll file/backend operations will target this directory.`)) return;
+    setBrowseRoot(false);
+    try {
+      await api.putSetting('agent_project_root', path);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to set root');
+    }
+  }
   const tabs: { key: Tab; label: string }[] = [
     { key: 'agents', label: 'Agents' },
     { key: 'skills', label: 'Agent Skills' },
@@ -35,11 +47,17 @@ export default function AgentStudio() {
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-800">AI Agent Studio</h2>
-          <p className="text-xs text-gray-500 font-mono mt-0.5">
-            {ov ? ov.root : '…'} {!ov?.root_exists && ov && <span className="text-red-500">— project root not found</span>}
-          </p>
+        <div className="flex items-start gap-2">
+          <div>
+            <h2 className="text-2xl font-bold text-gray-800">AI Agent Studio</h2>
+            <p className="text-xs text-gray-500 font-mono mt-0.5">
+              {ov ? ov.root : '…'} {!ov?.root_exists && ov && <span className="text-red-500">— project root not found</span>}
+            </p>
+          </div>
+          <button onClick={() => setBrowseRoot(true)} title="Change project root directory"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-200 transition-colors mt-1">
+            <FolderOpen size={14} /> Root…
+          </button>
         </div>
         <button onClick={load} className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-200 transition-colors">
           <RefreshCw size={16} /> Reload
@@ -62,6 +80,15 @@ export default function AgentStudio() {
       {tab === 'patterns' && ov && <PatternsTab ov={ov} onChanged={load} />}
       {tab === 'backend' && <BackendTab />}
       {tab === 'env' && <EnvTab />}
+      {browseRoot && (
+        <FileBrowser
+          dirsOnly
+          title="Select agent project root (contains backend/ + docker-compose.yml)"
+          initialPath={ov?.root || undefined}
+          onPick={pickRoot}
+          onClose={() => setBrowseRoot(false)}
+        />
+      )}
     </div>
   );
 }
