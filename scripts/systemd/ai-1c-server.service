@@ -1,0 +1,21 @@
+[Unit]
+Description=AI 1C Enterprise Server
+Documentation=https://github.com/vitebc/ai-1c-server
+After=network.target
+
+[Service]
+Type=simple
+User=@USER@
+WorkingDirectory=@DIR@
+# Defaults; override via /etc/ai-1c-server/env (KEY=VALUE per line).
+Environment=PORT=@PORT@
+Environment=DATA_DIR=@DATA_DIR@
+EnvironmentFile=-/etc/ai-1c-server/env
+ExecStartPre=@BINARY@ --data-dir ${DATA_DIR} --http-port ${PORT} --admin-dir @DIR@/admin-ui/dist migrate
+ExecStart=@BINARY@ --data-dir ${DATA_DIR} --http-port ${PORT} --admin-dir @DIR@/admin-ui/dist
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

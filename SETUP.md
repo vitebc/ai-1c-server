@@ -75,6 +75,39 @@ ufw allow 9224/tcp
 # или на уровне провайдера
 ```
 
+## 4.1. Служба systemd (автозапуск после перезагрузки)
+
+Ручной запуск через `start.sh` переживает обрыв SSH, но не переживает
+перезагрузку сервера. Для постоянной работы — служба:
+
+```bash
+# Сначала остановить ручной инстанс (служба откажется стартовать поверх него)
+./scripts/stop.sh
+
+# Установка + автозапуск (под текущим пользователем, порт 9224, data в ./data)
+sudo ./scripts/install-service.sh
+
+# Другие варианты:
+sudo ./scripts/install-service.sh --user test --port 9224 --data-dir /home/test/project/ai-1c-server/data
+
+# Статус / логи / перезапуск
+./scripts/service-status.sh
+./scripts/service-logs.sh          # follow
+./scripts/service-logs.sh -n 200   # последние 200 строк
+sudo systemctl restart ai-1c-server
+
+# Настройки службы (порт, data-dir) — /etc/ai-1c-server/env, затем restart
+# Удаление службы (данные БД не трогает):
+sudo ./scripts/uninstall-service.sh
+```
+
+Порядок при обновлении кода:
+```bash
+./scripts/update.sh                 # git pull + build + stop/start (ручной режим)
+# если работает служба вместо ручного инстанса:
+sudo systemctl restart ai-1c-server # после update.sh
+```
+
 ## 5. OpenCode на VPS
 
 ```bash
