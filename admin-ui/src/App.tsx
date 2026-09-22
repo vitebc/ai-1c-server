@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Route, Routes, NavLink } from 'react-router-dom';
 import {
-  LayoutDashboard, Server, Brain, FileJson, Package, Users, ScrollText, Code, KeyRound, LogOut,
+  LayoutDashboard, Server, Brain, FileJson, Package, Users, ScrollText, Code, KeyRound, LogOut, Bot,
 } from 'lucide-react';
 import { getToken, setToken } from './api/client';
 import Dashboard from './pages/Dashboard';
@@ -12,10 +12,12 @@ import ClientVersions from './pages/ClientVersions';
 import Clients from './pages/Clients';
 import Logs from './pages/Logs';
 import BslLs from './pages/BslLs';
+import AgentStudio from './pages/AgentStudio';
 
 const nav = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/mcp-servers', label: 'MCP Servers', icon: Server },
+  { to: '/agent-studio', label: 'AI Agent Studio', icon: Bot },
   { to: '/skills', label: 'Skills', icon: Brain },
   { to: '/bsl-ls', label: 'BSL LS', icon: Code },
   { to: '/configs', label: 'Configs', icon: FileJson },
@@ -100,6 +102,7 @@ export default function App() {
           <Route path="/client-versions" element={<ClientVersions />} />
           <Route path="/clients" element={<Clients />} />
           <Route path="/bsl-ls" element={<BslLs />} />
+          <Route path="/agent-studio" element={<AgentStudio />} />
           <Route path="/logs" element={<Logs />} />
         </Routes>
       </main>

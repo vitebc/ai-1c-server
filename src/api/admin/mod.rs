@@ -3,7 +3,7 @@ use axum::{
     extract::{Query, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::{get, post},
+    routing::{get, post, put},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -22,6 +22,8 @@ mod mcp_servers;
 pub(crate) mod search_sync;
 mod settings;
 pub mod skills;
+pub mod agent_backend;
+pub mod agent_files;
 
 #[derive(Debug)]
 pub struct NotFound;
@@ -178,4 +180,20 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/bsl-ls/logs/clear", post(bsl_ls::clear_logs_endpoint))
         .route("/bsl-ls/versions", get(bsl_ls::get_versions))
         .route("/bsl-ls/download/{version}", post(bsl_ls::download_bsl_ls))
+        .route("/agent-files", get(agent_files::overview))
+        .route("/agent-files/tools", get(agent_files::known_tools))
+        .route("/agent-files/agents", post(agent_files::create_agent))
+        .route("/agent-files/agents/{name}", put(agent_files::update_agent).delete(agent_files::delete_agent))
+        .route("/agent-files/skills", post(agent_files::create_skill))
+        .route("/agent-files/skills/{name}", put(agent_files::update_skill).delete(agent_files::delete_skill))
+        .route("/agent-files/patterns", post(agent_files::create_pattern))
+        .route("/agent-files/patterns/{name}", put(agent_files::update_pattern).delete(agent_files::delete_pattern))
+        .route("/agent-backend/status", get(agent_backend::status))
+        .route("/agent-backend/up", post(agent_backend::up))
+        .route("/agent-backend/stop", post(agent_backend::stop))
+        .route("/agent-backend/restart", post(agent_backend::restart))
+        .route("/agent-backend/logs", get(agent_backend::logs))
+        .route("/agent-backend/env", get(agent_backend::env_list).put(agent_backend::env_put))
+        .route("/agent-backend/live/agents", get(agent_backend::live_agents))
+        .route("/agent-backend/live/skills", get(agent_backend::live_skills))
 }

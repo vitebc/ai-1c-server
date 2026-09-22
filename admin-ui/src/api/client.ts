@@ -1,4 +1,8 @@
 import type { BslLsState, Client, ClientVersion, ConfigProfile, FsBrowseResult, LogEntry, McpServer, ServerStatus, Skill } from '../types';
+import type {
+  AgentItem, SkillFileItem, PatternItem, AgentOverview,
+  AgentBackendStatus, EnvEntry, LiveAgents, LiveSkills,
+} from '../types';
 
 const BASE = import.meta.env.VITE_API_BASE || '';
 
@@ -112,4 +116,43 @@ export const api = {
     return request<FsBrowseResult>(`/fs/browse?${q.toString()}`);
   },
   reindex: () => request<void>('/reindex', { method: 'POST' }),
+
+  getAgentOverview: () => request<AgentOverview>('/agent-files'),
+  getAgentTools: () => request<string[]>('/agent-files/tools'),
+  createAgent: (data: Partial<AgentItem>) =>
+    request<AgentItem>('/agent-files/agents', { method: 'POST', body: JSON.stringify(data) }),
+  updateAgent: (name: string, data: Partial<AgentItem>) =>
+    request<AgentItem>(`/agent-files/agents/${name}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteAgent: (name: string) => request<void>(`/agent-files/agents/${name}`, { method: 'DELETE' }),
+  createAgentSkill: (data: Partial<SkillFileItem>) =>
+    request<SkillFileItem>('/agent-files/skills', { method: 'POST', body: JSON.stringify(data) }),
+  updateAgentSkill: (name: string, data: Partial<SkillFileItem>) =>
+    request<SkillFileItem>(`/agent-files/skills/${name}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteAgentSkill: (name: string) => request<void>(`/agent-files/skills/${name}`, { method: 'DELETE' }),
+  createPattern: (data: Partial<PatternItem>) =>
+    request<PatternItem>('/agent-files/patterns', { method: 'POST', body: JSON.stringify(data) }),
+  updatePattern: (name: string, data: Partial<PatternItem>) =>
+    request<PatternItem>(`/agent-files/patterns/${name}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deletePattern: (name: string) => request<void>(`/agent-files/patterns/${name}`, { method: 'DELETE' }),
+
+  getAgentBackendStatus: () => request<AgentBackendStatus>('/agent-backend/status'),
+  agentBackendUp: (services: string[], profiles: string[]) =>
+    request<{ ok: boolean; output: string }>('/agent-backend/up', { method: 'POST', body: JSON.stringify({ services, profiles }) }),
+  agentBackendStop: (services: string[]) =>
+    request<{ ok: boolean; output: string }>('/agent-backend/stop', { method: 'POST', body: JSON.stringify({ services }) }),
+  agentBackendRestart: (services: string[]) =>
+    request<{ ok: boolean; output: string }>('/agent-backend/restart', { method: 'POST', body: JSON.stringify({ services }) }),
+  getAgentBackendLogs: (service?: string, tail?: number) => {
+    const q = new URLSearchParams();
+    if (service) q.set('service', service);
+    if (tail) q.set('tail', String(tail));
+    const qs = q.toString();
+    return request<{ service: string | null; log: string }>(`/agent-backend/logs${qs ? `?${qs}` : ''}`);
+  },
+  getAgentEnv: () => request<EnvEntry[]>('/agent-backend/env'),
+  putAgentEnv: (key: string, value: string) =>
+    request<{ ok: boolean; key: string; restart_required: boolean }>('/agent-backend/env', { method: 'PUT', body: JSON.stringify({ key, value }) }),
+  getLiveAgents: () => request<LiveAgents>('/agent-backend/live/agents'),
+  getLiveSkills: (agent?: string) =>
+    request<LiveSkills>(`/agent-backend/live/skills${agent ? `?agent=${encodeURIComponent(agent)}` : ''}`),
 };

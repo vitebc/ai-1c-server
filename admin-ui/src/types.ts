@@ -106,3 +106,80 @@ export interface BslLsRelease {
   jar_url: string | null;
   published_at: string;
 }
+
+export interface AgentItem {
+  name: string;
+  title: string;
+  description: string;
+  tools: string[];
+  skills: string[];
+  mcp: string;
+  model: string;
+  body: string;
+  error: string | null;
+}
+
+export interface SkillFileItem {
+  name: string;
+  description: string;
+  tools: string[];
+  body: string;
+  error: string | null;
+}
+
+export interface PatternItem {
+  name: string;
+  description: string;
+  body: string;
+  error: string | null;
+}
+
+export interface AgentOverview {
+  root: string;
+  root_exists: boolean;
+  agents: AgentItem[];
+  skills: SkillFileItem[];
+  patterns: PatternItem[];
+}
+
+export interface ComposeService {
+  name: string;
+  state: string;
+  health: string | null;
+}
+
+export interface AgentBackendStatus {
+  root: string;
+  root_exists: boolean;
+  compose_available: boolean;
+  services: ComposeService[];
+  backend_reachable: boolean;
+  backend_health: unknown;
+  backend_url: string;
+}
+
+export interface EnvEntry {
+  key: string;
+  value: string | null;
+  masked: boolean;
+  present: boolean;
+}
+
+export interface LiveAgents {
+  reachable: boolean;
+  error?: string;
+  data?: {
+    default: string;
+    agents: { name: string; title: string; description: string; tools: string[]; skills: string[] }[];
+    errors: string[];
+  };
+}
+
+export interface LiveSkills {
+  reachable: boolean;
+  error?: string;
+  data?: {
+    skills: { name: string; description: string; tools: string[] }[];
+    errors: string[];
+  };
+}
