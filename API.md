@@ -31,6 +31,22 @@ curl -s -X POST http://localhost:9224/api/mcp-aggregated/mcp -H "$H" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
 ```
 
+### Инвентарь тулзов для скриптов (REST, зона шлюза — работает с API-токеном)
+
+| Метод | Путь | Описание |
+|---|---|---|
+| GET | `/api/mcp-aggregated/tools` | все тулзы всех включённых серверов: `{tools: [{server, server_id, name, full_name, description, inputSchema}], errors: [...]}` (`full_name` — имя для вызова через агрегатор: `server__tool`) |
+| GET | `/api/mcp/{id\|name}/tools` | тулзы одного сервера: `{id, name, tools[]}` (404 нет/выключен, 502 не running) |
+
+```bash
+T="Authorization: Bearer <API-токен>"
+curl -s http://localhost:9224/api/mcp-aggregated/tools -H "$T" | python3 -c \
+  "import json,sys; [print(t['full_name']) for t in json.load(sys.stdin)['tools']]"
+# вызвать найденный тул через агрегатор:
+curl -s -X POST http://localhost:9224/api/mcp-aggregated/mcp -H "$T" \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"1c_jvv__list_infobases","arguments":{}}}'
+
 ## Admin API (`/api/admin`, везде нужен JWT)
 
 ### Auth / Users

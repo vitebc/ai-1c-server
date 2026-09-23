@@ -54,7 +54,9 @@ pub fn routes(state: Arc<AppState>) -> Router {
         .route("/health", get(health))
         .route("/api/mcp/{server_id}", post(mcp::call_server))
         .route("/api/mcp/{server_id}/mcp", get(mcp_http::server_sse).post(mcp_http::server_rpc))
+        .route("/api/mcp/{server_id}/tools", get(mcp_http::server_tools))
         .route("/api/mcp-aggregated/mcp", get(mcp_http::aggregated_sse).post(mcp_http::aggregated_rpc))
+        .route("/api/mcp-aggregated/tools", get(mcp_http::aggregated_tools))
         .route("/api/mcp-skills/rpc", get(mcp_skills::sse_handler).post(mcp_skills::handle_mcp_skills))
         .nest("/api/admin", admin::routes())
         // Catch-all AFTER specific routes: unknown /api/* stays 404

@@ -75,6 +75,65 @@ pub async fn aggregated_sse(
     sse_stream(&state, Target::Aggregated, &post_url).await
 }
 
+// ─── REST tools inventory (machine scripts) ───────────────────────────
+
+/// GET /api/mcp-aggregated/tools — flat inventory of all enabled servers:
+/// `{ tools: [{ server, server_id, name, full_name, description, inputSchema }], errors: [...] }`.
+/// Auth: MCP-gateway zone (API token when token-auth is ON, open when OFF).
+pub async fn aggregated_tools(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let mut tools = Vec::new();
+    let mut errors = Vec::new();
+    for (sid, name) in enabled_servers(&state).await {
+        let prefix = tool_prefix(&name);
+        match state.mcp.list_tools(&sid).await {
+            Ok(list) => {
+                for t in list {
+                    let tname = t.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
+                    let mut full = format!("{prefix}__{tname}");
+                    full.truncate(64);
+                    tools.push(json!({
+                        "server": name,
+                        "server_id": sid,
+                        "name": tname,
+                        "full_name": full,
+                        "description": t.get("description").cloned().unwrap_or(Value::Null),
+                        "inputSchema": t.get("inputSchema").cloned().unwrap_or(Value::Null),
+                    }));
+                }
+            }
+            Err(e) => {
+                errors.push(json!({ "server": name, "server_id": sid, "error": e.to_string() }));
+            }
+        }
+    }
+    Json(json!({ "tools": tools, "errors": errors }))
+}
+
+/// GET /api/mcp/{id|name}/tools — inventory of one enabled server.
+/// 404 unknown/disabled, 502 not running.
+pub async fn server_tools(
+    State(state): State<Arc<AppState>>,
+    Path(key): Path<String>,
+) -> Response {
+    let (sid, name) = {
+        let db = state.db.lock().await;
+        match db.conn.query_row(
+            "SELECT id, name FROM mcp_servers WHERE (id = ?1 OR name = ?1) AND enabled = 1",
+            [&key],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        ) {
+            Ok(r) => r,
+            Err(_) => {
+                return (StatusCode::NOT_FOUND, Json(json!({ "error": format!("MCP server '{key}' not found") }))).into_response();
+            }
+        }
+    };
+    match state.mcp.list_tools(&sid).await {
+        Ok(list) => Json(json!({ "id": sid, "name": name, "tools": list })).into_response(),
+        Err(e) => (StatusCode::BAD_GATEWAY, Json(json!({ "error": e.to_string() }))).into_response(),
+    }
+}
+
 // ─── JSON-RPC dispatch ──────────────────────────────────────────────
 
 async fn handle_rpc(state: &Arc<AppState>, target: Target, body: Value) -> Response {
