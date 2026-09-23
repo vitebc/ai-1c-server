@@ -39,6 +39,22 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return (text ? JSON.parse(text) : undefined) as T;
 }
 
+/** Raw fetch with the stored Bearer token attached (for blobs/uploads).
+ *  Same 401 handling as `request`: clears the token and throws. */
+export async function authFetch(path: string, options?: RequestInit): Promise<Response> {
+  const headers: Record<string, string> = {
+    ...((options?.headers as Record<string, string>) || {}),
+  };
+  const token = getToken();
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const res = await fetch(`${BASE}/api/admin${path}`, { ...options, headers });
+  if (res.status === 401) {
+    setToken(null);
+    throw new Error('Unauthorized: session expired, please log in again');
+  }
+  return res;
+}
+
 export const api = {
   getStatus: () => request<ServerStatus[]>('/status'),
 

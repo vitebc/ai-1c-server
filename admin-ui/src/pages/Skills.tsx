@@ -2,10 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Plus, Trash2, CheckCircle, XCircle, Download, Upload } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { api } from '../api/client';
+import { api, authFetch } from '../api/client';
 import type { Skill } from '../types';
-
-const BASE = import.meta.env.VITE_API_BASE || '';
 
 export default function Skills() {
   const [items, setItems] = useState<Skill[]>([]);
@@ -18,6 +16,21 @@ export default function Skills() {
   useEffect(() => { load(); }, []);
   function load() { api.getSkills().then(setItems); }
 
+  async function handleExport() {
+    try {
+      const r = await authFetch('/skills/export');
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'skills.zip';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      setImportResult(`Export error: ${e.message}`);
+    }
+  }
+
   async function handleFolderPick(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -29,7 +42,7 @@ export default function Skills() {
       mdFiles.push({ path: file.webkitRelativePath || file.name, content: await file.text() });
     }
     try {
-      const r = await fetch(`${BASE}/api/admin/skills/upload`, {
+      const r = await authFetch('/skills/upload', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ files: mdFiles }),
       });
@@ -55,10 +68,10 @@ export default function Skills() {
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-bold text-gray-800">Skills</h2>
         <div className="flex gap-2">
-          <a href={`${BASE}/api/admin/skills/export`}
+          <button onClick={handleExport}
             className="flex items-center gap-2 px-3 py-2 text-sm text-gray-400 border border-gray-300 rounded-lg hover:bg-gray-200">
             <Download size={16} /> Export
-          </a>
+          </button>
           <input type="file" ref={folderRef} onChange={handleFolderPick} multiple
             // @ts-ignore
             style={{ display: 'none' }} webkitdirectory="" directory="" />

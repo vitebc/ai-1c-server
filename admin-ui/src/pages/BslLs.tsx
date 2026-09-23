@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Play, Square, RefreshCw, Terminal, AlertCircle, Download, CheckCircle, XCircle, Coffee } from 'lucide-react';
-import { api } from '../api/client';
+import { api, authFetch } from '../api/client';
 import type { BslLsState } from '../types';
 
 interface VersionInfo {
@@ -8,8 +8,6 @@ interface VersionInfo {
   bsl_ls_current: string | null;
   bsl_ls_latest: { version: string; jar_url: string | null; published_at: string } | null;
 }
-
-const BASE = import.meta.env.VITE_API_BASE || '';
 
 export default function BslLs() {
   const [state, setState] = useState<BslLsState | null>(null);
@@ -42,14 +40,17 @@ export default function BslLs() {
 
   async function fetchLogs() {
     try {
-      const r = await fetch(`${BASE}/api/admin/bsl-ls/logs`);
-      setLogs(await r.json());
+      const r = await authFetch('/bsl-ls/logs');
+      const data = await r.json();
+      setLogs(Array.isArray(data) ? data : []);
     } catch {}
   }
 
   async function clearLogs() {
-    await fetch(`${BASE}/api/admin/bsl-ls/logs/clear`, { method: 'POST' });
-    setLogs([]);
+    try {
+      await authFetch('/bsl-ls/logs/clear', { method: 'POST' });
+      setLogs([]);
+    } catch {}
   }
 
   async function load() {
@@ -65,9 +66,11 @@ export default function BslLs() {
     setLoadingVer(true);
     setDlResult(null);
     try {
-      const r = await fetch(`${BASE}/api/admin/bsl-ls/versions`);
+      const r = await authFetch('/bsl-ls/versions');
       const data = await r.json();
       setVer(data);
+    } catch (e: any) {
+      setDlResult(`Error: ${e.message}`);
     } finally {
       setLoadingVer(false);
     }
@@ -77,7 +80,7 @@ export default function BslLs() {
     setDownloading(true);
     setDlResult(null);
     try {
-      const r = await fetch(`${BASE}/api/admin/bsl-ls/download/latest`, { method: 'POST' });
+      const r = await authFetch('/bsl-ls/download/latest', { method: 'POST' });
       const data = await r.json();
       if (data.error) {
         setDlResult(`Error: ${data.error}`);
@@ -121,7 +124,7 @@ export default function BslLs() {
     setInstallingJava(true);
     setJavaInstallResult(null);
     try {
-      const r = await fetch(`${BASE}/api/admin/bsl-ls/install-java`, { method: 'POST' });
+      const r = await authFetch('/bsl-ls/install-java', { method: 'POST' });
       const data = await r.json();
       if (data.ok) {
         setJavaInstallResult(`Java ${data.version} installed → ${data.java_path}`);
