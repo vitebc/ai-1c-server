@@ -5,12 +5,40 @@ import type { UserDto } from '../types';
 
 const ROLES = ['admin', 'operator', 'viewer'];
 
-const ALL_SECTIONS = [
-  'dashboard', 'mcp-servers',
-  'agent-studio', 'agent-agents', 'agent-skills', 'agent-patterns', 'agent-backend',
-  'skills', 'bsl-ls', 'configs',
-  'client-versions', 'clients', 'logs', 'settings', 'fs', 'env', 'users', 'auth-manage',
+const SECTION_GROUPS: { title: string; items: { key: string; label: string }[] }[] = [
+  { title: 'General', items: [{ key: 'dashboard', label: 'dashboard — main page' }] },
+  { title: 'MCP', items: [{ key: 'mcp-servers', label: 'mcp-servers — MCP servers' }] },
+  {
+    title: 'AI Agent Studio', items: [
+      { key: 'agent-studio', label: 'agent-studio — legacy umbrella (all tabs)' },
+      { key: 'agent-agents', label: 'agent-agents — Agents tab' },
+      { key: 'agent-skills', label: 'agent-skills — Agent Skills tab' },
+      { key: 'agent-patterns', label: 'agent-patterns — Patterns tab' },
+      { key: 'agent-backend', label: 'agent-backend — Backend tab (start/stop/logs)' },
+      { key: 'env', label: 'env — Agent Studio Config (.env) tab' },
+    ],
+  },
+  {
+    title: 'Content', items: [
+      { key: 'skills', label: 'skills — server skills (sidebar)' },
+      { key: 'bsl-ls', label: 'bsl-ls — BSL Language Server' },
+      { key: 'configs', label: 'configs — config profiles' },
+      { key: 'client-versions', label: 'client-versions — client releases' },
+      { key: 'clients', label: 'clients — connected clients' },
+    ],
+  },
+  {
+    title: 'System', items: [
+      { key: 'logs', label: 'logs — server logs' },
+      { key: 'settings', label: 'settings — server settings' },
+      { key: 'fs', label: 'fs — file browser (pick binaries/paths)' },
+      { key: 'users', label: 'users — user management (admin)' },
+      { key: 'auth-manage', label: 'auth-manage — API token (admin)' },
+    ],
+  },
 ];
+
+const ALL_SECTIONS = SECTION_GROUPS.flatMap(g => g.items.map(i => i.key));
 
 const ROLE_BASE: Record<string, string[]> = {
   admin: ALL_SECTIONS,
@@ -278,19 +306,24 @@ function SectionsEditor({ user, onClose, onSaved, onError }: {  user: UserDto; o
         <div className="p-6 space-y-3">
           <h3 className="text-lg font-semibold text-gray-800">Sections for {user.username} <span className="text-xs text-gray-500 font-normal">(role: {user.role})</span></h3>
           <p className="text-[11px] text-gray-500">Default = role matrix. Viewer stays read-only even when a section is allowed.</p>
-          {ALL_SECTIONS.map(sec => (
-            <div key={sec} className="flex items-center justify-between py-1 border-b border-gray-100">
-              <span className="font-mono text-xs text-gray-700">{sec}</span>
-              <div className="flex gap-1">
-                {(['default', 'allow', 'deny'] as const).map(v => (
-                  <button key={v} onClick={() => setState(s => ({ ...s, [sec]: v }))}
-                    className={`px-2.5 py-1 text-[11px] rounded-lg ${state[sec] === v
-                      ? v === 'deny' ? 'bg-red-500 text-white' : v === 'allow' ? 'bg-green-600 text-white' : 'bg-blue-600 text-white'
-                      : 'bg-gray-200 text-gray-500 hover:bg-gray-300'}`}>
-                    {v === 'default' ? `default (${ROLE_BASE[user.role]?.includes(sec) ? 'on' : 'off'})` : v}
-                  </button>
-                ))}
-              </div>
+          {SECTION_GROUPS.map(g => (
+            <div key={g.title}>
+              <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mt-2 mb-1">{g.title}</p>
+              {g.items.map(({ key: sec, label }) => (
+                <div key={sec} className="flex items-center justify-between py-1 border-b border-gray-100">
+                  <span className="font-mono text-xs text-gray-700" title={sec}>{label}</span>
+                  <div className="flex gap-1">
+                    {(['default', 'allow', 'deny'] as const).map(v => (
+                      <button key={v} onClick={() => setState(s => ({ ...s, [sec]: v }))}
+                        className={`px-2.5 py-1 text-[11px] rounded-lg ${state[sec] === v
+                          ? v === 'deny' ? 'bg-red-500 text-white' : v === 'allow' ? 'bg-green-600 text-white' : 'bg-blue-600 text-white'
+                          : 'bg-gray-200 text-gray-500 hover:bg-gray-300'}`}>
+                        {v === 'default' ? `default (${ROLE_BASE[user.role]?.includes(sec) ? 'on' : 'off'})` : v}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
           ))}
           <div className="flex justify-end gap-3 pt-2">
