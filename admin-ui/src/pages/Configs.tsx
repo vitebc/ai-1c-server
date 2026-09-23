@@ -156,9 +156,11 @@ function SearchSettings() {
   const [binary, setBinary] = useState('');
   const [indexDir, setIndexDir] = useState('');
   const [saved, setSaved] = useState(false);
+  const [canEdit, setCanEdit] = useState(true);
   const [browse, setBrowse] = useState<'binary' | 'index' | null>(null);
 
   useEffect(() => {
+    api.getMe().then(me => setCanEdit(me.sections.includes('settings'))).catch(() => {});
     api.getSettings().then(list => {
       setBinary(list.find(s => s.key === 'search_binary')?.value || '');
       setIndexDir(list.find(s => s.key === 'search_index_dir')?.value || '');
@@ -178,26 +180,27 @@ function SearchSettings() {
       <p className="text-xs text-gray-500 mb-3">
         Binary used for auto <span className="font-mono">search-*</span> rows.
         Empty = reuse command from an enabled manual <span className="font-mono">search</span> row.
+        {!canEdit && ' (read-only for your role)'}
       </p>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div className="flex gap-2">
-          <input value={binary} onChange={e => setBinary(e.target.value)}
+          <input value={binary} onChange={e => setBinary(e.target.value)} disabled={!canEdit}
             placeholder="/path/to/mcp-1c-search"
             className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          <button onClick={() => setBrowse('binary')}
-            className="flex items-center gap-1.5 px-3 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm hover:bg-gray-300 transition-colors shrink-0">
+          <button onClick={() => setBrowse('binary')} disabled={!canEdit}
+            className="flex items-center gap-1.5 px-3 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm hover:bg-gray-300 disabled:opacity-40 transition-colors shrink-0">
             <FolderOpen size={16} /> Browse
           </button>
         </div>
         <div className="flex gap-2">
-          <input value={indexDir} onChange={e => setIndexDir(e.target.value)}
+          <input value={indexDir} onChange={e => setIndexDir(e.target.value)} disabled={!canEdit}
             placeholder="index dir (default: data/search-index)"
             className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          <button onClick={() => setBrowse('index')}
-            className="flex items-center gap-1.5 px-3 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm hover:bg-gray-300 transition-colors shrink-0">
+          <button onClick={() => setBrowse('index')} disabled={!canEdit}
+            className="flex items-center gap-1.5 px-3 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm hover:bg-gray-300 disabled:opacity-40 transition-colors shrink-0">
             <FolderOpen size={16} /> Browse
           </button>
-          <button onClick={save} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition-colors shrink-0">
+          <button onClick={save} disabled={!canEdit} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-40 transition-colors shrink-0">
             {saved ? 'Saved ✓' : 'Save'}
           </button>
         </div>

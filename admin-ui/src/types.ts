@@ -107,6 +107,23 @@ export interface BslLsRelease {
   published_at: string;
 }
 
+export interface Me {
+  username: string;
+  role: string;
+  sections: string[];
+  system: boolean;
+}
+
+export interface UserDto {
+  id: string;
+  username: string;
+  role: string;
+  sections: Record<string, boolean> | null;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface AgentItem {
   name: string;
   title: string;

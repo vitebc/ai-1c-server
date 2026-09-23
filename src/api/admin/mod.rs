@@ -24,6 +24,7 @@ mod settings;
 pub mod skills;
 pub mod agent_backend;
 pub mod agent_files;
+mod users;
 
 #[derive(Debug)]
 pub struct NotFound;
@@ -170,6 +171,12 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/fs/browse", get(fs::browse))
         .route("/auth/rotate", post(crate::auth::rotate_handler))
         .route("/auth/token", get(crate::auth::token_handler))
+        .route("/auth/login", post(crate::auth::login_handler))
+        .route("/auth/me", get(crate::auth::me_handler))
+        .route("/auth/password", post(crate::auth::password_handler))
+        .route("/users", get(users::list).post(users::create))
+        .route("/users/{id}", put(users::update).delete(users::delete))
+        .route("/users/{id}/reset-password", post(users::reset_password))
         .route("/reindex", post(reindex))
         .route("/bsl-ls", get(bsl_ls::get_state))
         .route("/bsl-ls/config", post(bsl_ls::update_config))

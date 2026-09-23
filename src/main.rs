@@ -67,6 +67,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(token) = auth::ensure_token(&guard)? {
                     tracing::warn!("Generated new API token (shown once): {token}");
                 }
+                auth::ensure_jwt_secret(&guard)?;
+                if let Some(password) = auth::ensure_admin(&guard)? {
+                    tracing::warn!("Created initial admin user 'admin' with password (shown once): {password}");
+                }
                 if auth::is_auth_required(&guard) {
                     tracing::info!(
                         "API auth is ENABLED — pass 'Authorization: Bearer <token>' for /api/*"
@@ -92,6 +96,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 logs: log_buffer.clone(),
                 data_dir: cli.data_dir.clone(),
                 reindex_jobs: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+                login_limits: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             });
 
             // (Re)build auto `search-*` rows from config_profiles, then start all.
@@ -115,7 +120,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             tracing::info!("Listening on http://{}", addr);
 
             let listener = tokio::net::TcpListener::bind(&addr).await?;
-            axum::serve(listener, app).await?;
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await?;
         }
     }
 

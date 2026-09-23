@@ -115,9 +115,16 @@ function ApiAccess() {
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [visible, setVisible] = useState(false);
 
   async function load() {
     try {
+      const me = await api.getMe();
+      if (!me.sections.includes('auth-manage')) {
+        setVisible(false);
+        return;
+      }
+      setVisible(true);
       const info = await api.getAuthToken();
       setRequired(info.auth_required);
       setTokenState(info.token);
@@ -127,6 +134,8 @@ function ApiAccess() {
   }
 
   useEffect(() => { load(); }, []);
+
+  if (!visible) return null;
 
   async function toggle() {
     setBusy(true);

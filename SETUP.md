@@ -165,12 +165,16 @@ API-токен генерируется при первом старте (см. 
 Включить: Dashboard → API Access → Auth ON (или
 `PUT /api/admin/settings {"key":"auth_required","value":"1"}`) —
 после этого все `/api/*` (кроме `/health`) требуют
-`Authorization: Bearer <token>`. Токен виден там же
-(Show/Copy/Regenerate). Выключить: Auth OFF.
-Ротация: кнопка Regenerate или `POST /api/admin/auth/rotate`.
-Готовые сниппеты: `GET /api/admin/mcp-servers/export?format=opencode`
-(токен подставляется сам, когда auth включён; `&token=...` — вручную,
-`&notoken=1` — без него).
+`Authorization: Bearer <jwt|api-token>`.
+
+Вход людей — по логину/паролю (`POST /api/admin/auth/login` → JWT на
+12ч, с `remember: true` — 7 дней). При первом старте создаётся `admin`
+со случайным паролем (лог `server.log`, один раз). Роли:
+`admin` (всё + Users), `operator` (все рабочие разделы),
+`viewer` (только чтение; Users, токен, `.env` скрыты). Точечные
+исключения по разделам — на странице Users. Машинные MCP-клиенты
+продолжают ходить по legacy API-токену (полный доступ).
+Защита от перебора: >5 неверных login с IP за 10 мин → 429 на 5 мин.
 
 Для **Claude Code**: `claude mcp add --transport http ai-1c-all http://<vps-ip>:9224/api/mcp-aggregated/mcp`
 Для **Cursor** (`mcp.json`): `{ "mcpServers": { "ai-1c-all": { "url": "http://<vps-ip>:9224/api/mcp-aggregated/mcp" } } }`

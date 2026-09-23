@@ -2,6 +2,7 @@ import type { BslLsState, Client, ClientVersion, ConfigProfile, FsBrowseResult, 
 import type {
   AgentItem, SkillFileItem, PatternItem, AgentOverview,
   AgentBackendStatus, EnvEntry, LiveAgents, LiveSkills,
+  Me, UserDto,
 } from '../types';
 
 const BASE = import.meta.env.VITE_API_BASE || '';
@@ -155,4 +156,19 @@ export const api = {
   getLiveAgents: () => request<LiveAgents>('/agent-backend/live/agents'),
   getLiveSkills: (agent?: string) =>
     request<LiveSkills>(`/agent-backend/live/skills${agent ? `?agent=${encodeURIComponent(agent)}` : ''}`),
+
+  login: (username: string, password: string, remember?: boolean) =>
+    request<{ token: string; username: string; role: string; sections: string[] }>(
+      '/auth/login', { method: 'POST', body: JSON.stringify({ username, password, remember: !!remember }) }),
+  getMe: () => request<Me>('/auth/me'),
+  changePassword: (old_password: string, new_password: string) =>
+    request<{ ok: boolean }>('/auth/password', { method: 'POST', body: JSON.stringify({ old_password, new_password }) }),
+  getUsers: () => request<UserDto[]>('/users'),
+  createUser: (data: { username: string; password: string; role: string }) =>
+    request<UserDto>('/users', { method: 'POST', body: JSON.stringify(data) }),
+  updateUser: (id: string, data: { role?: string; enabled?: boolean; sections?: Record<string, boolean> | null }) =>
+    request<{ ok: boolean }>(`/users/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  resetUserPassword: (id: string) =>
+    request<{ username: string; password: string }>(`/users/${id}/reset-password`, { method: 'POST' }),
+  deleteUser: (id: string) => request<void>(`/users/${id}`, { method: 'DELETE' }),
 };

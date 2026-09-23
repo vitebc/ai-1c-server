@@ -38,6 +38,7 @@ pub struct AppState {
     pub logs: LogBuffer,
     pub data_dir: String,
     pub reindex_jobs: Arc<std::sync::Mutex<HashMap<String, ReindexJob>>>,
+    pub login_limits: Arc<std::sync::Mutex<HashMap<String, crate::auth::LoginAttempt>>>,
 }
 
 async fn health() -> &'static str {
