@@ -8,6 +8,8 @@ mod watcher;
 mod web;
 
 use std::sync::Arc;
+use axum::http::{StatusCode, Uri};
+use axum::response::IntoResponse;
 use clap::{Parser, Subcommand};
 use std::path::Path;
 use tokio::sync::Mutex;
@@ -111,9 +113,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .layer(CorsLayer::permissive());
 
             if let Some(admin_dir) = &cli.admin_dir {
-                let serve_dir = ServeDir::new(admin_dir)
-                    .append_index_html_on_directories(true);
-                app = app.fallback_service(serve_dir);
+                // Static assets + SPA fallback: /assets/* served as files,
+                // every other non-API path gets index.html with 200 so
+                // direct navigation / refresh on client routes works.
+                // Unknown /api/* stays 404 (see api routes).
+                let assets_dir = ServeDir::new(format!("{admin_dir}/assets"));
+                let index_path = format!("{admin_dir}/index.html");
+                app = app
+                    .nest_service("/assets", assets_dir)
+                    .fallback(move |uri: Uri| {
+                        let index_path = index_path.clone();
+                        async move {
+                            let path = uri.path();
+                            if path.starts_with("/api/") || path == "/health" {
+                                return (StatusCode::NOT_FOUND, "Not found").into_response();
+                            }
+                            match tokio::fs::read(&index_path).await {
+                                Ok(bytes) => (
+                                    StatusCode::OK,
+                                    [("content-type", "text/html; charset=utf-8")],
+                                    bytes,
+                                )
+                                    .into_response(),
+                                Err(_) => {
+                                    (StatusCode::NOT_FOUND, "Not found").into_response()
+                                }
+                            }
+                        }
+                    });
             }
 
             let addr = format!("0.0.0.0:{}", cli.http_port);

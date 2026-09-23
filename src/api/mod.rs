@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use axum::{Router, routing::{get, post}};
+use axum::{Router, http::StatusCode, routing::{any, get, post}};
 use serde::Serialize;
 use tokio::sync::Mutex;
 
@@ -45,6 +45,10 @@ async fn health() -> &'static str {
     "OK"
 }
 
+async fn api_404() -> (StatusCode, &'static str) {
+    (StatusCode::NOT_FOUND, "Not found")
+}
+
 pub fn routes(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/health", get(health))
@@ -53,5 +57,8 @@ pub fn routes(state: Arc<AppState>) -> Router {
         .route("/api/mcp-aggregated/mcp", get(mcp_http::aggregated_sse).post(mcp_http::aggregated_rpc))
         .route("/api/mcp-skills/rpc", get(mcp_skills::sse_handler).post(mcp_skills::handle_mcp_skills))
         .nest("/api/admin", admin::routes())
+        // Catch-all AFTER specific routes: unknown /api/* stays 404
+        // instead of falling through to the SPA index.html.
+        .route("/api/{*rest}", any(api_404))
         .with_state(state)
 }
