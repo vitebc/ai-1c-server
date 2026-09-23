@@ -31,10 +31,11 @@ curl -s -X POST http://localhost:9224/api/mcp-aggregated/mcp -H "$H" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
 ```
 
-### Инвентарь тулзов для скриптов (REST, зона шлюза — работает с API-токеном)
+### Инвентарь MCP для скриптов (REST, зона шлюза — API-токен или открыто если токен-аутентификация выключена)
 
 | Метод | Путь | Описание |
 |---|---|---|
+| GET | `/api/mcp` | список включённых MCP-серверов: `{servers: [{id, name}]}` |
 | GET | `/api/mcp-aggregated/tools` | все тулзы всех включённых серверов: `{tools: [{server, server_id, name, full_name, description, inputSchema}], errors: [...]}` (`full_name` — имя для вызова через агрегатор: `server__tool`) |
 | GET | `/api/mcp/{id\|name}/tools` | тулзы одного сервера: `{id, name, tools[]}` (404 нет/выключен, 502 не running) |
 

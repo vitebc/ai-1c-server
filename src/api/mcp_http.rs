@@ -109,6 +109,16 @@ pub async fn aggregated_tools(State(state): State<Arc<AppState>>) -> Json<Value>
     Json(json!({ "tools": tools, "errors": errors }))
 }
 
+/// GET /api/mcp — list enabled MCP servers (gateway zone, API token or open).
+/// Returns `[{ id, name, server_type, transport, url }]`.
+pub async fn mcp_list(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let servers = enabled_servers(&state).await;
+    Json(json!({ "servers": servers.iter().map(|(id, name)| json!({
+        "id": id,
+        "name": name,
+    })).collect::<Vec<_>>() }))
+}
+
 /// GET /api/mcp/{id|name}/tools — inventory of one enabled server.
 /// 404 unknown/disabled, 502 not running.
 pub async fn server_tools(

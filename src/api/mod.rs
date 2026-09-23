@@ -52,6 +52,7 @@ async fn api_404() -> (StatusCode, &'static str) {
 pub fn routes(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/health", get(health))
+        .route("/api/mcp", get(mcp_http::mcp_list))
         .route("/api/mcp/{server_id}", post(mcp::call_server))
         .route("/api/mcp/{server_id}/mcp", get(mcp_http::server_sse).post(mcp_http::server_rpc))
         .route("/api/mcp/{server_id}/tools", get(mcp_http::server_tools))
