@@ -69,6 +69,8 @@ export const api = {
     request<{ id: string; running: boolean }>(`/mcp-servers/${id}/restart`, { method: 'POST' }),
   getMcpStats: (id: string) =>
     request<{ id: string; text: string; raw: unknown }>(`/mcp-servers/${id}/stats`),
+  getMcpTools: (id: string) =>
+    request<{ id: string; tools: { name: string; description?: string; inputSchema?: unknown }[] }>(`/mcp-servers/${id}/tools`),
   reindexMcp: (id: string) =>
     request<{ job_id: string; server_id: string }>(
       `/mcp-servers/${id}/reindex`, { method: 'POST' }),

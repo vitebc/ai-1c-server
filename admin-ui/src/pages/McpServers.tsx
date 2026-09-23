@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, RotateCcw, Copy, Check, FolderOpen, BarChart3, X, DatabaseZap } from 'lucide-react';
+import { Plus, Pencil, Trash2, RotateCcw, Copy, Check, FolderOpen, BarChart3, X, DatabaseZap, Wrench } from 'lucide-react';
 import { api } from '../api/client';
 import { copyText } from '../clipboard';
 import FileBrowser from '../components/FileBrowser';
@@ -16,6 +16,7 @@ export default function McpServers() {
   const [copied, setCopied] = useState<string | null>(null);
   const [copyError, setCopyError] = useState('');
   const [statsFor, setStatsFor] = useState<McpServer | null>(null);
+  const [toolsFor, setToolsFor] = useState<McpServer | null>(null);
   const [reindexJob, setReindexJob] = useState<{ jobId: string; name: string } | null>(null);
   const [opMsg, setOpMsg] = useState('');
 
@@ -91,6 +92,9 @@ export default function McpServers() {
       {statsFor && (
         <StatsModal item={statsFor} onClose={() => setStatsFor(null)} />
       )}
+      {toolsFor && (
+        <ToolsModal item={toolsFor} onClose={() => setToolsFor(null)} />
+      )}
       {reindexJob && (
         <ReindexProgress
           jobId={reindexJob.jobId}
@@ -153,6 +157,7 @@ export default function McpServers() {
                   {item.server_type.startsWith('search') && (
                     <button title="Full reindex (deletes index, rebuilds in background)" onClick={() => handleReindex(item)} className="p-1.5 text-gray-400 hover:text-orange-500 transition-colors"><DatabaseZap size={16} /></button>
                   )}
+                  <button title="Tools (live tools/list)" onClick={() => setToolsFor(item)} className="p-1.5 text-gray-400 hover:text-blue-500 transition-colors"><Wrench size={16} /></button>
                   <button title="Restart (hot-reload)" onClick={() => handleRestart(item.id)} className="p-1.5 text-gray-400 hover:text-green-600 transition-colors"><RotateCcw size={16} /></button>
                   <button onClick={() => openEdit(item)} className="p-1.5 text-gray-400 hover:text-blue-600 transition-colors"><Pencil size={16} /></button>
                   <button onClick={() => handleDelete(item.id)} className="p-1.5 text-gray-400 hover:text-red-600 transition-colors"><Trash2 size={16} /></button>
@@ -365,6 +370,54 @@ function StatsModal({ item, onClose }: { item: McpServer; onClose: () => void })
           {error && <p className="text-xs text-red-600">{error}</p>}
           {!text && !error && <p className="text-sm text-gray-400">Loading…</p>}
           {text && <pre className="text-xs font-mono text-gray-700 bg-gray-50 border border-gray-200 rounded-lg p-3 whitespace-pre-wrap break-all">{text}</pre>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ToolsModal({ item, onClose }: { item: McpServer; onClose: () => void }) {
+  const [tools, setTools] = useState<{ name: string; description?: string }[] | null>(null);
+  const [error, setError] = useState('');
+  const [filter, setFilter] = useState('');
+
+  useEffect(() => {
+    api.getMcpTools(item.id)
+      .then(r => setTools(r.tools || []))
+      .catch(e => setError(e instanceof Error ? e.message : 'Failed to load tools'));
+  }, [item.id]);
+
+  const shown = (tools || []).filter(t =>
+    !filter || t.name.toLowerCase().includes(filter.toLowerCase())
+      || (t.description || '').toLowerCase().includes(filter.toLowerCase()));
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-gray-100 rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-4 border-b border-gray-200">
+          <h4 className="text-sm font-semibold text-gray-800">
+            Tools: {item.name}
+            {tools && <span className="ml-2 text-xs font-normal text-gray-500">{tools.length}</span>}
+          </h4>
+          <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-700 transition-colors"><X size={18} /></button>
+        </div>
+        <div className="p-4 overflow-y-auto space-y-2">
+          {error && <p className="text-xs text-red-600">{error}</p>}
+          {!tools && !error && <p className="text-sm text-gray-400">Loading…</p>}
+          {tools && tools.length === 0 && <p className="text-sm text-gray-400">No tools (server running, empty list)</p>}
+          {tools && tools.length > 0 && (
+            <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Filter…"
+              className="w-full px-3 py-1.5 text-sm bg-gray-50 text-gray-700 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          )}
+          {shown.map(t => (
+            <div key={t.name} className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+              <div className="text-xs font-mono font-semibold text-gray-800 break-all">{t.name}</div>
+              {t.description && <div className="text-xs text-gray-500 mt-0.5 break-words">{t.description}</div>}
+            </div>
+          ))}
+          {tools && tools.length > 0 && shown.length === 0 && (
+            <p className="text-sm text-gray-400">Nothing matches «{filter}»</p>
+          )}
         </div>
       </div>
     </div>

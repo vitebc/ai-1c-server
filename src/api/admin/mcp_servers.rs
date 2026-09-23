@@ -335,6 +335,33 @@ pub async fn stats(
     }
 }
 
+/// GET /api/admin/mcp-servers/{id}/tools — live `tools/list` from a running
+/// session (id or name). Used by the Tools modal in MCP Servers page.
+pub async fn tools(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, axum::response::Response> {
+    use axum::response::IntoResponse;
+    let sid: Option<String> = {
+        let db = state.db.lock().await;
+        db.conn
+            .query_row(
+                "SELECT id FROM mcp_servers WHERE id = ?1 OR name = ?1",
+                [&id],
+                |row| row.get::<_, String>(0),
+            )
+            .ok()
+    };
+    let sid = match sid {
+        Some(s) => s,
+        None => return Err(super::NotFound.into_response()),
+    };
+    match state.mcp.list_tools(&sid).await {
+        Ok(tools) => Ok(Json(json!({ "id": sid, "tools": tools }))),
+        Err(e) => Err((axum::http::StatusCode::BAD_GATEWAY, e.to_string()).into_response()),
+    }
+}
+
 /// FNV hash identical to `mcp-1c-search` `fnv_hash` (multiply-then-xor).
 /// The binary stores per-root indexes as `{INDEX_DIR}/{hash:016x}.db`.
 fn search_index_hash(path: &str) -> u64 {
