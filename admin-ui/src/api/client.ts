@@ -116,13 +116,15 @@ export const api = {
     request<BslLsState>('/bsl-ls/config', { method: 'POST', body: JSON.stringify(data) }),
   restartBslLs: () => request<BslLsState>('/bsl-ls/restart', { method: 'POST' }),
   stopBslLs: () => request<BslLsState>('/bsl-ls/stop', { method: 'POST' }),
-    getLogs: (params?: { level?: string; limit?: number; search?: string }) => {    const q = new URLSearchParams();
+    getLogs: (params?: { level?: string; limit?: number; search?: string; target?: string }) => {    const q = new URLSearchParams();
     if (params?.level) q.set('level', params.level);
     if (params?.limit) q.set('limit', String(params.limit));
     if (params?.search) q.set('search', params.search);
+    if (params?.target) q.set('target', params.target);
     const qs = q.toString();
     return request<LogEntry[]>(`/logs${qs ? `?${qs}` : ''}`);
   },
+  getLogTargets: () => request<{ targets: string[] }>('/logs/targets'),
   clearLogs: () => request<{ ok: boolean }>('/logs/clear', { method: 'POST' }),
   getBslLsLogs: () => request<string[]>('/bsl-ls/logs'),
   clearBslLsLogs: () => request<void>('/bsl-ls/logs/clear', { method: 'POST' }),

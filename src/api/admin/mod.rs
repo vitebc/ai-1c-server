@@ -112,6 +112,7 @@ struct LogsQuery {
     level: Option<String>,
     limit: Option<usize>,
     search: Option<String>,
+    target: Option<String>,
 }
 
 fn parse_level(s: Option<&str>) -> Option<Level> {
@@ -133,7 +134,12 @@ async fn logs(
         parse_level(q.level.as_deref()),
         q.limit.unwrap_or(300),
         q.search.as_deref(),
+        q.target.as_deref(),
     ))
+}
+
+async fn log_targets(State(state): State<Arc<AppState>>) -> Json<Value> {
+    Json(json!({ "targets": state.logs.targets() }))
 }
 
 async fn clear_logs(State(state): State<Arc<AppState>>) -> Json<Value> {
@@ -167,6 +173,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/status", get(status))
         .route("/settings", get(settings::list).put(settings::upsert))
         .route("/logs", get(logs))
+        .route("/logs/targets", get(log_targets))
         .route("/logs/clear", post(clear_logs))
         .route("/fs/browse", get(fs::browse))
         .route("/auth/rotate", post(crate::auth::rotate_handler))

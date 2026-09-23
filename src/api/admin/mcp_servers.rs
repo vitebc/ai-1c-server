@@ -537,7 +537,7 @@ fn finish_job(
 /// Latest `SEARCH_STATUS_JSON` state for a session, from the log buffer:
 /// (progress 0-100, state, message).
 fn index_progress(logs: &crate::log_buffer::LogBuffer, sid: &str) -> Option<(u8, String, String)> {
-    let entries = logs.entries(None, 500, Some(sid));
+    let entries = logs.entries(None, 500, Some(sid), None);
     for e in entries.iter().rev() {
         if let Some(pos) = e.msg.find("SEARCH_STATUS_JSON:") {
             let body = e.msg[pos + "SEARCH_STATUS_JSON:".len()..].trim();

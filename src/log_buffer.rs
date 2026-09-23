@@ -50,11 +50,13 @@ impl LogBuffer {
     }
 
     /// Newest last. `level` is a minimum severity ("warn" → warn + error).
+    /// `target` is a prefix match ("ai_1c_server::mcp" covers `::session`, ...).
     pub fn entries(
         &self,
         level: Option<Level>,
         limit: usize,
         search: Option<&str>,
+        target: Option<&str>,
     ) -> Vec<LogEntry> {
         let q = match self.inner.lock() {
             Ok(q) => q,
@@ -62,6 +64,7 @@ impl LogBuffer {
         };
         let limit = limit.clamp(1, 2000);
         let needle = search.map(|s| s.to_lowercase());
+        let target_prefix = target.map(|s| s.to_string());
         q.iter()
             .filter(|e| {
                 if let Some(min) = &level {
@@ -72,6 +75,11 @@ impl LogBuffer {
                 if let Some(n) = &needle {
                     let hay = format!("{} {} {}", e.target, e.msg, e.level).to_lowercase();
                     if !hay.contains(n) {
+                        return false;
+                    }
+                }
+                if let Some(t) = &target_prefix {
+                    if !e.target.starts_with(t.as_str()) {
                         return false;
                     }
                 }
@@ -90,6 +98,21 @@ impl LogBuffer {
 
     pub fn layer<S: Subscriber>(&self) -> LogBufferLayer {
         LogBufferLayer { buf: self.clone() }
+    }
+
+    /// Distinct sorted targets, only our own crate (empty prefix pruned).
+    pub fn targets(&self) -> Vec<String> {
+        let q = match self.inner.lock() {
+            Ok(q) => q,
+            Err(_) => return Vec::new(),
+        };
+        let mut set = std::collections::BTreeSet::new();
+        for e in q.iter() {
+            if e.target.starts_with("ai_1c_server") {
+                set.insert(e.target.clone());
+            }
+        }
+        set.into_iter().collect()
     }
 }
 

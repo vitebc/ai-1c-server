@@ -18,7 +18,8 @@ export default function Logs() {
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [bslLines, setBslLines] = useState<string[]>([]);
   const [level, setLevel] = useState('all');
-  const [search, setSearch] = useState('');
+  const [target, setTarget] = useState('all');
+  const [targets, setTargets] = useState<string[]>([]);  const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const [auto, setAuto] = useState(true);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -26,19 +27,37 @@ export default function Logs() {
   const load = useCallback(async () => {
     try {
       if (tab === 'server') {
-        const data = await api.getLogs({
-          level: level === 'all' ? undefined : level,
-          limit: 300,
-          search: search || undefined,
-        });
+        const [data, tg] = await Promise.all([
+          api.getLogs({
+            level: level === 'all' ? undefined : level,
+            limit: 300,
+            search: search || undefined,
+            target: target === 'all' ? undefined : target,
+          }),
+          api.getLogTargets().catch(() => null),
+        ]);
         setEntries(data);
+        if (tg) {
+          // Merge server-side distinct list with targets seen in this page,
+          // so the dropdown never loses the current selection.
+          setTargets(prev => {
+            const seen = new Set([...tg.targets, ...data.map(e => e.target)]);
+            const merged = [...seen].filter(t => t.startsWith('ai_1c_server')).sort();
+            return merged.length ? merged : prev;
+          });
+        } else {
+          setTargets(prev => {
+            const seen = new Set([...prev, ...data.map(e => e.target)]);
+            return [...seen].filter(t => t.startsWith('ai_1c_server')).sort();
+          });
+        }
       } else {
         setBslLines(await api.getBslLsLogs());
       }
     } catch {
       /* server may be restarting */
     }
-  }, [tab, level, search]);
+  }, [tab, level, search, target]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
@@ -94,6 +113,11 @@ export default function Logs() {
             <select value={level} onChange={e => setLevel(e.target.value)}
               className="ml-2 px-3 py-1.5 text-sm bg-gray-100 text-gray-700 border border-gray-200 rounded-lg focus:outline-none">
               {LEVELS.map(l => <option key={l} value={l}>{l === 'all' ? 'All levels' : l}</option>)}
+            </select>
+            <select value={target} onChange={e => setTarget(e.target.value)} title="Filter by module (prefix match)"
+              className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 border border-gray-200 rounded-lg focus:outline-none max-w-[220px]">
+              <option value="all">All modules</option>
+              {targets.map(t => <option key={t} value={t}>{t.replace(/^ai_1c_server::/, '')}</option>)}
             </select>
             <form onSubmit={submitSearch} className="flex-1">
               <input value={searchInput} onChange={e => setSearchInput(e.target.value)}
