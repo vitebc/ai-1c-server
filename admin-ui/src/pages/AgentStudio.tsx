@@ -2,11 +2,19 @@ import { useCallback, useEffect, useState } from 'react';
 import { Plus, Pencil, Trash2, Play, Square, RotateCcw, RefreshCw, Server, AlertTriangle, FolderOpen } from 'lucide-react';
 import { api } from '../api/client';
 import FileBrowser from '../components/FileBrowser';
-import type { AgentItem, SkillFileItem, PatternItem, AgentOverview, AgentBackendStatus, EnvEntry } from '../types';
+import type { AgentItem, SkillFileItem, PatternItem, AgentOverview, AgentBackendStatus, EnvEntry, Me } from '../types';
 
 type Tab = 'agents' | 'skills' | 'patterns' | 'backend' | 'env';
 
-export default function AgentStudio() {
+const TAB_SECTION: Record<Tab, string> = {
+  agents: 'agent-agents',
+  skills: 'agent-skills',
+  patterns: 'agent-patterns',
+  backend: 'agent-backend',
+  env: 'env',
+};
+
+export default function AgentStudio({ me }: { me: Me | null }) {
   const [tab, setTab] = useState<Tab>('agents');
   const [ov, setOv] = useState<AgentOverview | null>(null);
   const [tools, setTools] = useState<string[]>([]);
@@ -36,13 +44,24 @@ export default function AgentStudio() {
       setError(e instanceof Error ? e.message : 'Failed to set root');
     }
   }
-  const tabs: { key: Tab; label: string }[] = [
+  const allTabs: { key: Tab; label: string }[] = [
     { key: 'agents', label: 'Agents' },
     { key: 'skills', label: 'Agent Skills' },
     { key: 'patterns', label: 'Patterns' },
     { key: 'backend', label: 'Backend' },
     { key: 'env', label: 'Config (.env)' },
   ];
+  const tabs = allTabs.filter((t: { key: Tab; label: string }) =>
+    !me || me.sections.includes(TAB_SECTION[t.key]));
+
+  // If the active tab is not permitted (e.g. after role change), jump to the first allowed one.
+  useEffect(() => {
+    if (me && !me.sections.includes(TAB_SECTION[tab])) {
+      const first = (['agents', 'skills', 'patterns', 'backend', 'env'] as Tab[])
+        .find(t => me.sections.includes(TAB_SECTION[t]));
+      if (first) setTab(first);
+    }
+  }, [me, tab]);
 
   return (
     <div>

@@ -6,14 +6,16 @@ import type { UserDto } from '../types';
 const ROLES = ['admin', 'operator', 'viewer'];
 
 const ALL_SECTIONS = [
-  'dashboard', 'mcp-servers', 'agent-studio', 'skills', 'bsl-ls', 'configs',
+  'dashboard', 'mcp-servers',
+  'agent-studio', 'agent-agents', 'agent-skills', 'agent-patterns', 'agent-backend',
+  'skills', 'bsl-ls', 'configs',
   'client-versions', 'clients', 'logs', 'settings', 'fs', 'env', 'users', 'auth-manage',
 ];
 
 const ROLE_BASE: Record<string, string[]> = {
   admin: ALL_SECTIONS,
-  operator: ['dashboard', 'mcp-servers', 'agent-studio', 'skills', 'bsl-ls', 'configs', 'client-versions', 'clients', 'logs', 'settings', 'fs', 'env'],
-  viewer: ['dashboard', 'mcp-servers', 'agent-studio', 'skills', 'bsl-ls', 'configs', 'client-versions', 'clients', 'logs'],
+  operator: ['dashboard', 'mcp-servers', 'agent-studio', 'agent-agents', 'agent-skills', 'agent-patterns', 'agent-backend', 'skills', 'bsl-ls', 'configs', 'client-versions', 'clients', 'logs', 'settings', 'fs', 'env'],
+  viewer: ['dashboard', 'mcp-servers', 'agent-agents', 'agent-skills', 'agent-patterns', 'skills', 'bsl-ls', 'configs', 'client-versions', 'clients', 'logs'],
 };
 
 export default function Users() {

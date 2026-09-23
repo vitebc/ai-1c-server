@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use axum::{
-    extract::{Path as AxPath, State},
+    extract::{Extension, Path as AxPath, State},
     Json,
 };
 use serde::{Deserialize, Serialize};
@@ -424,34 +424,50 @@ fn list_patterns_sorted(dir: &Path) -> Vec<PathBuf> {
 
 // ─── handlers ───────────────────────────────────────────────────────
 
-pub async fn overview(State(state): State<Arc<AppState>>) -> Json<Overview> {
+pub async fn overview(
+    State(state): State<Arc<AppState>>,
+    Extension(ident): Extension<crate::auth::AuthIdentity>,
+) -> Json<Overview> {
     let root = {
         let db = state.db.lock().await;
         project_root(&db)
     };
+    let can = |s: &str| ident.system || ident.sections.iter().any(|x| x == s);
     let agents_dir = root.join("backend/agents");
     let skills_dir = root.join("backend/skills");
     let patterns_dir = root.join("backend/patterns");
     Json(Overview {
         root: root.to_string_lossy().to_string(),
         root_exists: root.is_dir(),
-        agents: list_dirs_sorted(&agents_dir)
-            .iter()
-            .filter(|p| {
-                p.file_name()
-                    .map(|n| n != "AGENT.md" && !n.to_string_lossy().starts_with('.'))
-                    .unwrap_or(false)
-            })
-            .map(|p| read_agent(p))
-            .collect(),
-        skills: list_dirs_sorted(&skills_dir)
-            .iter()
-            .map(|p| read_skill(p))
-            .collect(),
-        patterns: list_patterns_sorted(&patterns_dir)
-            .iter()
-            .map(|p| read_pattern(p))
-            .collect(),
+        agents: if can("agent-agents") {
+            list_dirs_sorted(&agents_dir)
+                .iter()
+                .filter(|p| {
+                    p.file_name()
+                        .map(|n| n != "AGENT.md" && !n.to_string_lossy().starts_with('.'))
+                        .unwrap_or(false)
+                })
+                .map(|p| read_agent(p))
+                .collect()
+        } else {
+            Vec::new()
+        },
+        skills: if can("agent-skills") {
+            list_dirs_sorted(&skills_dir)
+                .iter()
+                .map(|p| read_skill(p))
+                .collect()
+        } else {
+            Vec::new()
+        },
+        patterns: if can("agent-patterns") {
+            list_patterns_sorted(&patterns_dir)
+                .iter()
+                .map(|p| read_pattern(p))
+                .collect()
+        } else {
+            Vec::new()
+        },
     })
 }
 

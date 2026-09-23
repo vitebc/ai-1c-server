@@ -136,6 +136,10 @@ pub const SECTIONS: &[&str] = &[
     "dashboard",
     "mcp-servers",
     "agent-studio",
+    "agent-agents",
+    "agent-skills",
+    "agent-patterns",
+    "agent-backend",
     "skills",
     "bsl-ls",
     "configs",
@@ -149,6 +153,14 @@ pub const SECTIONS: &[&str] = &[
     "auth-manage",
 ];
 
+/// Sub-sections inside AI Agent Studio (file areas + backend control).
+pub const AGENT_SUBSECTIONS: &[&str] = &[
+    "agent-agents",
+    "agent-skills",
+    "agent-patterns",
+    "agent-backend",
+];
+
 fn base_sections(role: &str) -> Vec<String> {
     match role {
         ROLE_ADMIN => SECTIONS.iter().map(|s| s.to_string()).collect(),
@@ -156,6 +168,10 @@ fn base_sections(role: &str) -> Vec<String> {
             "dashboard",
             "mcp-servers",
             "agent-studio",
+            "agent-agents",
+            "agent-skills",
+            "agent-patterns",
+            "agent-backend",
             "skills",
             "bsl-ls",
             "configs",
@@ -172,7 +188,9 @@ fn base_sections(role: &str) -> Vec<String> {
         _ => [
             "dashboard",
             "mcp-servers",
-            "agent-studio",
+            "agent-agents",
+            "agent-skills",
+            "agent-patterns",
             "skills",
             "bsl-ls",
             "configs",
@@ -438,12 +456,18 @@ fn section_for(path: &str) -> Option<&'static str> {
     };
     Some(if rest.starts_with("mcp-servers") {
         "mcp-servers"
-    } else if rest.starts_with("agent-files") {
-        "agent-studio"
+    } else if rest.starts_with("agent-files/tools") || rest == "agent-files" {
+        "__agent_files_any"
+    } else if rest.starts_with("agent-files/agents") {
+        "agent-agents"
+    } else if rest.starts_with("agent-files/skills") {
+        "agent-skills"
+    } else if rest.starts_with("agent-files/patterns") {
+        "agent-patterns"
     } else if rest.starts_with("agent-backend/env") {
         "env"
     } else if rest.starts_with("agent-backend") {
-        "agent-studio"
+        "agent-backend"
     } else if rest.starts_with("skills") {
         "skills"
     } else if rest.starts_with("bsl-ls") {
@@ -636,6 +660,11 @@ pub async fn bearer_auth(
     if !identity.system {
         let allowed = if section == "__self" {
             true
+        } else if section == "__agent_files_any" {
+            // Overview + tools reference: any file-area subsection suffices.
+            AGENT_SUBSECTIONS[..3]
+                .iter()
+                .any(|s| identity.sections.iter().any(|x| x == *s))
         } else {
             identity.sections.iter().any(|s| s == section)
         };

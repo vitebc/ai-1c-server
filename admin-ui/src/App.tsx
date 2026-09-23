@@ -16,6 +16,16 @@ import BslLs from './pages/BslLs';
 import AgentStudio from './pages/AgentStudio';
 import Users from './pages/Users';
 
+const AGENT_SECTIONS = ['agent-studio', 'agent-agents', 'agent-skills', 'agent-patterns', 'agent-backend', 'env'];
+
+function canSee(me: Me | null, section: string): boolean {
+  if (!me) return true;
+  if (me.sections.includes(section)) return true;
+  // Studio umbrella: visible when any inner subsection is granted.
+  if (section === 'agent-studio') return AGENT_SECTIONS.some(s => me.sections.includes(s));
+  return false;
+}
+
 const nav = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, section: 'dashboard' },
   { to: '/mcp-servers', label: 'MCP Servers', icon: Server, section: 'mcp-servers' },
@@ -76,7 +86,7 @@ export default function App() {
   }
   if (!authed) return <Login onDone={() => setAuthed(true)} />;
 
-  const visibleNav = nav.filter(n => !me || me.sections.includes(n.section));
+  const visibleNav = nav.filter(n => canSee(me, n.section));
 
   return (
     <div className="flex h-dvh bg-gray-50">
@@ -129,7 +139,7 @@ export default function App() {
           <Route path="/client-versions" element={<Guard me={me} section="client-versions"><ClientVersions /></Guard>} />
           <Route path="/clients" element={<Guard me={me} section="clients"><Clients /></Guard>} />
           <Route path="/bsl-ls" element={<Guard me={me} section="bsl-ls"><BslLs /></Guard>} />
-          <Route path="/agent-studio" element={<Guard me={me} section="agent-studio"><AgentStudio /></Guard>} />
+          <Route path="/agent-studio" element={<Guard me={me} section="agent-studio" anyOf={['agent-agents', 'agent-skills', 'agent-patterns', 'agent-backend', 'env']}><AgentStudio me={me} /></Guard>} />
           <Route path="/logs" element={<Guard me={me} section="logs"><Logs /></Guard>} />
           <Route path="/users" element={<Guard me={me} section="users"><Users /></Guard>} />
         </Routes>
@@ -139,8 +149,10 @@ export default function App() {
   );
 }
 
-function Guard({ me, section, children }: { me: Me | null; section: string; children: React.ReactNode }) {
-  if (me && !me.sections.includes(section)) {
+function Guard({ me, section, anyOf, children }: {
+  me: Me | null; section: string; anyOf?: string[]; children: React.ReactNode;
+}) {
+  if (me && !me.sections.includes(section) && !(anyOf || []).some(s => me.sections.includes(s))) {
     return (
       <div className="bg-gray-100 border border-gray-200 rounded-xl p-8 text-center">
         <p className="text-sm text-gray-500">No access to this section (role: {me.role}).</p>
