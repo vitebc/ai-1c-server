@@ -153,8 +153,9 @@ pub const SECTIONS: &[&str] = &[
     "auth-manage",
 ];
 
-/// Sub-sections inside AI Agent Studio (file areas + backend control).
-pub const AGENT_SUBSECTIONS: &[&str] = &[
+/// Sections allowed to read shared agent diagnostics (overview, tools
+/// reference, live backend view): any file area or backend control.
+pub const AGENT_READ_SECTIONS: &[&str] = &[
     "agent-agents",
     "agent-skills",
     "agent-patterns",
@@ -458,6 +459,8 @@ fn section_for(path: &str) -> Option<&'static str> {
         "mcp-servers"
     } else if rest.starts_with("agent-files/tools") || rest == "agent-files" {
         "__agent_files_any"
+    } else if rest.starts_with("agent-backend/live") {
+        "__agent_files_any"
     } else if rest.starts_with("agent-files/agents") {
         "agent-agents"
     } else if rest.starts_with("agent-files/skills") {
@@ -661,8 +664,9 @@ pub async fn bearer_auth(
         let allowed = if section == "__self" {
             true
         } else if section == "__agent_files_any" {
-            // Overview + tools reference: any file-area subsection suffices.
-            AGENT_SUBSECTIONS[..3]
+            // Overview, tools reference, live backend view: any file-area
+            // subsection or backend control suffices.
+            AGENT_READ_SECTIONS
                 .iter()
                 .any(|s| identity.sections.iter().any(|x| x == *s))
         } else {
