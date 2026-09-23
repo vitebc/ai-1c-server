@@ -177,6 +177,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/users", get(users::list).post(users::create))
         .route("/users/{id}", put(users::update).delete(users::delete))
         .route("/users/{id}/reset-password", post(users::reset_password))
+        .route("/users/{id}/password", post(users::set_password))
         .route("/reindex", post(reindex))
         .route("/bsl-ls", get(bsl_ls::get_state))
         .route("/bsl-ls/config", post(bsl_ls::update_config))

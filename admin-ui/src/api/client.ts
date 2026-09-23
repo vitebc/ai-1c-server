@@ -170,5 +170,7 @@ export const api = {
     request<{ ok: boolean }>(`/users/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   resetUserPassword: (id: string) =>
     request<{ username: string; password: string }>(`/users/${id}/reset-password`, { method: 'POST' }),
+  setUserPassword: (id: string, password: string) =>
+    request<{ ok: boolean; username: string }>(`/users/${id}/password`, { method: 'POST', body: JSON.stringify({ password }) }),
   deleteUser: (id: string) => request<void>(`/users/${id}`, { method: 'DELETE' }),
 };

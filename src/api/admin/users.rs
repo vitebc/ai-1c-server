@@ -325,6 +325,63 @@ pub async fn reset_password(
     Json(json!({ "username": username, "password": password })).into_response()
 }
 
+#[derive(Debug, Deserialize)]
+pub struct SetPasswordBody {
+    pub password: String,
+}
+
+/// POST /users/{id}/password — set an explicit password (admin only).
+pub async fn set_password(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(body): Json<SetPasswordBody>,
+) -> Response {
+    if body.password.len() < 8 || body.password.len() > 128 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "password must be 8..128 chars" })),
+        )
+            .into_response();
+    }
+    let db = state.db.lock().await;
+    let username: Option<String> = db
+        .conn
+        .query_row("SELECT username FROM users WHERE id = ?1", [&id], |row| {
+            row.get(0)
+        })
+        .ok();
+    let username = match username {
+        Some(u) => u,
+        None => return StatusCode::NOT_FOUND.into_response(),
+    };
+    let hash = match auth::hash_password(&body.password) {
+        Ok(h) => h,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e })),
+            )
+                .into_response()
+        }
+    };
+    if db
+        .conn
+        .execute(
+            "UPDATE users SET password_hash = ?1, updated_at = datetime('now') WHERE id = ?2",
+            rusqlite::params![hash, id],
+        )
+        .is_err()
+    {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "update failed" })),
+        )
+            .into_response();
+    }
+    tracing::warn!("users: password set for {username} by admin");
+    Json(json!({ "ok": true, "username": username })).into_response()
+}
+
 pub async fn delete(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,

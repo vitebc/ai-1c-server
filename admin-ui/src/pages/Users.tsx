@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Plus, Trash2, KeyRound, Check } from 'lucide-react';
+import { Plus, Pencil, Trash2, KeyRound, Check } from 'lucide-react';
 import { api } from '../api/client';
 import type { UserDto } from '../types';
 
@@ -22,6 +22,7 @@ export default function Users() {
   const [showNew, setShowNew] = useState(false);
   const [editSections, setEditSections] = useState<UserDto | null>(null);
   const [newPw, setNewPw] = useState<{ username: string; password: string } | null>(null);
+  const [setPwFor, setSetPwFor] = useState<UserDto | null>(null);
 
   const load = useCallback(async () => {
     setError('');
@@ -89,6 +90,9 @@ export default function Users() {
       {error && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-4">{error}</p>}
 
       {showNew && <NewUserForm onClose={() => setShowNew(false)} onSaved={load} onError={setError} />}
+      {setPwFor && (
+        <SetPasswordForm user={setPwFor} onClose={() => setSetPwFor(null)} onSaved={load} onError={setError} />
+      )}
       {editSections && (
         <SectionsEditor user={editSections} onClose={() => setEditSections(null)} onSaved={load} onError={setError} />
       )}
@@ -137,7 +141,8 @@ export default function Users() {
                   </button>
                 </td>
                 <td className="px-4 py-3 text-right whitespace-nowrap">
-                  <button title="Reset password" onClick={() => resetPw(u)} className="p-1.5 text-gray-400 hover:text-yellow-600"><KeyRound size={16} /></button>
+                  <button title="Set password manually" onClick={() => setSetPwFor(u)} className="p-1.5 text-gray-400 hover:text-blue-600"><Pencil size={16} /></button>
+                  <button title="Reset password (random)" onClick={() => resetPw(u)} className="p-1.5 text-gray-400 hover:text-yellow-600"><KeyRound size={16} /></button>
                   <button title="Delete" onClick={() => remove(u)} className="p-1.5 text-gray-400 hover:text-red-600"><Trash2 size={16} /></button>
                 </td>
               </tr>
@@ -198,8 +203,44 @@ function NewUserForm({ onClose, onSaved, onError }: { onClose: () => void; onSav
   );
 }
 
-function SectionsEditor({ user, onClose, onSaved, onError }: {
+function SetPasswordForm({ user, onClose, onSaved, onError }: {
   user: UserDto; onClose: () => void; onSaved: () => void; onError: (e: string) => void;
+}) {
+  const [password, setPassword] = useState('');
+  const [done, setDone] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    try {
+      await api.setUserPassword(user.id, password);
+      setDone(true);
+      setTimeout(() => { onSaved(); onClose(); }, 800);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Save failed');
+      onClose();
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-gray-100 rounded-xl shadow-xl w-full max-w-sm mx-4" onClick={e => e.stopPropagation()}>
+        <form onSubmit={submit} className="p-6 space-y-4">
+          <h3 className="text-lg font-semibold text-gray-800">Set password: {user.username}</h3>
+          <input type="password" value={password} onChange={e => setPassword(e.target.value)}
+            placeholder="New password (8+ chars)" autoFocus
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          {done && <p className="text-xs text-green-600">Password set</p>}
+          <div className="flex justify-end gap-3">
+            <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancel</button>
+            <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">Save</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function SectionsEditor({ user, onClose, onSaved, onError }: {  user: UserDto; onClose: () => void; onSaved: () => void; onError: (e: string) => void;
 }) {
   // Per-section tri-state: default (role) / allow / deny.
   const [state, setState] = useState<Record<string, 'default' | 'allow' | 'deny'>>(() => {
