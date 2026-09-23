@@ -1,5 +1,6 @@
 mod bsl_ls;
 mod config;
+mod http_session;
 mod manager;
 mod protocol;
 mod session;

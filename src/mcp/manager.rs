@@ -3,11 +3,17 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use super::config::McpServerConfig;
+use super::http_session::HttpMcpSession;
 use super::protocol::{JsonRpcRequest, JsonRpcResponse};
 use super::session::McpSession;
 
+enum ManagedSession {
+    Stdio(McpSession),
+    Http(HttpMcpSession),
+}
+
 pub struct McpManager {
-    sessions: RwLock<HashMap<String, McpSession>>,
+    sessions: RwLock<HashMap<String, ManagedSession>>,
 }
 
 impl McpManager {
@@ -34,22 +40,33 @@ impl McpManager {
     }
 
     pub async fn start_server(&self, config: &McpServerConfig) -> Result<(), Box<dyn std::error::Error>> {
-        if config.transport != "stdio" {
-            tracing::warn!("MCP server '{}': transport '{}' not yet supported", config.id, config.transport);
-            return Ok(());
-        }
         // Hot-reload safe: stop previous session for this id first.
         self.stop_server(&config.id).await;
-        let session = McpSession::start(config).await?;
+        let session = match config.transport.as_str() {
+            "stdio" => ManagedSession::Stdio(McpSession::start(config).await?),
+            "http" | "sse" => {
+                let s = HttpMcpSession::start(config).await.map_err(|e| {
+                    format!("MCP HTTP '{}' ({}): {e}", config.id, config.url.as_deref().unwrap_or("-"))
+                })?;
+                ManagedSession::Http(s)
+            }
+            other => {
+                tracing::warn!("MCP server '{}': transport '{}' not yet supported", config.id, other);
+                return Ok(());
+            }
+        };
         self.sessions.write().await.insert(config.id.clone(), session);
-        tracing::info!("MCP server '{}' started", config.id);
+        tracing::info!("MCP server '{}' started ({})", config.id, config.transport);
         Ok(())
     }
 
     pub async fn stop_server(&self, id: &str) {
         let mut sessions = self.sessions.write().await;
         if let Some(mut session) = sessions.remove(id) {
-            session.shutdown().await;
+            if let ManagedSession::Stdio(s) = &mut session {
+                s.shutdown().await;
+            }
+            // Http sessions are stateless: dropping is enough.
             tracing::info!("MCP server '{}' stopped", id);
         }
     }
@@ -91,7 +108,10 @@ impl McpManager {
         let client_id = request.id.clone();
         let sessions = self.sessions.read().await;
         let session = sessions.get(server_id).ok_or_else(|| McpError::NotFound(server_id.to_string()))?;
-        let mut response = session.call(request).await.map_err(|e| McpError::CallError(e.to_string()))?;
+        let mut response = match session {
+            ManagedSession::Stdio(s) => s.call(request).await.map_err(|e| McpError::CallError(e.to_string()))?,
+            ManagedSession::Http(s) => s.call(request).await.map_err(|e| McpError::CallError(e.to_string()))?,
+        };
         if let Some(cid) = client_id {
             response.id = cid;
         }
@@ -101,7 +121,9 @@ impl McpManager {
     pub async fn shutdown_all(&self) {
         let mut sessions = self.sessions.write().await;
         for (_, mut session) in sessions.drain() {
-            session.shutdown().await;
+            if let ManagedSession::Stdio(s) = &mut session {
+                s.shutdown().await;
+            }
         }
     }
 }
