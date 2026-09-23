@@ -190,14 +190,12 @@ function PasswordModal({ onClose }: { onClose: () => void }) {
 }
 
 function Login({ onDone }: { onDone: () => void }) {
-  const [mode, setMode] = useState<'password' | 'token'>('password');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(true);
-  const [tokenValue, setTokenValue] = useState('');
   const [error, setError] = useState('');
 
-  async function submitPassword(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
     try {
@@ -209,67 +207,30 @@ function Login({ onDone }: { onDone: () => void }) {
     }
   }
 
-  async function submitToken(e: React.FormEvent) {
-    e.preventDefault();
-    setError('');
-    const token = tokenValue.trim();
-    if (!token) return;
-    try {
-      const res = await fetch('/api/admin/auth/me', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error('Invalid token');
-      setToken(token);
-      onDone();
-    } catch {
-      setError('Invalid token — check server.log for the generated one');
-    }
-  }
-
   return (
     <div className="flex h-dvh items-center justify-center bg-gray-50">
-      <div className="bg-gray-100 border border-gray-200 rounded-xl p-8 w-full max-w-sm shadow-lg">
-        <div className="flex items-center gap-3 mb-1">
+      <form onSubmit={submit} className="bg-gray-100 border border-gray-200 rounded-xl p-8 w-full max-w-sm shadow-lg">
+        <div className="flex items-center gap-3 mb-5">
           <KeyRound size={22} className="text-blue-600" />
           <h1 className="text-lg font-bold text-gray-800">AI 1C Admin</h1>
         </div>
-        <div className="flex gap-2 my-4">
-          {(['password', 'token'] as const).map(m => (
-            <button key={m} onClick={() => { setMode(m); setError(''); }}
-              className={`flex-1 px-3 py-1.5 text-sm rounded-lg transition-colors ${mode === m ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}`}>
-              {m === 'password' ? 'Login / password' : 'API token'}
-            </button>
-          ))}
+        <div className="space-y-3">
+          <input type="text" value={username} onChange={e => setUsername(e.target.value)} placeholder="Username"
+            autoFocus autoComplete="username"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password"
+            autoComplete="current-password"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <label className="flex items-center gap-2 text-xs text-gray-600">
+            <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} className="rounded" />
+            Remember me (7 days, otherwise 12 hours)
+          </label>
+          {error && <p className="text-xs text-red-600">{error}</p>}
+          <button type="submit" className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition-colors">
+            Sign in
+          </button>
         </div>
-        {mode === 'password' ? (
-          <form onSubmit={submitPassword} className="space-y-3">
-            <input type="text" value={username} onChange={e => setUsername(e.target.value)} placeholder="Username"
-              autoFocus autoComplete="username"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password"
-              autoComplete="current-password"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            <label className="flex items-center gap-2 text-xs text-gray-600">
-              <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} className="rounded" />
-              Remember me (7 days, otherwise 12 hours)
-            </label>
-            {error && <p className="text-xs text-red-600">{error}</p>}
-            <button type="submit" className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition-colors">
-              Sign in
-            </button>
-          </form>
-        ) : (
-          <form onSubmit={submitToken} className="space-y-3">
-            <p className="text-xs text-gray-500">Machine API token (see server.log, Dashboard → API Access)</p>
-            <input type="password" value={tokenValue} onChange={e => setTokenValue(e.target.value)} placeholder="ai1c_…"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            {error && <p className="text-xs text-red-600">{error}</p>}
-            <button type="submit" className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition-colors">
-              Sign in
-            </button>
-          </form>
-        )}
-      </div>
+      </form>
     </div>
   );
 }
