@@ -162,6 +162,7 @@ function NewUserForm({ onClose, onSaved, onError }: { onClose: () => void; onSav
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!confirm(`Create user "${username.trim()}" with role ${role}?`)) return;
     try {
       await api.createUser({ username: username.trim(), password, role });
       onSaved();
