@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Plus, Pencil, Trash2, Play, Square, RotateCcw, RefreshCw, Server, AlertTriangle, FolderOpen } from 'lucide-react';
 import { api } from '../api/client';
 import FileBrowser from '../components/FileBrowser';
-import type { AgentItem, SkillFileItem, PatternItem, AgentOverview, AgentBackendStatus, EnvEntry, Me } from '../types';
+import type { AgentItem, SkillFileItem, PatternItem, AgentOverview, AgentBackendStatus, EnvEntry, Me, McpServer, ServerStatus } from '../types';
 
 type Tab = 'agents' | 'skills' | 'patterns' | 'backend' | 'env';
 
@@ -181,6 +181,55 @@ function TextField({ label, value, onChange, mono, placeholder }: { label: strin
   );
 }
 
+/// MCP server picker for the agent `mcp:` field: dropdown of servers known
+/// to ai-1c-server (running first), falls back to free text when the
+/// mcp-servers section is not visible or the list fails to load.
+function McpSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [servers, setServers] = useState<McpServer[] | null>(null);
+  const [live, setLive] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const [items, st] = await Promise.all([api.getMcpServers(), api.getStatus().catch(() => [] as ServerStatus[])]);
+        if (!alive) return;
+        setServers(items);
+        const map: Record<string, string> = {};
+        st.forEach(x => { map[x.id] = x.status; });
+        setLive(map);
+      } catch {
+        if (alive) setServers(null);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  if (servers === null) {
+    return <TextField label="MCP (reserved)" value={value} onChange={onChange} mono />;
+  }
+  const sorted = [...servers].sort((a, b) =>
+    ((live[b.id] === 'running') ? 1 : 0) - ((live[a.id] === 'running') ? 1 : 0)
+    || a.name.localeCompare(b.name));
+  const options = ['default', ...sorted.map(s => s.name)];
+  // Keep a previously saved custom value selectable.
+  if (value && !options.includes(value)) options.push(value);
+  return (
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-1">MCP server</label>
+      <select value={options.includes(value) ? value : 'default'} onChange={e => onChange(e.target.value)}
+        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-50 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+        {options.map(o => {
+          const srv = sorted.find(s => s.name === o);
+          const st = srv ? live[srv.id] : undefined;
+          const suffix = o === 'default' ? ' (backend default)' : st === 'running' ? ' (running)' : st ? ` (${st})` : '';
+          return <option key={o} value={o}>{o}{suffix}</option>;
+        })}
+      </select>
+    </div>
+  );
+}
+
 function Modal({ title, onClose, onSubmit, error, children, wide }: {
   title: string; onClose: () => void; onSubmit: (e: React.FormEvent) => void; error: string; children: React.ReactNode; wide?: boolean;
 }) {
@@ -332,7 +381,7 @@ function AgentForm({ item, tools, toolsMode, skillNames, error, onClose, onSaved
         )}
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <TextField label="MCP (reserved)" value={mcp} onChange={setMcp} mono />
+        <McpSelect value={mcp} onChange={setMcp} />
         <TextField label="Model override (empty = config)" value={model} onChange={setModel} mono />
       </div>
       <BodyField value={body} onChange={setBody} rows={12} />
