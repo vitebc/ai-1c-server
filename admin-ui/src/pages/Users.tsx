@@ -211,6 +211,7 @@ function SetPasswordForm({ user, onClose, onSaved, onError }: {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!confirm(`Set new password for "${user.username}"? The old password stops working immediately.`)) return;
     try {
       await api.setUserPassword(user.id, password);
       setDone(true);
