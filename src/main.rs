@@ -73,11 +73,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 if auth::is_auth_required(&guard) {
                     tracing::info!(
-                        "API auth is ENABLED — pass 'Authorization: Bearer <token>' for /api/*"
+                        "API auth is ENABLED — login with password or pass 'Authorization: Bearer <token>' for /api/*"
                     );
                 } else {
-                    tracing::info!(
-                        "API auth is disabled (default) — enable via Admin UI or settings auth_required=1"
+                    tracing::warn!(
+                        "API auth is DISABLED (server_settings auth_required=0) — all /api/* open"
                     );
                 }
             }

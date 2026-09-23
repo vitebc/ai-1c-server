@@ -188,7 +188,7 @@ function ApiAccess() {
       <p className="text-xs text-gray-500 mb-3">
         {required
           ? 'Clients must send Authorization: Bearer. Token is auto-embedded into MCP export presets.'
-          : 'API is open (default). Turn on to require the token.'}
+          : 'API is open to everyone. Turn on to require login.'}
       </p>
       <div className="flex items-center gap-2">
         <KeyRound size={16} className="text-gray-400 shrink-0" />

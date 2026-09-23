@@ -161,7 +161,9 @@ curl -s "http://<vps-ip>:9224/api/admin/mcp-servers/export?format=opencode"
 
 API-токен генерируется при первом старте (см. лог `server.log`:
 `Generated new API token`) и хранится в `server_settings`.
-По умолчанию авторизация **выключена** (открытая локалка).
+По умолчанию авторизация **включена**: без логина API отдает 401,
+админка показывает экран входа. Выключать (`Auth OFF` /
+`auth_required=0`) — только для полностью изолированного контура.
 Включить: Dashboard → API Access → Auth ON (или
 `PUT /api/admin/settings {"key":"auth_required","value":"1"}`) —
 после этого все `/api/*` (кроме `/health`) требуют

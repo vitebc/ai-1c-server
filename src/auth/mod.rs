@@ -8,7 +8,8 @@
 //!   (12h, or 7d with `remember: true`). Secret in
 //!   `server_settings(jwt_secret)`, generated on boot.
 //! * Every `/api/*` (except `/health` and `/auth/login`) requires
-//!   `Authorization: Bearer <jwt|api_token>` when `auth_required` is set.
+//!   `Authorization: Bearer <jwt|api_token>`, unless auth is explicitly
+//!   disabled (`server_settings(auth_required)` = 0/false/no/off).
 //!   Legacy `api_token` keeps working (machine MCP clients) with full access.
 //! * RBAC: request path → section (`section_for`), JWT identity must include
 //!   the section; `viewer` is GET-only (except own password change).
@@ -50,8 +51,9 @@ fn hash_token(token: &str) -> String {
     format!("{:x}", h.finalize())
 }
 
-/// Auth is opt-in: required only when `server_settings(auth_required)`
-/// is set to a truthy value. Absent (fresh installs) = open API.
+/// Auth is enforced by default. It is disabled only when
+/// `server_settings(auth_required)` is explicitly set to a falsy value
+/// (`0/false/no/off`). Absent setting (fresh installs) = auth ON.
 pub fn is_auth_required(db: &Database) -> bool {
     let val: Result<String, _> = db.conn.query_row(
         "SELECT value FROM server_settings WHERE key = 'auth_required'",
@@ -63,7 +65,7 @@ pub fn is_auth_required(db: &Database) -> bool {
             v.trim().to_lowercase().as_str(),
             "" | "0" | "false" | "no" | "off"
         ),
-        Err(_) => false,
+        Err(_) => true,
     }
 }
 
