@@ -178,17 +178,17 @@ function ApiAccess() {
       <div className="flex items-center justify-between mb-3">
         <h3 className="font-semibold text-gray-800 flex items-center gap-2">
           {required ? <ShieldCheck size={18} className="text-green-500" /> : <ShieldOff size={18} className="text-gray-400" />}
-          API Access
+          MCP Token Auth
         </h3>
         <button onClick={toggle} disabled={busy}
           className={`px-3 py-1.5 text-xs rounded-lg transition-colors disabled:opacity-40 ${required ? 'bg-green-50 text-green-500 border border-green-200' : 'bg-gray-200 text-gray-500 border border-gray-300'}`}>
-          {required ? 'Auth ON' : 'Auth OFF'}
+          {required ? 'Token ON' : 'Token OFF'}
         </button>
       </div>
       <p className="text-xs text-gray-500 mb-3">
         {required
-          ? 'Clients must send Authorization: Bearer. Token is auto-embedded into MCP export presets.'
-          : 'API is open to everyone. Turn on to require login.'}
+          ? 'Machine MCP clients must send Authorization: Bearer. Token is auto-embedded into MCP export presets. Admin UI always needs login/password.'
+          : 'MCP gateway is open to LAN. Admin UI still requires login/password.'}
       </p>
       <div className="flex items-center gap-2">
         <KeyRound size={16} className="text-gray-400 shrink-0" />
@@ -210,9 +210,6 @@ function ApiAccess() {
           <RefreshCw size={14} /> {token ? 'Regenerate' : 'Generate'}
         </button>
       </div>
-      {required && token && (
-        <p className="text-[11px] text-yellow-600 mt-2">Auth is ON — copy the token now, you need it to log back in after logout.</p>
-      )}
     </div>
   );
 }

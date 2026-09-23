@@ -40,7 +40,8 @@ const nav = [
 ];
 
 export default function App() {
-  // null = probing access (covers auth-disabled servers and stored tokens).
+  // null = probing; without a valid JWT getMe 401s and we show login.
+  // The admin API always requires login/password.
   const [authed, setAuthed] = useState<boolean | null>(null);
   const [me, setMe] = useState<Me | null>(null);
   const [showPw, setShowPw] = useState(false);

@@ -7,10 +7,14 @@
 //! * `POST /api/admin/auth/login {username,password,remember?}` → JWT
 //!   (12h, or 7d with `remember: true`). Secret in
 //!   `server_settings(jwt_secret)`, generated on boot.
-//! * Every `/api/*` (except `/health` and `/auth/login`) requires
-//!   `Authorization: Bearer <jwt|api_token>`, unless auth is explicitly
-//!   disabled (`server_settings(auth_required)` = 0/false/no/off).
-//!   Legacy `api_token` keeps working (machine MCP clients) with full access.
+//! * `/api/admin/*` (except `/auth/login`) ALWAYS requires
+//!   `Authorization: Bearer <jwt>` — login/password only, no exceptions.
+//!   The legacy machine token is rejected here (401).
+//! * MCP gateway (`/api/mcp*`, `/api/mcp-aggregated*`, `/api/mcp-skills*`)
+//!   requires `Bearer <jwt|api_token>` only when token auth is ON
+//!   (`server_settings(auth_required)` not falsy; default ON).
+//!   When OFF the gateway is open to the LAN (guest identity).
+//!   Legacy `api_token` keeps working for machine MCP clients.
 //! * RBAC: request path → section (`section_for`), JWT identity must include
 //!   the section; `viewer` is GET-only (except own password change).
 //! * Login brute-force: >5 fails per IP in 10 min → 429 for 5 min.
@@ -51,9 +55,11 @@ fn hash_token(token: &str) -> String {
     format!("{:x}", h.finalize())
 }
 
-/// Auth is enforced by default. It is disabled only when
+/// MCP-gateway token auth is enforced by default. It is OFF only when
 /// `server_settings(auth_required)` is explicitly set to a falsy value
-/// (`0/false/no/off`). Absent setting (fresh installs) = auth ON.
+/// (`0/false/no/off`). Absent setting (fresh installs) = ON.
+/// NOTE: this flag gates ONLY the MCP gateway (`/api/mcp*`); the admin API
+/// (`/api/admin/*`) always requires login/password (JWT).
 pub fn is_auth_required(db: &Database) -> bool {
     let val: Result<String, _> = db.conn.query_row(
         "SELECT value FROM server_settings WHERE key = 'auth_required'",
@@ -584,35 +590,12 @@ pub async fn bearer_auth(
     }
     // NOTE: db guards are dropped BEFORE next.run — downstream handlers
     // lock the same mutex (deadlock otherwise).
-    let auth_disabled = {
-        let db = state.db.lock().await;
-        !is_auth_required(&db)
-    };
-    if auth_disabled {
-        // Open API: resolve identity when a bearer is present (so the UI
-        // can show who is logged in), otherwise a guest with full sections.
-        let bearer: Option<String> = req
-            .headers()
-            .get(axum::http::header::AUTHORIZATION)
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.strip_prefix("Bearer "))
-            .map(|t| t.trim().to_string());
-        let ident = match bearer {
-            Some(t) => {
-                let db = state.db.lock().await;
-                if verify_token(&db, &t) {
-                    AuthIdentity::system()
-                } else {
-                    decode_jwt(&db, &t)
-                        .map(AuthIdentity::of)
-                        .unwrap_or_else(AuthIdentity::guest)
-                }
-            }
-            None => AuthIdentity::guest(),
-        };
-        req.extensions_mut().insert(ident);
+
+    // Public login endpoint: always reachable (rate-limited inside the handler).
+    if path == "/api/admin/auth/login" {
         return next.run(req).await;
     }
+
     let bearer: Option<String> = req
         .headers()
         .get(axum::http::header::AUTHORIZATION)
@@ -620,46 +603,67 @@ pub async fn bearer_auth(
         .and_then(|v| v.strip_prefix("Bearer "))
         .map(|t| t.trim().to_string());
 
-    // Public login endpoint: needs a bearer only to *skip* rate-limit noise — no.
-    // It is always reachable (rate-limited inside the handler).
-    if path == "/api/admin/auth/login" {
-        return next.run(req).await;
-    }
-
-    let identity: Option<AuthIdentity> = match bearer {
-        Some(t) => {
-            let db = state.db.lock().await;
-            let is_legacy = verify_token(&db, &t);
-            tracing::info!("auth: bearer={}... is_legacy={}", &t[..t.len().min(20)], is_legacy);
-            if is_legacy {
-                tracing::info!("auth: legacy token detected, using system identity");
-                Some(AuthIdentity::system())
-            } else {
-                match decode_jwt(&db, &t) {
-                    Some(user) => {
-                        let ident = AuthIdentity::of(user);
-                        tracing::info!("auth: jwt decoded -> user={} role={} system={}", ident.username, ident.role, ident.system);
-                        Some(ident)
-                    }
-                    None => {
-                        tracing::warn!("auth: jwt decode failed for token {}...", &t[..t.len().min(20)]);
-                        None
-                    }
+    // Admin API: ALWAYS login/password (JWT). The legacy machine token
+    // is for MCP clients only and is rejected here.
+    if path.starts_with("/api/admin/") {
+        let t = match bearer {
+            Some(t) => t,
+            None => return unauthorized(),
+        };
+        let db = state.db.lock().await;
+        match decode_jwt(&db, &t) {
+            Some(user) => {
+                let ident = AuthIdentity::of(user);
+                tracing::debug!("auth: identity role={} user={}", ident.role, ident.username);
+                drop(db);
+                if let Some(deny) = check_access(&ident, &path, &req.method()) {
+                    return deny;
                 }
+                req.extensions_mut().insert(ident);
+                next.run(req).await
             }
+            None => unauthorized(),
         }
-        None => None,
-    };
-    let identity = match identity {
-        Some(i) => {
-            tracing::debug!("auth: identity system={} role={} user={}", i.system, i.role, i.username);
-            i
+    } else {
+        // MCP gateway: open when token auth is OFF, Bearer (JWT or legacy
+        // machine token) when ON.
+        let mcp_open = {
+            let db = state.db.lock().await;
+            !is_auth_required(&db)
+        };
+        if mcp_open {
+            req.extensions_mut().insert(AuthIdentity::guest());
+            return next.run(req).await;
         }
-        None => return unauthorized(),
-    };
+        let t = match bearer {
+            Some(t) => t,
+            None => return unauthorized(),
+        };
+        let db = state.db.lock().await;
+        let is_legacy = verify_token(&db, &t);
+        let identity: Option<AuthIdentity> = if is_legacy {
+            Some(AuthIdentity::system())
+        } else {
+            decode_jwt(&db, &t).map(AuthIdentity::of)
+        };
+        drop(db);
+        let identity = match identity {
+            Some(i) => i,
+            None => return unauthorized(),
+        };
+        if let Some(deny) = check_access(&identity, &path, &req.method()) {
+            return deny;
+        }
+        req.extensions_mut().insert(identity);
+        next.run(req).await
+    }
+}
 
+/// RBAC section check + viewer read-only rule.
+/// Returns `Some(403)` on denial, `None` when allowed.
+fn check_access(identity: &AuthIdentity, path: &str, method: &axum::http::Method) -> Option<Response> {
     // Section check.
-    let section = section_for(&path).unwrap_or("dashboard");
+    let section = section_for(path).unwrap_or("dashboard");
     if !identity.system {
         let allowed = if section == "__self" {
             true
@@ -673,19 +677,18 @@ pub async fn bearer_auth(
             identity.sections.iter().any(|s| s == section)
         };
         if !allowed {
-            return forbidden();
+            return Some(forbidden());
         }
         // Viewer (and any restricted role): mutations need operator+.
         // Role viewer is read-only; overrides can only *remove* sections,
         // never grant write — write requires role != viewer.
-        let is_get = req.method() == axum::http::Method::GET;
+        let is_get = *method == axum::http::Method::GET;
         let self_pw = path == "/api/admin/auth/password";
         if !is_get && !self_pw && identity.role == ROLE_VIEWER {
-            return forbidden();
+            return Some(forbidden());
         }
     }
-    req.extensions_mut().insert(identity);
-    next.run(req).await
+    None
 }
 
 // ─── handlers ───
@@ -865,7 +868,9 @@ pub async fn rotate_handler(
     }
 }
 
-/// GET /api/admin/auth/token — current token (admin only) + enforcement flag.
+/// GET /api/admin/auth/token — current machine token (admin only) +
+/// MCP-gateway enforcement flag (`auth_required` gates the MCP gateway only;
+/// the admin API always requires login).
 pub async fn token_handler(
     State(state): State<Arc<AppState>>,
     Extension(ident): Extension<AuthIdentity>,

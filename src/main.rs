@@ -75,11 +75,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 if auth::is_auth_required(&guard) {
                     tracing::info!(
-                        "API auth is ENABLED — login with password or pass 'Authorization: Bearer <token>' for /api/*"
+                        "MCP token auth is ON — machine clients pass 'Authorization: Bearer <token>' for /api/mcp*; admin UI always requires login/password"
                     );
                 } else {
                     tracing::warn!(
-                        "API auth is DISABLED (server_settings auth_required=0) — all /api/* open"
+                        "MCP token auth is OFF (server_settings auth_required=0) — /api/mcp* open to LAN; admin UI still requires login/password"
                     );
                 }
             }
