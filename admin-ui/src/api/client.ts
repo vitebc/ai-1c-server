@@ -1,7 +1,7 @@
 import type { BslLsState, Client, ClientVersion, ConfigProfile, FsBrowseResult, LogEntry, McpServer, ServerStatus, Skill } from '../types';
 import type {
   AgentItem, SkillFileItem, PatternItem, AgentOverview,
-  AgentBackendStatus, EnvEntry, LiveAgents, LiveSkills,
+  AgentBackendStatus, EnvEntry, LiveAgents, LiveSkills, LiveTools,
   Me, UserDto,
 } from '../types';
 
@@ -172,6 +172,8 @@ export const api = {
   getLiveAgents: () => request<LiveAgents>('/agent-backend/live/agents'),
   getLiveSkills: (agent?: string) =>
     request<LiveSkills>(`/agent-backend/live/skills${agent ? `?agent=${encodeURIComponent(agent)}` : ''}`),
+  getLiveTools: () =>
+    request<LiveTools>('/agent-backend/live/tools'),
 
   login: (username: string, password: string, remember?: boolean) =>
     request<{ token: string; username: string; role: string; sections: string[] }>(

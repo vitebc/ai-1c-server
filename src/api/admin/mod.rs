@@ -204,4 +204,5 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/agent-backend/env", get(agent_backend::env_list).put(agent_backend::env_put))
         .route("/agent-backend/live/agents", get(agent_backend::live_agents))
         .route("/agent-backend/live/skills", get(agent_backend::live_skills))
+        .route("/agent-backend/live/tools", get(agent_backend::live_tools))
 }

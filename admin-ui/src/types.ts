@@ -200,3 +200,17 @@ export interface LiveSkills {
     errors: string[];
   };
 }
+
+export interface LiveToolItem {
+  name: string;
+  description: string;
+}
+
+export interface LiveTools {
+  reachable: boolean;
+  error?: string;
+  data?: {
+    mode: string;
+    tools: LiveToolItem[];
+  };
+}

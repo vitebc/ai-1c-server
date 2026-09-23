@@ -482,8 +482,7 @@ pub async fn live_agents(State(state): State<Arc<AppState>>) -> Json<Value> {
     }
 }
 
-pub async fn live_skills(
-    State(state): State<Arc<AppState>>,
+pub async fn live_skills(    State(state): State<Arc<AppState>>,
     Query(q): Query<HashMap<String, String>>,
 ) -> Json<Value> {
     let url = {
@@ -496,6 +495,21 @@ pub async fn live_skills(
         target.push_str(&format!("?agent={}", urlencoding(a)));
     }
     match proxy_get(&target).await {
+        Ok(v) => Json(json!({ "reachable": true, "data": v })),
+        Err(e) => Json(json!({ "reachable": false, "error": e })),
+    }
+}
+
+/// GET /agent-backend/live/tools — full live ToolRegistry from the backend
+/// (`GET /tools`: mock/live + local tools with descriptions).
+/// The source of truth for `AGENT.md`/`SKILL.md` `tools:` selectors.
+pub async fn live_tools(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let url = {
+        let db = state.db.lock().await;
+        let root = project_root(&db);
+        backend_url(&db, &root)
+    };
+    match proxy_get(&format!("{url}/tools")).await {
         Ok(v) => Json(json!({ "reachable": true, "data": v })),
         Err(e) => Json(json!({ "reachable": false, "error": e })),
     }

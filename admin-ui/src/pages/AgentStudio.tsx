@@ -17,16 +17,26 @@ const TAB_SECTION: Record<Tab, string> = {
 export default function AgentStudio({ me }: { me: Me | null }) {
   const [tab, setTab] = useState<Tab>('agents');
   const [ov, setOv] = useState<AgentOverview | null>(null);
-  const [tools, setTools] = useState<string[]>([]);
+  const [tools, setTools] = useState<{ name: string; description: string }[]>([]);
+  const [toolsMode, setToolsMode] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [browseRoot, setBrowseRoot] = useState(false);
 
   const load = useCallback(async () => {
     setError('');
     try {
-      const [o, t] = await Promise.all([api.getAgentOverview(), api.getAgentTools()]);
+      const [o, live] = await Promise.all([api.getAgentOverview(), api.getLiveTools().catch(() => null)]);
       setOv(o);
-      setTools(t);
+      if (live?.reachable && live.data) {
+        // Live ToolRegistry from the backend — the source of truth.
+        setTools(live.data.tools.map(t => ({ name: t.name, description: t.description || '' })));
+        setToolsMode(live.data.mode);
+      } else {
+        // Backend down: fall back to the static known list.
+        const t = await api.getAgentTools();
+        setTools(t.map(name => ({ name, description: '' })));
+        setToolsMode(null);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Load failed');
     }
@@ -94,8 +104,8 @@ export default function AgentStudio({ me }: { me: Me | null }) {
         ))}
       </div>
 
-      {tab === 'agents' && ov && <AgentsTab ov={ov} tools={tools} skillNames={ov.skills.map(s => s.name)} onChanged={load} />}
-      {tab === 'skills' && ov && <SkillsTab ov={ov} tools={tools} onChanged={load} />}
+      {tab === 'agents' && ov && <AgentsTab ov={ov} tools={tools} toolsMode={toolsMode} skillNames={ov.skills.map(s => s.name)} onChanged={load} />}
+      {tab === 'skills' && ov && <SkillsTab ov={ov} tools={tools} toolsMode={toolsMode} onChanged={load} />}
       {tab === 'patterns' && ov && <PatternsTab ov={ov} onChanged={load} />}
       {tab === 'backend' && <BackendTab />}
       {tab === 'env' && <EnvTab />}
@@ -123,17 +133,27 @@ function Err({ text }: { text: string | null }) {
   );
 }
 
-function ToolsCheck({ all, selected, onChange }: { all: string[]; selected: string[]; onChange: (v: string[]) => void }) {
+function ToolsCheck({ all, selected, onChange, mode }: {
+  all: { name: string; description: string }[]; selected: string[]; onChange: (v: string[]) => void; mode: string | null;
+}) {
   const toggle = (t: string) =>
     onChange(selected.includes(t) ? selected.filter(x => x !== t) : [...selected, t]);
+  // Keep already-selected tools visible even if the live registry no longer lists them.
+  const extra = selected.filter(s => !all.some(t => t.name === s)).map(name => ({ name, description: '(not in live registry)' }));
+  const list = [...all, ...extra];
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">Tools (subset of ToolRegistry)</label>
+      <div className="flex items-center justify-between mb-1">
+        <label className="block text-sm font-medium text-gray-700">Tools (subset of ToolRegistry)</label>
+        <span className={`text-[11px] px-1.5 py-0.5 rounded ${mode ? 'bg-green-50 text-green-600' : 'bg-gray-200 text-gray-500'}`} title={mode ? 'Live list from backend GET /tools' : 'Backend unreachable — static fallback list'}>
+          {mode ? `live · ${mode} · ${all.length}` : `offline · static · ${all.length}`}
+        </span>
+      </div>
       <div className="border border-gray-300 rounded-lg p-2 max-h-40 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1 bg-gray-50">
-        {all.map(t => (
-          <label key={t} className="flex items-center gap-2 text-xs text-gray-700 px-1 py-0.5 rounded hover:bg-gray-200 cursor-pointer">
-            <input type="checkbox" checked={selected.includes(t)} onChange={() => toggle(t)} className="rounded" />
-            <span className="font-mono">{t}</span>
+        {list.map(t => (
+          <label key={t.name} title={t.description} className="flex items-center gap-2 text-xs text-gray-700 px-1 py-0.5 rounded hover:bg-gray-200 cursor-pointer">
+            <input type="checkbox" checked={selected.includes(t.name)} onChange={() => toggle(t.name)} className="rounded" />
+            <span className="font-mono truncate">{t.name}</span>
           </label>
         ))}
       </div>
@@ -183,7 +203,7 @@ function Modal({ title, onClose, onSubmit, error, children, wide }: {
 
 // ─── Agents tab ───
 
-function AgentsTab({ ov, tools, skillNames, onChanged }: { ov: AgentOverview; tools: string[]; skillNames: string[]; onChanged: () => void }) {
+function AgentsTab({ ov, tools, toolsMode, skillNames, onChanged }: { ov: AgentOverview; tools: { name: string; description: string }[]; toolsMode: string | null; skillNames: string[]; onChanged: () => void }) {
   const [edit, setEdit] = useState<AgentItem | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [formError, setFormError] = useState('');
@@ -207,6 +227,7 @@ function AgentsTab({ ov, tools, skillNames, onChanged }: { ov: AgentOverview; to
         <AgentForm
           item={edit}
           tools={tools}
+          toolsMode={toolsMode}
           skillNames={skillNames}
           error={formError}
           onClose={() => { setShowNew(false); setEdit(null); }}
@@ -250,8 +271,8 @@ function AgentsTab({ ov, tools, skillNames, onChanged }: { ov: AgentOverview; to
   );
 }
 
-function AgentForm({ item, tools, skillNames, error, onClose, onSaved, onError }: {
-  item: AgentItem | null; tools: string[]; skillNames: string[];
+function AgentForm({ item, tools, toolsMode, skillNames, error, onClose, onSaved, onError }: {
+  item: AgentItem | null; tools: { name: string; description: string }[]; toolsMode: string | null; skillNames: string[];
   error: string; onClose: () => void; onSaved: () => void; onError: (e: string) => void;
 }) {
   const [name, setName] = useState(item?.name || '');
@@ -289,7 +310,7 @@ function AgentForm({ item, tools, skillNames, error, onClose, onSaved, onError }
         <TextField label="Title (1C dropdown)" value={title} onChange={setTitle} />
       </div>
       <TextField label="Description" value={description} onChange={setDescription} />
-      <ToolsCheck all={tools} selected={selTools} onChange={setSelTools} />
+      <ToolsCheck all={tools} selected={selTools} onChange={setSelTools} mode={toolsMode} />
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">Skills</label>
         <label className="flex items-center gap-2 text-xs text-gray-700 mb-1">
@@ -322,7 +343,7 @@ function AgentForm({ item, tools, skillNames, error, onClose, onSaved, onError }
 
 // ─── Agent skills tab ───
 
-function SkillsTab({ ov, tools, onChanged }: { ov: AgentOverview; tools: string[]; onChanged: () => void }) {
+function SkillsTab({ ov, tools, toolsMode, onChanged }: { ov: AgentOverview; tools: { name: string; description: string }[]; toolsMode: string | null; onChanged: () => void }) {
   const [edit, setEdit] = useState<SkillFileItem | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [formError, setFormError] = useState('');
@@ -343,7 +364,7 @@ function SkillsTab({ ov, tools, onChanged }: { ov: AgentOverview; tools: string[
         </button>
       </div>
       {(showNew || edit) && (
-        <SkillForm item={edit} tools={tools} error={formError}
+        <SkillForm item={edit} tools={tools} toolsMode={toolsMode} error={formError}
           onClose={() => { setShowNew(false); setEdit(null); }} onSaved={onChanged} onError={setFormError} />
       )}
       <div className="bg-gray-100 rounded-xl border border-gray-200 overflow-hidden">
@@ -377,8 +398,8 @@ function SkillsTab({ ov, tools, onChanged }: { ov: AgentOverview; tools: string[
   );
 }
 
-function SkillForm({ item, tools, error, onClose, onSaved, onError }: {
-  item: SkillFileItem | null; tools: string[];
+function SkillForm({ item, tools, toolsMode, error, onClose, onSaved, onError }: {
+  item: SkillFileItem | null; tools: { name: string; description: string }[]; toolsMode: string | null;
   error: string; onClose: () => void; onSaved: () => void; onError: (e: string) => void;
 }) {
   const [name, setName] = useState(item?.name || '');
@@ -406,7 +427,7 @@ function SkillForm({ item, tools, error, onClose, onSaved, onError }: {
         <TextField label="Name (folder, ^[a-z0-9-]+$)" value={name} onChange={setName} mono />
         <TextField label="Description (auto-match)" value={description} onChange={setDescription} />
       </div>
-      <ToolsCheck all={tools} selected={selTools} onChange={setSelTools} />
+      <ToolsCheck all={tools} selected={selTools} onChange={setSelTools} mode={toolsMode} />
       <BodyField value={body} onChange={setBody} rows={12} />
     </Modal>
   );
