@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, Play, Square, RotateCcw, RefreshCw, Server, AlertTriangle, FolderOpen } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Plus, Pencil, Trash2, Play, Pause, Square, RotateCcw, RefreshCw, Server, AlertTriangle, FolderOpen } from 'lucide-react';
 import { api } from '../api/client';
 import FileBrowser from '../components/FileBrowser';
 import type { AgentItem, SkillFileItem, PatternItem, AgentOverview, AgentBackendStatus, EnvEntry, Me, McpServer, ServerStatus } from '../types';
@@ -637,7 +637,11 @@ function BackendTab() {
   const [output, setOutput] = useState('');
   const [busy, setBusy] = useState(false);
   const [log, setLog] = useState('');
-  const [logService, setLogService] = useState('');
+  const [logService, setLogService] = useState('backend');
+  const [logTail, setLogTail] = useState(200);
+  const [logTs, setLogTs] = useState(false);
+  const [logLive, setLogLive] = useState(true);
+  const logEndRef = useRef<HTMLDivElement>(null);
   const [live, setLive] = useState<{ agents: string[]; skills: string[]; errors: string[]; reachable: boolean } | null>(null);
 
   const load = useCallback(async () => {
@@ -673,16 +677,24 @@ function BackendTab() {
     }
   }
 
-  async function loadLogs() {
+  const loadLogs = useCallback(async () => {
     try {
-      const r = await api.getAgentBackendLogs(logService || undefined, 200);
+      const r = await api.getAgentBackendLogs(logService || undefined, logTail, logTs);
       setLog(r.log);
     } catch (e) {
       setLog(e instanceof Error ? e.message : 'Failed');
     }
-  }
+  }, [logService, logTail, logTs]);
 
-  useEffect(() => { loadLogs(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { loadLogs(); }, [loadLogs]);
+  useEffect(() => {
+    if (!logLive) return;
+    const t = setInterval(loadLogs, 3000);
+    return () => clearInterval(t);
+  }, [logLive, loadLogs]);
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [log]);
 
   const toggleProfile = (p: string) =>
     setProfiles(profiles.includes(p) ? profiles.filter(x => x !== p) : [...profiles, p]);
@@ -749,7 +761,7 @@ function BackendTab() {
       </div>
 
       <div className="bg-gray-100 rounded-xl border border-gray-200 p-4">
-        <div className="flex items-center gap-2 mb-2">
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
           <h3 className="font-semibold text-gray-800">Logs</h3>
           <select value={logService} onChange={e => setLogService(e.target.value)}
             className="px-2 py-1 text-xs border border-gray-300 rounded-lg bg-gray-50 text-gray-700">
@@ -759,11 +771,23 @@ function BackendTab() {
             <option value="tei">tei</option>
             <option value="mcp-proxy">mcp-proxy</option>
           </select>
+          <select value={logTail} onChange={e => setLogTail(Number(e.target.value))}
+            className="px-2 py-1 text-xs border border-gray-300 rounded-lg bg-gray-50 text-gray-700" title="Lines to fetch">
+            {[100, 200, 500, 1000].map(n => <option key={n} value={n}>tail {n}</option>)}
+          </select>
+          <label className="flex items-center gap-1 text-xs text-gray-600" title="docker --timestamps">
+            <input type="checkbox" checked={logTs} onChange={e => setLogTs(e.target.checked)} className="rounded" /> ts
+          </label>
+          <button onClick={() => setLogLive(v => !v)} title={logLive ? 'Pause live tail' : 'Resume live tail'}
+            className="flex items-center gap-1.5 px-3 py-1 text-xs text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-200">
+            {logLive ? <Pause size={12} /> : <Play size={12} />} {logLive ? 'Live' : 'Paused'}
+          </button>
           <button onClick={loadLogs} className="flex items-center gap-1.5 px-3 py-1 text-xs text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-200">
             <RefreshCw size={12} /> Refresh
           </button>
         </div>
         <pre className="text-[11px] font-mono text-green-400 bg-gray-900 rounded-lg p-3 max-h-72 overflow-y-auto whitespace-pre-wrap">{log || 'No logs'}</pre>
+        <div ref={logEndRef} />
       </div>
     </div>
   );

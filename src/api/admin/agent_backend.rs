@@ -309,6 +309,8 @@ pub async fn restart(
 pub struct LogsQuery {
     pub service: Option<String>,
     pub tail: Option<usize>,
+    #[serde(default)]
+    pub timestamps: bool,
 }
 
 pub async fn logs(
@@ -322,6 +324,9 @@ pub async fn logs(
     };
     let tail = q.tail.unwrap_or(200).clamp(1, 2000).to_string();
     let mut args: Vec<&str> = vec!["logs", "--no-color", "--tail", &tail];
+    if q.timestamps {
+        args.push("--timestamps");
+    }
     if let Some(s) = &q.service {
         if !s.trim().is_empty() {
             validate_services(&[s.clone()]).map_err(|e| super::BadRequest(e).into_response())?;
