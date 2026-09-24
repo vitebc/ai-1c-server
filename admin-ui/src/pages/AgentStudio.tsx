@@ -181,10 +181,10 @@ function TextField({ label, value, onChange, mono, placeholder }: { label: strin
   );
 }
 
-/// MCP server picker for the agent `mcp:` field: dropdown of servers known
-/// to ai-1c-server (running first), falls back to free text when the
-/// mcp-servers section is not visible or the list fails to load.
-function McpSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+/// MCP server multi-picker for the agent `mcp:` field (same UX as Tools):
+/// checkboxes over ai-1c-server rows (running first). Falls back to
+/// comma-separated free text when the mcp-servers section is not visible.
+function McpSelect({ selected, onChange }: { selected: string[]; onChange: (v: string[]) => void }) {
   const [servers, setServers] = useState<McpServer[] | null>(null);
   const [live, setLive] = useState<Record<string, string>>({});
 
@@ -205,27 +205,43 @@ function McpSelect({ value, onChange }: { value: string; onChange: (v: string) =
     return () => { alive = false; };
   }, []);
 
+  const toggle = (name: string) =>
+    onChange(selected.includes(name) ? selected.filter(x => x !== name) : [...selected, name]);
+
   if (servers === null) {
-    return <TextField label="MCP (reserved)" value={value} onChange={onChange} mono />;
+    return <TextField label="MCP servers (comma-separated, empty = default)" value={selected.join(', ')}
+      onChange={v => onChange(v.split(',').map(s => s.trim()).filter(Boolean))} mono />;
   }
   const sorted = [...servers].sort((a, b) =>
     ((live[b.id] === 'running') ? 1 : 0) - ((live[a.id] === 'running') ? 1 : 0)
     || a.name.localeCompare(b.name));
-  const options = ['default', ...sorted.map(s => s.name)];
-  // Keep a previously saved custom value selectable.
-  if (value && !options.includes(value)) options.push(value);
+  // Keep previously saved custom values visible even if no such row exists.
+  const extra = selected.filter(s => s !== 'default' && !sorted.some(r => r.name === s));
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">MCP server</label>
-      <select value={options.includes(value) ? value : 'default'} onChange={e => onChange(e.target.value)}
-        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-50 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
-        {options.map(o => {
-          const srv = sorted.find(s => s.name === o);
-          const st = srv ? live[srv.id] : undefined;
-          const suffix = o === 'default' ? ' (backend default)' : st === 'running' ? ' (running)' : st ? ` (${st})` : '';
-          return <option key={o} value={o}>{o}{suffix}</option>;
-        })}
-      </select>
+      <div className="flex items-center justify-between mb-1">
+        <label className="block text-sm font-medium text-gray-700">MCP servers</label>
+        <span className="text-[11px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-500">{selected.length || 'default'}</span>
+      </div>
+      <div className="border border-gray-300 rounded-lg p-2 max-h-40 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1 bg-gray-50">
+        <label className="flex items-center gap-2 text-xs text-gray-700 px-1 py-0.5 rounded hover:bg-gray-200 cursor-pointer" title="Backend default">
+          <input type="checkbox" checked={selected.includes('default')} onChange={() => toggle('default')} className="rounded" />
+          <span className="font-mono">default</span>
+        </label>
+        {sorted.map(s => (
+          <label key={s.id} className="flex items-center gap-2 text-xs text-gray-700 px-1 py-0.5 rounded hover:bg-gray-200 cursor-pointer" title={s.transport}>
+            <input type="checkbox" checked={selected.includes(s.name)} onChange={() => toggle(s.name)} className="rounded" />
+            <span className="font-mono truncate">{s.name}</span>
+            {live[s.id] === 'running' && <span className="text-[10px] text-green-600">●</span>}
+          </label>
+        ))}
+        {extra.map(name => (
+          <label key={name} className="flex items-center gap-2 text-xs text-gray-700 px-1 py-0.5 rounded hover:bg-gray-200 cursor-pointer" title="Saved value, no such server row">
+            <input type="checkbox" checked={selected.includes(name)} onChange={() => toggle(name)} className="rounded" />
+            <span className="font-mono truncate">{name}</span>
+          </label>
+        ))}
+      </div>
     </div>
   );
 }
@@ -330,7 +346,13 @@ function AgentForm({ item, tools, toolsMode, skillNames, error, onClose, onSaved
   const [selTools, setSelTools] = useState<string[]>(item?.tools || []);
   const [selSkills, setSelSkills] = useState<string[]>(item?.skills || []);
   const [allSkills, setAllSkills] = useState(item ? item.skills.includes('*') : false);
-  const [mcp, setMcp] = useState(item?.mcp || 'default');
+  // `mcp` arrives as a list; tolerate legacy scalar files/custom values.
+  const [selMcp, setSelMcp] = useState<string[]>(() => {
+    const v: unknown = item?.mcp;
+    if (Array.isArray(v)) return v.filter(x => typeof x === 'string');
+    if (typeof v === 'string') return v.split(',').map(s => s.trim()).filter(Boolean);
+    return ['default'];
+  });
   const [model, setModel] = useState(item?.model || '');
   const [body, setBody] = useState(item?.body || '');
 
@@ -340,7 +362,7 @@ function AgentForm({ item, tools, toolsMode, skillNames, error, onClose, onSaved
     const payload = {
       name: name.trim(), title, description,
       tools: selTools, skills: allSkills ? ['*'] : selSkills,
-      mcp: mcp || 'default', model, body,
+      mcp: selMcp, model, body,
     };
     try {
       if (item) await api.updateAgent(item.name, payload);
@@ -381,7 +403,7 @@ function AgentForm({ item, tools, toolsMode, skillNames, error, onClose, onSaved
         )}
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <McpSelect value={mcp} onChange={setMcp} />
+        <McpSelect selected={selMcp} onChange={setSelMcp} />
         <TextField label="Model override (empty = config)" value={model} onChange={setModel} mono />
       </div>
       <BodyField value={body} onChange={setBody} rows={12} />

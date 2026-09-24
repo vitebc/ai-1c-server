@@ -186,7 +186,7 @@ pub struct AgentItem {
     pub description: String,
     pub tools: Vec<String>,
     pub skills: Vec<String>,
-    pub mcp: String,
+    pub mcp: Vec<String>,
     pub model: String,
     pub body: String,
     pub error: Option<String>,
@@ -227,10 +227,61 @@ pub struct AgentBody {
     pub tools: Vec<String>,
     #[serde(default)]
     pub skills: Vec<String>,
-    pub mcp: Option<String>,
+    /// Accepts a single string (legacy UI / `mcp: default`), a comma
+    /// string, or a list — mirrors the agent backend (`mcp: [a, b]`).
+    #[serde(default, deserialize_with = "de_mcp")]
+    pub mcp: Vec<String>,
     pub model: Option<String>,
     #[serde(default)]
     pub body: String,
+}
+
+/// String-or-list deserializer for the agent `mcp` field.
+fn de_mcp<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::Deserialize;
+    let v = Option::<Value>::deserialize(deserializer)?;
+    Ok(match v {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::String(s)) => split_mcp(&s),
+        Some(Value::Array(a)) => a
+            .iter()
+            .filter_map(|x| x.as_str())
+            .flat_map(|s| split_mcp(s))
+            .collect(),
+        _ => Vec::new(),
+    })
+}
+
+fn split_mcp(s: &str) -> Vec<String> {
+    s.split(',')
+        .map(|p| p.trim().to_string())
+        .filter(|p| !p.is_empty())
+        .collect()
+}
+
+/// Backend rule (`agents/loader.py`): each entry `^[a-z0-9]+(-[a-z0-9]+)*$`.
+/// Empty selection falls back to `["default"]`.
+fn normalize_mcp(raw: Vec<String>) -> Result<Vec<String>, String> {
+    let mut out = Vec::new();
+    for m in raw.iter().flat_map(|s| split_mcp(s)) {
+        let ok = !m.starts_with('-')
+            && !m.ends_with('-')
+            && m.split('-')
+                .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()));
+        if !ok {
+            return Err(format!("invalid mcp entry {m:?}: use [a-z0-9-]"));
+        }
+        if !out.contains(&m) {
+            out.push(m);
+        }
+    }
+    if out.is_empty() {
+        out.push("default".into());
+    }
+    Ok(out)
 }
 
 #[derive(Debug, Deserialize)]
@@ -265,7 +316,7 @@ fn read_agent(dir: &Path) -> AgentItem {
         description: String::new(),
         tools: Vec::new(),
         skills: Vec::new(),
-        mcp: String::new(),
+        mcp: Vec::new(),
         model: String::new(),
         body: String::new(),
         error: None,
@@ -293,7 +344,7 @@ fn read_agent(dir: &Path) -> AgentItem {
         description: meta_str(&meta, "description"),
         tools: meta_list(&meta, "tools"),
         skills: meta_list(&meta, "skills"),
-        mcp: meta_str(&meta, "mcp"),
+        mcp: meta_list(&meta, "mcp"),
         model: meta_str(&meta, "model"),
         body,
         error: None,
@@ -506,12 +557,13 @@ pub async fn create_agent(
         ("name".into(), name.clone()),
         ("title".into(), body.title.unwrap_or_default()),
         ("description".into(), body.description.unwrap_or_default()),
-        ("mcp".into(), body.mcp.unwrap_or_else(|| "default".into())),
         ("model".into(), body.model.unwrap_or_default()),
     ];
+    let mcp = normalize_mcp(body.mcp).map_err(|e| super::BadRequest(e).into_response())?;
     let mut lists = HashMap::new();
     lists.insert("tools".to_string(), body.tools);
     lists.insert("skills".to_string(), body.skills);
+    lists.insert("mcp".to_string(), mcp);
     let content = render_frontmatter(&meta, &lists, &body.body);
     write_file(&dir.join("AGENT.md"), &content)
         .map_err(|e| super::AppError::msg(e).into_response())?;
@@ -558,12 +610,13 @@ pub async fn update_agent(
         ("name".into(), new_name.clone()),
         ("title".into(), body.title.unwrap_or_default()),
         ("description".into(), body.description.unwrap_or_default()),
-        ("mcp".into(), body.mcp.unwrap_or_else(|| "default".into())),
         ("model".into(), body.model.unwrap_or_default()),
     ];
+    let mcp = normalize_mcp(body.mcp).map_err(|e| super::BadRequest(e).into_response())?;
     let mut lists = HashMap::new();
     lists.insert("tools".to_string(), body.tools);
     lists.insert("skills".to_string(), body.skills);
+    lists.insert("mcp".to_string(), mcp);
     let content = render_frontmatter(&meta, &lists, &body.body);
     write_file(&final_dir.join("AGENT.md"), &content)
         .map_err(|e| super::AppError::msg(e).into_response())?;

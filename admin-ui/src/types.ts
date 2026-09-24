@@ -130,7 +130,7 @@ export interface AgentItem {
   description: string;
   tools: string[];
   skills: string[];
-  mcp: string;
+  mcp: string[];
   model: string;
   body: string;
   error: string | null;
