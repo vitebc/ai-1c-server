@@ -133,14 +133,39 @@ function Err({ text }: { text: string | null }) {
   );
 }
 
-function ToolsCheck({ all, selected, onChange, mode }: {
+/// Mirror of the agent backend naming rules (`onec/aggregated.py` +
+/// `api/mod.rs::tool_prefix`): `server__tool` carries the subserver tag,
+/// unprefixed names are backend built-ins (default-proxy / local).
+function toolServer(toolName: string): string | null {
+  const i = toolName.indexOf('__');
+  return i > 0 ? toolName.slice(0, i) : null;
+}
+
+function toolPrefix(name: string): string {
+  const s = name.replace(/[^a-zA-Z0-9_.-]/g, '_') || 'server';
+  return s.slice(0, 32);
+}
+
+function ToolsCheck({ all, selected, onChange, mode, mcpFilter }: {
   all: { name: string; description: string }[]; selected: string[]; onChange: (v: string[]) => void; mode: string | null;
+  /// Selected MCP row names (agent form): prefixed tools are shown only for
+  /// these servers. Backend built-ins (no `__`) are always shown.
+  /// `null` = no filtering (skill form has no mcp field).
+  mcpFilter?: string[] | null;
 }) {
   const toggle = (t: string) =>
     onChange(selected.includes(t) ? selected.filter(x => x !== t) : [...selected, t]);
   // Keep already-selected tools visible even if the live registry no longer lists them.
   const extra = selected.filter(s => !all.some(t => t.name === s)).map(name => ({ name, description: '(not in live registry)' }));
   const list = [...all, ...extra];
+  const visible = (name: string) => {
+    if (!mcpFilter) return true;
+    const srv = toolServer(name);
+    if (srv === null) return true;
+    return mcpFilter.some(s => s === srv || toolPrefix(s) === srv);
+  };
+  const shown = list.filter(t => visible(t.name));
+  const hiddenSelected = selected.filter(s => !shown.some(t => t.name === s));
   return (
     <div>
       <div className="flex items-center justify-between mb-1">
@@ -149,13 +174,26 @@ function ToolsCheck({ all, selected, onChange, mode }: {
           {mode ? `live · ${mode} · ${all.length}` : `offline · static · ${all.length}`}
         </span>
       </div>
+      {mcpFilter && (
+        <p className="text-[11px] text-gray-500 mb-1">
+          Filtered by MCP: {mcpFilter.length ? mcpFilter.join(', ') : 'default'}
+          {hiddenSelected.length > 0 && (
+            <span className="text-yellow-600"> · {hiddenSelected.length} selected hidden (kept on save)</span>
+          )}
+        </p>
+      )}
       <div className="border border-gray-300 rounded-lg p-2 max-h-40 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1 bg-gray-50">
-        {list.map(t => (
-          <label key={t.name} title={t.description} className="flex items-center gap-2 text-xs text-gray-700 px-1 py-0.5 rounded hover:bg-gray-200 cursor-pointer">
-            <input type="checkbox" checked={selected.includes(t.name)} onChange={() => toggle(t.name)} className="rounded" />
-            <span className="font-mono truncate">{t.name}</span>
-          </label>
-        ))}
+        {shown.map(t => {
+          const srv = toolServer(t.name);
+          return (
+            <label key={t.name} title={t.description} className="flex items-center gap-2 text-xs text-gray-700 px-1 py-0.5 rounded hover:bg-gray-200 cursor-pointer">
+              <input type="checkbox" checked={selected.includes(t.name)} onChange={() => toggle(t.name)} className="rounded" />
+              <span className="font-mono truncate">{t.name}</span>
+              {srv !== null && <span className="text-[10px] text-gray-400 shrink-0">{srv}</span>}
+            </label>
+          );
+        })}
+        {shown.length === 0 && <span className="text-xs text-gray-400">No tools for the selected MCP servers</span>}
       </div>
     </div>
   );
@@ -381,7 +419,7 @@ function AgentForm({ item, tools, toolsMode, skillNames, error, onClose, onSaved
         <TextField label="Title (1C dropdown)" value={title} onChange={setTitle} />
       </div>
       <TextField label="Description" value={description} onChange={setDescription} />
-      <ToolsCheck all={tools} selected={selTools} onChange={setSelTools} mode={toolsMode} />
+      <ToolsCheck all={tools} selected={selTools} onChange={setSelTools} mode={toolsMode} mcpFilter={selMcp} />
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">Skills</label>
         <label className="flex items-center gap-2 text-xs text-gray-700 mb-1">
