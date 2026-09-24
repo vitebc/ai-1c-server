@@ -311,6 +311,8 @@ pub struct LogsQuery {
     pub tail: Option<usize>,
     #[serde(default)]
     pub timestamps: bool,
+    /// Case-insensitive substring filter over log lines (`| grep ...`).
+    pub grep: Option<String>,
 }
 
 pub async fn logs(
@@ -334,7 +336,19 @@ pub async fn logs(
         }
     }
     match compose(&root, &args).await {
-        Ok((_, text)) => Ok(Json(json!({ "service": q.service, "log": text }))),
+        Ok((_, text)) => {
+            let log = match q.grep.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+                Some(needle) => {
+                    let n = needle.to_lowercase();
+                    text.lines()
+                        .filter(|l| l.to_lowercase().contains(&n))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                }
+                None => text,
+            };
+            Ok(Json(json!({ "service": q.service, "log": log })))
+        }
         Err(e) => Err(super::AppError::msg(e).into_response()),
     }
 }

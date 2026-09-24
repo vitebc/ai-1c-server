@@ -163,11 +163,12 @@ export const api = {
     request<{ ok: boolean; output: string }>('/agent-backend/stop', { method: 'POST', body: JSON.stringify({ services }) }),
   agentBackendRestart: (services: string[]) =>
     request<{ ok: boolean; output: string }>('/agent-backend/restart', { method: 'POST', body: JSON.stringify({ services }) }),
-  getAgentBackendLogs: (service?: string, tail?: number, timestamps?: boolean) => {
+  getAgentBackendLogs: (service?: string, tail?: number, timestamps?: boolean, grep?: string) => {
     const q = new URLSearchParams();
     if (service) q.set('service', service);
     if (tail) q.set('tail', String(tail));
     if (timestamps) q.set('timestamps', 'true');
+    if (grep) q.set('grep', grep);
     const qs = q.toString();
     return request<{ service: string | null; log: string }>(`/agent-backend/logs${qs ? `?${qs}` : ''}`);
   },

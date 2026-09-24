@@ -641,6 +641,7 @@ function BackendTab() {
   const [logTail, setLogTail] = useState(200);
   const [logTs, setLogTs] = useState(false);
   const [logLive, setLogLive] = useState(true);
+  const [logGrep, setLogGrep] = useState('');
   const logEndRef = useRef<HTMLDivElement>(null);
   const [live, setLive] = useState<{ agents: string[]; skills: string[]; errors: string[]; reachable: boolean } | null>(null);
 
@@ -679,12 +680,12 @@ function BackendTab() {
 
   const loadLogs = useCallback(async () => {
     try {
-      const r = await api.getAgentBackendLogs(logService || undefined, logTail, logTs);
+      const r = await api.getAgentBackendLogs(logService || undefined, logTail, logTs, logGrep || undefined);
       setLog(r.log);
     } catch (e) {
       setLog(e instanceof Error ? e.message : 'Failed');
     }
-  }, [logService, logTail, logTs]);
+  }, [logService, logTail, logTs, logGrep]);
 
   useEffect(() => { loadLogs(); }, [loadLogs]);
   useEffect(() => {
@@ -778,6 +779,8 @@ function BackendTab() {
           <label className="flex items-center gap-1 text-xs text-gray-600" title="docker --timestamps">
             <input type="checkbox" checked={logTs} onChange={e => setLogTs(e.target.checked)} className="rounded" /> ts
           </label>
+          <input type="text" value={logGrep} onChange={e => setLogGrep(e.target.value)} placeholder="grep…" title="case-insensitive filter"
+            className="px-2 py-1 text-xs border border-gray-300 rounded-lg bg-gray-50 text-gray-700 w-40" />
           <button onClick={() => setLogLive(v => !v)} title={logLive ? 'Pause live tail' : 'Resume live tail'}
             className="flex items-center gap-1.5 px-3 py-1 text-xs text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-200">
             {logLive ? <Pause size={12} /> : <Play size={12} />} {logLive ? 'Live' : 'Paused'}
@@ -786,8 +789,10 @@ function BackendTab() {
             <RefreshCw size={12} /> Refresh
           </button>
         </div>
-        <pre className="text-[11px] font-mono text-green-400 bg-gray-900 rounded-lg p-3 max-h-72 overflow-y-auto whitespace-pre-wrap">{log || 'No logs'}</pre>
-        <div ref={logEndRef} />
+        <div className="relative">
+          <pre className="text-[11px] font-mono text-green-400 bg-gray-900 rounded-lg p-3 max-h-[60vh] overflow-y-auto whitespace-pre-wrap">{log || 'No logs'}</pre>
+          <div ref={logEndRef} />
+        </div>
       </div>
     </div>
   );
