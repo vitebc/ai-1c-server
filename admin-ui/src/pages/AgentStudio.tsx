@@ -781,6 +781,11 @@ function BackendTab() {
           </label>
           <input type="text" value={logGrep} onChange={e => setLogGrep(e.target.value)} placeholder="grep…" title="case-insensitive filter"
             className="px-2 py-1 text-xs border border-gray-300 rounded-lg bg-gray-50 text-gray-700 w-40" />
+          <button onClick={() => setLogGrep(v => v === 'agent1c.loop' ? '' : 'agent1c.loop')}
+            title="Quick filter: agent1c.loop"
+            className={`px-2 py-1 text-xs font-mono border rounded-lg transition-colors ${logGrep === 'agent1c.loop' ? 'bg-blue-600 text-white border-blue-600' : 'text-gray-600 border-gray-300 hover:bg-gray-200'}`}>
+            agent1c.loop
+          </button>
           <button onClick={() => setLogLive(v => !v)} title={logLive ? 'Pause live tail' : 'Resume live tail'}
             className="flex items-center gap-1.5 px-3 py-1 text-xs text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-200">
             {logLive ? <Pause size={12} /> : <Play size={12} />} {logLive ? 'Live' : 'Paused'}
