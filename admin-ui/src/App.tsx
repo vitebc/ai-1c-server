@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import { Route, Routes, NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Server, Brain, FileJson, Package, Users as UsersIcon, ScrollText, Code, KeyRound, LogOut, Bot, UserCog, Sun, Moon,
@@ -8,15 +8,15 @@ import type { Me } from './types';
 import { t } from './i18n';
 import { ThemeProvider, useTheme } from './theme';
 import Dashboard from './pages/Dashboard';
-import McpServers from './pages/McpServers';
-import Skills from './pages/Skills';
-import Configs from './pages/Configs';
-import ClientVersions from './pages/ClientVersions';
-import Clients from './pages/Clients';
-import Logs from './pages/Logs';
-import BslLs from './pages/BslLs';
-import AgentStudio from './pages/AgentStudio';
-import Users from './pages/Users';
+const McpServers = lazy(() => import('./pages/McpServers'));
+const Skills = lazy(() => import('./pages/Skills'));
+const Configs = lazy(() => import('./pages/Configs'));
+const ClientVersions = lazy(() => import('./pages/ClientVersions'));
+const Clients = lazy(() => import('./pages/Clients'));
+const Logs = lazy(() => import('./pages/Logs'));
+const BslLs = lazy(() => import('./pages/BslLs'));
+const AgentStudio = lazy(() => import('./pages/AgentStudio'));
+const Users = lazy(() => import('./pages/Users'));
 import { Btn, Modal, TextInput } from './components/ui';
 
 const AGENT_SECTIONS = ['agent-studio', 'agent-agents', 'agent-skills', 'agent-patterns', 'agent-backend', 'env'];
@@ -141,6 +141,7 @@ function Shell() {
       </aside>
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-[1200px] mx-auto p-6">
+          <Suspense fallback={<p className="text-sm text-slate-500">{t.common.loading}</p>}>
           <Routes>
             <Route path="/" element={<Guard me={me} section="dashboard"><Dashboard /></Guard>} />
             <Route path="/mcp-servers" element={<Guard me={me} section="mcp-servers"><McpServers /></Guard>} />
@@ -153,6 +154,7 @@ function Shell() {
             <Route path="/logs" element={<Guard me={me} section="logs"><Logs /></Guard>} />
             <Route path="/users" element={<Guard me={me} section="users"><Users /></Guard>} />
           </Routes>
+          </Suspense>
         </div>
       </main>
       {showPw && <PasswordModal onClose={() => setShowPw(false)} />}
