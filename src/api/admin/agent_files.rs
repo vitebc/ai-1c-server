@@ -142,6 +142,37 @@ fn parse_frontmatter(text: &str) -> Result<(HashMap<String, Value>, String), Str
     Ok((meta, lines[end + 1..].join("\n").trim().to_string()))
 }
 
+fn render_list(items: &[String]) -> String {
+    format!("[{}]", items.join(", "))
+}
+
+/// Canonical AGENT.md field order: name, title, description, tools, skills, mcp, model.
+fn render_agent_file(
+    name: &str,
+    title: &str,
+    description: &str,
+    tools: &[String],
+    skills: &[String],
+    mcp: &[String],
+    model: &str,
+    body: &str,
+) -> String {
+    let mut out = String::from("---\n");
+    out.push_str(&format!("name: {name}\n"));
+    out.push_str(&format!("title: {title}\n"));
+    out.push_str(&format!("description: {description}\n"));
+    out.push_str(&format!("tools: {}\n", render_list(tools)));
+    out.push_str(&format!("skills: {}\n", render_list(skills)));
+    out.push_str(&format!("mcp: {}\n", render_list(mcp)));
+    out.push_str(&format!("model: {model}\n"));
+    out.push_str("---\n");
+    if body.trim().is_empty() {
+        out.push('\n');
+    } else {
+        out.push_str(&format!("\n{}\n", body.trim()));
+    }
+    out
+}
 fn render_frontmatter(meta: &[(String, String)], lists: &HashMap<String, Vec<String>>, body: &str) -> String {
     let mut out = String::from("---\n");
     for (k, v) in meta {
@@ -553,18 +584,17 @@ pub async fn create_agent(
     if dir.exists() {
         return Err(super::BadRequest(format!("agent {name:?} already exists")).into_response());
     }
-    let mut meta = vec![
-        ("name".into(), name.clone()),
-        ("title".into(), body.title.unwrap_or_default()),
-        ("description".into(), body.description.unwrap_or_default()),
-        ("model".into(), body.model.unwrap_or_default()),
-    ];
     let mcp = normalize_mcp(body.mcp).map_err(|e| super::BadRequest(e).into_response())?;
-    let mut lists = HashMap::new();
-    lists.insert("tools".to_string(), body.tools);
-    lists.insert("skills".to_string(), body.skills);
-    lists.insert("mcp".to_string(), mcp);
-    let content = render_frontmatter(&meta, &lists, &body.body);
+    let content = render_agent_file(
+        &name,
+        &body.title.unwrap_or_default(),
+        &body.description.unwrap_or_default(),
+        &body.tools,
+        &body.skills,
+        &mcp,
+        &body.model.unwrap_or_default(),
+        &body.body,
+    );
     write_file(&dir.join("AGENT.md"), &content)
         .map_err(|e| super::AppError::msg(e).into_response())?;
     tracing::info!("agent-files: created agent {name}");
@@ -606,18 +636,17 @@ pub async fn update_agent(
     } else {
         dir
     };
-    let meta = vec![
-        ("name".into(), new_name.clone()),
-        ("title".into(), body.title.unwrap_or_default()),
-        ("description".into(), body.description.unwrap_or_default()),
-        ("model".into(), body.model.unwrap_or_default()),
-    ];
     let mcp = normalize_mcp(body.mcp).map_err(|e| super::BadRequest(e).into_response())?;
-    let mut lists = HashMap::new();
-    lists.insert("tools".to_string(), body.tools);
-    lists.insert("skills".to_string(), body.skills);
-    lists.insert("mcp".to_string(), mcp);
-    let content = render_frontmatter(&meta, &lists, &body.body);
+    let content = render_agent_file(
+        &new_name,
+        &body.title.unwrap_or_default(),
+        &body.description.unwrap_or_default(),
+        &body.tools,
+        &body.skills,
+        &mcp,
+        &body.model.unwrap_or_default(),
+        &body.body,
+    );
     write_file(&final_dir.join("AGENT.md"), &content)
         .map_err(|e| super::AppError::msg(e).into_response())?;
     Ok(Json(read_agent(&final_dir)))
