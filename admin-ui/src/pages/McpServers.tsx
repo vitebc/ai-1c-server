@@ -251,7 +251,7 @@ function ServerForm({ item, onClose, onSaved }: { item?: McpServer | null; onClo
           <TextInput value={form.url} onChange={e => setForm(f => ({ ...f, url: e.target.value }))} placeholder="http://… (для транспортов http/sse)" mono />
         </Field>
         <label className="flex items-center gap-2 text-[13px] text-slate-700 dark:text-slate-300 cursor-pointer">
-          <input type="checkbox" checked={form.enabled} onChange={e => setForm(f => ({ ...f, enabled: e.target.checked }))} className="rounded accent-indigo-600" />
+          <input type="checkbox" checked={form.enabled} onChange={e => setForm(f => ({ ...f, enabled: e.target.checked }))} className="rounded accent-blue-600" />
           {t.mcp.enabled}
         </label>
         {submitError && <Alert tone="red">{submitError}</Alert>}
@@ -418,7 +418,7 @@ function ReindexProgress({ jobId, name, onClose }: { jobId: string; name: string
           <>
             <div className="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-2.5 overflow-hidden">
               <div
-                className={`h-2.5 rounded-full transition-all duration-500 ${job.state === 'error' ? 'bg-red-500' : 'bg-indigo-600'}`}
+                className={`h-2.5 rounded-full transition-all duration-500 ${job.state === 'error' ? 'bg-red-500' : 'bg-blue-600'}`}
                 style={{ width: `${pct}%` }}
               />
             </div>

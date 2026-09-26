@@ -63,7 +63,7 @@ export default function FileBrowser({ initialPath, onPick, onClose, dirsOnly, ti
             <IconBtn
               title={showHidden ? 'Скрыть скрытые файлы' : 'Показать скрытые файлы'}
               onClick={toggleHidden}
-              className={showHidden ? '!text-indigo-600 dark:!text-indigo-300' : ''}
+              className={showHidden ? '!text-blue-600 dark:!text-blue-300' : ''}
             >
               {showHidden ? <Eye size={16} /> : <EyeOff size={16} />}
             </IconBtn>
@@ -82,7 +82,7 @@ export default function FileBrowser({ initialPath, onPick, onClose, dirsOnly, ti
                 onDoubleClick={() => e.is_dir && load(e.path)}
                 className={`flex items-center gap-2 w-full text-left px-3 py-1.5 rounded-lg text-sm transition-colors cursor-pointer disabled:opacity-40 ${
                   selected === e.path
-                    ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300'
+                    ? 'bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
                     : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
                 }`}
               >

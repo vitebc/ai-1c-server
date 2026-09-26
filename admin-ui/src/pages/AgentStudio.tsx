@@ -162,7 +162,7 @@ function ToolsCheck({ all, selected, onChange, mode, mcpFilter }: {
           const srv = toolServer(x.name);
           return (
             <label key={x.name} title={x.description} className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 px-1 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer">
-              <input type="checkbox" checked={selected.includes(x.name)} onChange={() => toggle(x.name)} className="rounded accent-indigo-600" />
+              <input type="checkbox" checked={selected.includes(x.name)} onChange={() => toggle(x.name)} className="rounded accent-blue-600" />
               <span className="font-mono truncate">{x.name}</span>
               {srv !== null && <span className="text-[10px] text-slate-400 shrink-0">{srv}</span>}
             </label>
@@ -230,19 +230,19 @@ function McpSelect({ selected, onChange }: { selected: string[]; onChange: (v: s
       </div>
       <div className="border border-slate-300 dark:border-slate-700 rounded-lg p-2 max-h-40 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1 bg-slate-50 dark:bg-slate-950">
         <label className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 px-1 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer" title="Default бэкенда">
-          <input type="checkbox" checked={selected.includes('default')} onChange={() => toggle('default')} className="rounded accent-indigo-600" />
+          <input type="checkbox" checked={selected.includes('default')} onChange={() => toggle('default')} className="rounded accent-blue-600" />
           <span className="font-mono">default</span>
         </label>
         {sorted.map(s => (
           <label key={s.id} className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 px-1 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer" title={s.transport}>
-            <input type="checkbox" checked={selected.includes(s.name)} onChange={() => toggle(s.name)} className="rounded accent-indigo-600" />
+            <input type="checkbox" checked={selected.includes(s.name)} onChange={() => toggle(s.name)} className="rounded accent-blue-600" />
             <span className="font-mono truncate">{s.name}</span>
             {live[s.id] === 'running' && <span className="text-[10px] text-emerald-500">●</span>}
           </label>
         ))}
         {extra.map(name => (
           <label key={name} className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 px-1 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer" title="Сохранённое значение, такой строки нет">
-            <input type="checkbox" checked={selected.includes(name)} onChange={() => toggle(name)} className="rounded accent-indigo-600" />
+            <input type="checkbox" checked={selected.includes(name)} onChange={() => toggle(name)} className="rounded accent-blue-600" />
             <span className="font-mono truncate">{name}</span>
           </label>
         ))}
@@ -375,7 +375,7 @@ function AgentForm({ item, tools, toolsMode, skillNames, error, onClose, onSaved
       <div>
         <label className="block text-[13px] font-medium text-slate-700 dark:text-slate-300 mb-1">Скиллы</label>
         <label className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 mb-1 cursor-pointer">
-          <input type="checkbox" checked={allSkills} onChange={e => setAllSkills(e.target.checked)} className="rounded accent-indigo-600" />
+          <input type="checkbox" checked={allSkills} onChange={e => setAllSkills(e.target.checked)} className="rounded accent-blue-600" />
           Все скиллы (*)
         </label>
         {!allSkills && (
@@ -384,7 +384,7 @@ function AgentForm({ item, tools, toolsMode, skillNames, error, onClose, onSaved
               <label key={s} className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 px-1 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer">
                 <input type="checkbox" checked={selSkills.includes(s)}
                   onChange={() => setSelSkills(selSkills.includes(s) ? selSkills.filter(x => x !== s) : [...selSkills, s])}
-                  className="rounded accent-indigo-600" />
+                  className="rounded accent-blue-600" />
                 <span className="font-mono">{s}</span>
               </label>
             ))}
@@ -652,10 +652,10 @@ function BackendTab() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <label className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 cursor-pointer">
-            <input type="checkbox" checked={profiles.includes('rag')} onChange={() => toggleProfile('rag')} className="rounded accent-indigo-600" /> rag (tei)
+            <input type="checkbox" checked={profiles.includes('rag')} onChange={() => toggleProfile('rag')} className="rounded accent-blue-600" /> rag (tei)
           </label>
           <label className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 cursor-pointer">
-            <input type="checkbox" checked={profiles.includes('onec')} onChange={() => toggleProfile('onec')} className="rounded accent-indigo-600" /> onec (mcp-proxy)
+            <input type="checkbox" checked={profiles.includes('onec')} onChange={() => toggleProfile('onec')} className="rounded accent-blue-600" /> onec (mcp-proxy)
           </label>
           <span className="flex-1" />
           <Btn variant="primary" disabled={busy} onClick={() => run(() => api.agentBackendUp([], profiles))} className="!bg-emerald-600 hover:!bg-emerald-500 dark:!bg-emerald-600">
@@ -701,7 +701,7 @@ function BackendTab() {
             {[100, 200, 500, 1000].map(n => <option key={n} value={n}>хвост {n}</option>)}
           </Select>
           <label className="flex items-center gap-1 text-xs text-slate-500 cursor-pointer" title="docker --timestamps">
-            <input type="checkbox" checked={logTs} onChange={e => setLogTs(e.target.checked)} className="rounded accent-indigo-600" /> ts
+            <input type="checkbox" checked={logTs} onChange={e => setLogTs(e.target.checked)} className="rounded accent-blue-600" /> ts
           </label>
           <TextInput value={logGrep} onChange={e => setLogGrep(e.target.value)} placeholder="grep…" title="Фильтр без учёта регистра" className="!w-40 !py-1 !text-xs" />
           <Btn variant="outline" onClick={() => setLogGrep(v => v === 'agent1c.loop' ? '' : 'agent1c.loop')} title="Быстрый фильтр: agent1c.loop" className="!py-1 !text-xs !font-mono">

@@ -11,7 +11,7 @@ const LEVEL_STYLE: Record<string, string> = {
   ERROR: 'text-red-500 dark:text-red-400',
   WARN: 'text-amber-600 dark:text-amber-400',
   INFO: 'text-emerald-600 dark:text-emerald-400',
-  DEBUG: 'text-indigo-500 dark:text-indigo-300',
+  DEBUG: 'text-blue-500 dark:text-blue-300',
   TRACE: 'text-slate-400',
 };
 

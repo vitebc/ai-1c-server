@@ -153,7 +153,7 @@ export default function Users() {
                   ? Object.entries(u.sections).map(([k, v]) => `${v ? '+' : '−'}${k}`).join(' ')
                   : <span className="text-slate-400 dark:text-slate-500">role defaults ({ROLE_BASE[u.role]?.length || 0})</span>}
               </span>
-              <button onClick={() => setEditSections(u)} className="ml-2 text-indigo-600 hover:underline dark:text-indigo-400 cursor-pointer">{t.common.edit}</button>
+              <button onClick={() => setEditSections(u)} className="ml-2 text-blue-600 hover:underline dark:text-blue-400 cursor-pointer">{t.common.edit}</button>
             </Td>
             <Td>
               <button onClick={() => toggleEnabled(u)} className="cursor-pointer">
@@ -289,7 +289,7 @@ function SectionsEditor({ user, onClose, onSaved, onError }: { user: UserDto; on
                   {(['default', 'allow', 'deny'] as const).map(v => (
                     <button key={v} onClick={() => setState(s => ({ ...s, [sec]: v }))}
                       className={`px-2.5 py-1 text-[11px] rounded-lg cursor-pointer transition-colors ${state[sec] === v
-                        ? v === 'deny' ? 'bg-red-500 text-white' : v === 'allow' ? 'bg-emerald-600 text-white' : 'bg-indigo-600 text-white'
+                        ? v === 'deny' ? 'bg-red-500 text-white' : v === 'allow' ? 'bg-emerald-600 text-white' : 'bg-blue-600 text-white'
                         : 'bg-slate-200 text-slate-500 hover:bg-slate-300 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'}`}>
                       {v === 'default' ? `default (${ROLE_BASE[user.role]?.includes(sec) ? t.common.on : t.common.off})` : v}
                     </button>

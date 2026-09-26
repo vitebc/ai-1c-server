@@ -242,7 +242,7 @@ export default function BslLs() {
                 <TextInput type="number" value={port} onChange={e => setPort(e.target.value)} mono />
               </Field>
               <label className="flex items-center gap-2 text-[13px] text-slate-700 dark:text-slate-300 cursor-pointer">
-                <input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} className="rounded accent-indigo-600" />
+                <input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} className="rounded accent-blue-600" />
                 {t.bsl.autostart}
               </label>
               <Btn variant="primary" onClick={handleSave} disabled={saving} className="w-full justify-center">
@@ -328,7 +328,7 @@ export default function BslLs() {
           </div>
           <div className="flex items-center gap-3">
             <label className="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer">
-              <input type="checkbox" checked={autoScroll} onChange={e => setAutoScroll(e.target.checked)} className="rounded accent-indigo-600" />
+              <input type="checkbox" checked={autoScroll} onChange={e => setAutoScroll(e.target.checked)} className="rounded accent-blue-600" />
               {t.bsl.autoscroll}
             </label>
             <button onClick={clearLogs} className="text-xs text-slate-500 hover:text-slate-300 transition-colors cursor-pointer">{t.logs.clear}</button>

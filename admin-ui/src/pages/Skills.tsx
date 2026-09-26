@@ -125,7 +125,7 @@ export default function Skills() {
                   onClick={() => { setSelected(s); setShowForm(false); }}
                   className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer ${
                     selected?.id === s.id
-                      ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300'
+                      ? 'bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
                       : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
                   }`}
                 >
@@ -222,7 +222,7 @@ function SkillDetail({ skill, onSaved, onDeleted }: { skill: Skill; onSaved: () 
                 type="checkbox"
                 checked={form.enabled}
                 onChange={e => setForm(f => ({ ...f, enabled: e.target.checked }))}
-                className="rounded accent-indigo-600"
+                className="rounded accent-blue-600"
               />
               {t.common.enabled}
             </label>
@@ -339,7 +339,7 @@ function SkillForm({ item, onClose, onSaved }: { item?: Skill | null; onClose: (
                   type="checkbox"
                   checked={form.enabled}
                   onChange={e => setForm(f => ({ ...f, enabled: e.target.checked }))}
-                  className="rounded accent-indigo-600"
+                  className="rounded accent-blue-600"
                 />
                 {t.common.enabled}
               </label>

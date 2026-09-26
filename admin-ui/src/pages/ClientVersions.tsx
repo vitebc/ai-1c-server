@@ -84,7 +84,7 @@ function VersionForm({ item, onClose, onSaved }: { item?: ClientVersion | null; 
         <Field label={t.versions.checksum}><TextInput value={form.checksum} onChange={e => set('checksum')(e.target.value)} required mono /></Field>
         <Field label={t.versions.changelog}><TextArea value={form.changelog} onChange={e => set('changelog')(e.target.value)} rows={3} /></Field>
         <label className="flex items-center gap-2 text-[13px] text-slate-700 dark:text-slate-300 cursor-pointer">
-          <input type="checkbox" checked={form.required} onChange={e => setForm(f => ({ ...f, required: e.target.checked }))} className="rounded accent-indigo-600" />
+          <input type="checkbox" checked={form.required} onChange={e => setForm(f => ({ ...f, required: e.target.checked }))} className="rounded accent-blue-600" />
           {t.versions.required}
         </label>
         {error && <Alert tone="red">{error}</Alert>}

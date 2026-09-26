@@ -40,7 +40,7 @@ type BtnVariant = 'primary' | 'ghost' | 'outline' | 'danger-outline' | 'success-
 export function Btn({ variant = 'outline', className = '', ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: BtnVariant }) {
   const base = 'inline-flex items-center gap-1.5 rounded-lg text-[13px] font-medium transition-colors disabled:opacity-40 cursor-pointer px-3 py-2';
   const styles: Record<BtnVariant, string> = {
-    primary: 'bg-indigo-600 text-white hover:bg-indigo-500 dark:bg-indigo-500 dark:hover:bg-indigo-400',
+    primary: 'bg-blue-600 text-white hover:bg-blue-500 dark:bg-blue-500 dark:hover:bg-blue-400',
     ghost: 'text-slate-500 hover:text-slate-800 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800',
     outline: 'border border-slate-300 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800',
     'danger-outline': 'border border-red-300 text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950',
@@ -58,14 +58,14 @@ export function IconBtn({ title, onClick, className = '', children }: { title: s
   );
 }
 
-export function Badge({ tone = 'neutral', children }: { tone?: 'neutral' | 'green' | 'red' | 'blue' | 'amber' | 'purple'; children: ReactNode }) {
+export function Badge({ tone = 'neutral', children }: { tone?: 'neutral' | 'green' | 'red' | 'blue' | 'amber' | 'sky'; children: ReactNode }) {
   const map: Record<string, string> = {
     neutral: 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400',
     green: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400',
     red: 'bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-400',
-    blue: 'bg-indigo-50 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-300',
+    blue: 'bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-300',
     amber: 'bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-400',
-    purple: 'bg-violet-50 text-violet-600 dark:bg-violet-950 dark:text-violet-300',
+    sky: 'bg-sky-50 text-sky-600 dark:bg-sky-950 dark:text-sky-300',
   };
   return <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${map[tone]}`}>{children}</span>;
 }
@@ -127,7 +127,7 @@ export function Field({ label, children, hint }: { label: string; children: Reac
   );
 }
 
-export const inputCls = 'w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500';
+export const inputCls = 'w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500';
 export const monoCls = 'font-mono';
 
 export function TextInput(props: React.InputHTMLAttributes<HTMLInputElement> & { mono?: boolean }) {
@@ -162,7 +162,7 @@ export function Alert({ tone, children }: { tone: 'red' | 'green' | 'blue' | 'am
   const map = {
     red: 'bg-red-50 border-red-200 text-red-700 dark:bg-red-950 dark:border-red-900 dark:text-red-300',
     green: 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-950 dark:border-emerald-900 dark:text-emerald-300',
-    blue: 'bg-indigo-50 border-indigo-200 text-indigo-700 dark:bg-indigo-950 dark:border-indigo-900 dark:text-indigo-300',
+    blue: 'bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-950 dark:border-blue-900 dark:text-blue-300',
     amber: 'bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-950 dark:border-amber-900 dark:text-amber-300',
   };
   return <div className={`text-xs border rounded-lg px-3 py-2 ${map[tone]}`}>{children}</div>;
@@ -177,7 +177,7 @@ export function Segmented<T extends string>({ options, value, onChange }: { opti
     <div className="flex gap-1 p-1 rounded-lg border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900">
       {options.map(o => (
         <button key={o.key} onClick={() => onChange(o.key)}
-          className={`px-3 py-1.5 text-[13px] rounded-md transition-colors cursor-pointer ${value === o.key ? 'bg-indigo-600 text-white dark:bg-indigo-500' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100'}`}>
+          className={`px-3 py-1.5 text-[13px] rounded-md transition-colors cursor-pointer ${value === o.key ? 'bg-blue-600 text-white dark:bg-blue-500' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100'}`}>
           {o.label}
         </button>
       ))}

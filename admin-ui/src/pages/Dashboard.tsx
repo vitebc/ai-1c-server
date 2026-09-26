@@ -23,8 +23,8 @@ export default function Dashboard() {
   }, []);
 
   const cards = [
-    { label: t.dash.mcpServers, value: counts.servers, icon: Server, chip: 'bg-indigo-50 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-300' },
-    { label: t.dash.skills, value: counts.skills, icon: Brain, chip: 'bg-violet-50 text-violet-600 dark:bg-violet-950 dark:text-violet-300' },
+    { label: t.dash.mcpServers, value: counts.servers, icon: Server, chip: 'bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-300' },
+    { label: t.dash.skills, value: counts.skills, icon: Brain, chip: 'bg-sky-50 text-sky-600 dark:bg-sky-950 dark:text-sky-300' },
     { label: t.dash.configs, value: counts.configs, icon: FileJson, chip: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-300' },
     { label: t.dash.clients, value: counts.clients, icon: Users, chip: 'bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-300' },
   ];

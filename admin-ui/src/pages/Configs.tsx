@@ -115,7 +115,7 @@ function ConfigForm({ item, mains, onClose, onSaved }: { item?: ConfigProfile | 
           </Select>
         </Field>
         <label className="flex items-center gap-2 text-[13px] text-slate-700 dark:text-slate-300 cursor-pointer">
-          <input type="checkbox" checked={active} onChange={e => setActive(e.target.checked)} className="rounded accent-indigo-600" />
+          <input type="checkbox" checked={active} onChange={e => setActive(e.target.checked)} className="rounded accent-blue-600" />
           {t.configs.active}
         </label>
         {error && <Alert tone="red">{error}</Alert>}
