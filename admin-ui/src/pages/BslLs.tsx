@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Play, Square, RefreshCw, Terminal, AlertCircle, Download, CheckCircle, XCircle, Coffee } from 'lucide-react';
 import { api, authFetch } from '../api/client';
 import type { BslLsState } from '../types';
+import { t } from '../i18n';
+import { PageHeader, Card, CardBody, CardTitle, Btn, Field, TextInput, Alert, Badge } from '../components/ui';
 
 interface VersionInfo {
   java: string | null;
@@ -155,196 +157,194 @@ export default function BslLs() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold text-gray-800">BSL Language Server</h2>
-        <div className="flex gap-2">
-          <button onClick={load} className="flex items-center gap-2 px-3 py-2 text-sm text-gray-400 border border-gray-300 rounded-lg hover:bg-gray-200">
-            <RefreshCw size={16} /> Refresh
-          </button>
+      <PageHeader
+        title={t.bsl.title}
+        right={<>
+          <Btn variant="outline" onClick={load}>
+            <RefreshCw size={15} /> {t.common.refresh}
+          </Btn>
           {isRunning ? (
-            <button onClick={handleStop} className="flex items-center gap-2 px-3 py-2 text-sm text-red-500 border border-red-300 rounded-lg hover:bg-red-50">
-              <Square size={16} /> Stop
-            </button>
+            <Btn variant="danger-outline" onClick={handleStop}>
+              <Square size={15} /> {t.bsl.stop}
+            </Btn>
           ) : (
-            <button onClick={startBslLs} disabled={saving}
-              className="flex items-center gap-2 px-3 py-2 text-sm text-green-500 border border-green-300 rounded-lg hover:bg-green-50 disabled:opacity-50">
-              <Play size={16} /> {saving ? 'Starting...' : 'Start'}
-            </button>
+            <Btn variant="success-outline" onClick={startBslLs} disabled={saving}>
+              <Play size={15} /> {saving ? t.common.starting : t.bsl.start}
+            </Btn>
           )}
-          <button onClick={handleRestart} className="flex items-center gap-2 px-3 py-2 text-sm text-blue-500 border border-blue-300 rounded-lg hover:bg-blue-50">
-            <RefreshCw size={16} /> Restart
-          </button>
-        </div>
-      </div>
+          <Btn variant="outline" onClick={handleRestart}>
+            <RefreshCw size={15} /> {t.bsl.restart}
+          </Btn>
+        </>}
+      />
 
       {isError && state?.error && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-300 rounded-xl flex items-start gap-3">
-          <AlertCircle size={20} className="text-red-500 shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-medium text-red-500">BSL LS failed to start</p>
-            <p className="text-sm text-red-400 mt-1 font-mono">{state.error}</p>
-          </div>
+        <div className="mb-4">
+          <Alert tone="red">
+            <span className="flex items-start gap-2">
+              <AlertCircle size={16} className="shrink-0 mt-px" />
+              <span>
+                <span className="block font-medium text-[13px]">{t.bsl.failTitle}</span>
+                <span className="block font-mono mt-1">{state.error}</span>
+              </span>
+            </span>
+          </Alert>
         </div>
       )}
 
       {dlResult && (
-        <div className={`mb-6 p-4 rounded-xl flex items-start gap-3 ${dlResult.startsWith('Error') ? 'bg-red-50 border border-red-300' : 'bg-green-50 border border-green-300'}`}>
-          {dlResult.startsWith('Error') ? <XCircle size={20} className="text-red-500 shrink-0 mt-0.5" /> : <CheckCircle size={20} className="text-green-500 shrink-0 mt-0.5" />}
-          <p className={`text-sm ${dlResult.startsWith('Error') ? 'text-red-400' : 'text-green-500'}`}>{dlResult}</p>
+        <div className="mb-4">
+          <Alert tone={dlResult.startsWith('Error') ? 'red' : 'green'}>
+            <span className="flex items-start gap-2">
+              {dlResult.startsWith('Error') ? <XCircle size={16} className="shrink-0 mt-px" /> : <CheckCircle size={16} className="shrink-0 mt-px" />}
+              <span>{dlResult}</span>
+            </span>
+          </Alert>
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        <div className="bg-gray-100 rounded-xl border border-gray-200 p-6">
-          <h3 className="font-semibold text-gray-800 mb-4">Status</h3>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between py-2 border-b border-gray-200">
-              <span className="text-sm text-gray-500">Status</span>
-              <span className={`text-sm px-2 py-0.5 rounded-full ${
-                isRunning ? 'bg-green-50 text-green-500' :
-                isError ? 'bg-red-50 text-red-500' :
-                'bg-gray-200 text-gray-400'
-              }`}>
-                {state?.status || 'unknown'}
-              </span>
-            </div>
-            {isRunning && state?.pid && (
-              <div className="flex items-center justify-between py-2 border-b border-gray-200">
-                <span className="text-sm text-gray-500">Process ID</span>
-                <span className="text-sm font-mono text-gray-700">{state.pid}</span>
+      <div className="grid grid-cols-2 gap-4 mb-4">
+        <Card>
+          <CardBody>
+            <CardTitle>{t.bsl.status}</CardTitle>
+            <div className="space-y-1">
+              <div className="flex items-center justify-between py-2 border-b border-slate-200 dark:border-slate-800">
+                <span className="text-[13px] text-slate-500 dark:text-slate-400">{t.common.status}</span>
+                <Badge tone={isRunning ? 'green' : isError ? 'red' : 'neutral'}>
+                  {state?.status || t.common.stopped}
+                </Badge>
               </div>
-            )}
-            <div className="flex items-center justify-between py-2">
-              <span className="text-sm text-gray-500">WebSocket URL</span>
-              <span className="text-sm font-mono text-gray-700">ws://server:{port}/lsp</span>
+              {isRunning && state?.pid && (
+                <div className="flex items-center justify-between py-2 border-b border-slate-200 dark:border-slate-800">
+                  <span className="text-[13px] text-slate-500 dark:text-slate-400">{t.bsl.pidLabel}</span>
+                  <span className="text-[13px] font-mono text-slate-700 dark:text-slate-200">{state.pid}</span>
+                </div>
+              )}
+              <div className="flex items-center justify-between py-2">
+                <span className="text-[13px] text-slate-500 dark:text-slate-400">{t.bsl.wsUrl}</span>
+                <span className="text-[13px] font-mono text-slate-700 dark:text-slate-200">ws://server:{port}/lsp</span>
+              </div>
             </div>
-          </div>
-        </div>
+          </CardBody>
+        </Card>
 
-        <div className="bg-gray-100 rounded-xl border border-gray-200 p-6">
-          <h3 className="font-semibold text-gray-800 mb-4">Configuration</h3>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Java Path</label>
-              <input type="text" value={javaPath} onChange={e => setJavaPath(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        <Card>
+          <CardBody>
+            <CardTitle>{t.bsl.config}</CardTitle>
+            <div className="space-y-3">
+              <Field label={t.bsl.javaPath}>
+                <TextInput value={javaPath} onChange={e => setJavaPath(e.target.value)} mono />
+              </Field>
+              <Field label={t.bsl.jarPath}>
+                <TextInput value={jarPath} onChange={e => setJarPath(e.target.value)} mono />
+              </Field>
+              <Field label={t.bsl.port}>
+                <TextInput type="number" value={port} onChange={e => setPort(e.target.value)} mono />
+              </Field>
+              <label className="flex items-center gap-2 text-[13px] text-slate-700 dark:text-slate-300 cursor-pointer">
+                <input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} className="rounded accent-indigo-600" />
+                {t.bsl.autostart}
+              </label>
+              <Btn variant="primary" onClick={handleSave} disabled={saving} className="w-full justify-center">
+                {saving ? t.common.saving : t.bsl.saveApply}
+              </Btn>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">JAR Path</label>
-              <input type="text" value={jarPath} onChange={e => setJarPath(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Port</label>
-              <input type="number" value={port} onChange={e => setPort(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            </div>
-            <label className="flex items-center gap-2 text-sm text-gray-700">
-              <input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} className="rounded" />
-              Auto-start on server boot
-            </label>
-            <button onClick={handleSave}
-              className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-500 transition-colors">
-              Save & Apply
-            </button>
-          </div>
-        </div>
+          </CardBody>
+        </Card>
       </div>
 
-      <div className="bg-gray-100 rounded-xl border border-gray-200 p-6 mb-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-gray-800">Versions & Updates</h3>
-          <button onClick={checkVersions} disabled={loadingVer}
-            className="flex items-center gap-2 px-3 py-2 text-sm text-gray-400 border border-gray-300 rounded-lg hover:bg-gray-200 disabled:opacity-50">
-            <RefreshCw size={16} className={loadingVer ? 'animate-spin' : ''} /> Check
-          </button>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="p-4 border border-gray-200 rounded-lg">
-            <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Java</p>
-            {ver?.java ? (
-              <p className="text-sm text-gray-700 font-mono">{ver.java}</p>
-            ) : (
-              <p className="text-sm text-red-500">Not detected</p>
-            )}
-          </div>
-          <div className="p-4 border border-gray-200 rounded-lg">
-            <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">BSL LS</p>
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <p className="text-sm text-gray-700 font-mono">
-                  Current: {ver?.bsl_ls_current ? `v${ver.bsl_ls_current}` : '—'}
-                </p>
-                {ver?.bsl_ls_latest ? (
-                  <p className="text-xs mt-0.5">
-                    <span className="text-gray-400">Latest: v{ver.bsl_ls_latest.version} </span>
-                    {ver.bsl_ls_latest.jar_url && ver.bsl_ls_current !== ver.bsl_ls_latest.version && (
-                      <span className="text-yellow-500 font-medium">(update available)</span>
-                    )}
-                    {ver.bsl_ls_current === ver.bsl_ls_latest.version && (
-                      <span className="text-green-500">✓ up to date</span>
-                    )}
-                  </p>
-                ) : (
-                  <p className="text-xs text-gray-400">{loadingVer ? 'Checking...' : ''}</p>
-                )}
-              </div>
-              {ver?.bsl_ls_latest?.jar_url && (
-                <button onClick={downloadBslLs} disabled={downloading}
-                  className="flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-500 disabled:opacity-50">
-                  <Download size={14} /> {downloading ? 'Downloading...' : 'Download'}
-                </button>
+      <Card className="mb-4">
+        <CardBody>
+          <CardTitle right={
+            <Btn variant="outline" onClick={checkVersions} disabled={loadingVer}>
+              <RefreshCw size={15} className={loadingVer ? 'animate-spin' : ''} /> {t.bsl.check}
+            </Btn>
+          }>{t.bsl.versions}</CardTitle>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="border border-slate-200 dark:border-slate-800 rounded-lg p-4">
+              <p className="text-[11px] text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-1">{t.bsl.java}</p>
+              {ver?.java ? (
+                <p className="text-[13px] text-slate-700 dark:text-slate-200 font-mono">{ver.java}</p>
+              ) : (
+                <p className="text-[13px] text-red-600 dark:text-red-400">{t.bsl.notFound}</p>
               )}
             </div>
-          </div>
-        </div>
-
-        <div className="mt-4 p-4 border border-gray-200 rounded-lg">
-          <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">Java JDK</p>
-          <div className="flex items-start justify-between gap-2">
-            <div>
-              <p className="text-sm text-gray-700 font-mono">{ver?.java || 'Not detected'}</p>
-              <p className="text-xs text-gray-400">Auto-download and install JDK 21</p>
+            <div className="border border-slate-200 dark:border-slate-800 rounded-lg p-4">
+              <p className="text-[11px] text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-1">BSL LS</p>
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-[13px] text-slate-700 dark:text-slate-200 font-mono">
+                    {t.bsl.current}: {ver?.bsl_ls_current ? `v${ver.bsl_ls_current}` : '—'}
+                  </p>
+                  {ver?.bsl_ls_latest ? (
+                    <p className="text-xs mt-0.5">
+                      <span className="text-slate-400 dark:text-slate-500">{t.bsl.latest}: v{ver.bsl_ls_latest.version} </span>
+                      {ver.bsl_ls_latest.jar_url && ver.bsl_ls_current !== ver.bsl_ls_latest.version && (
+                        <span className="text-amber-600 dark:text-amber-400 font-medium">{t.bsl.updateAvail}</span>
+                      )}
+                      {ver.bsl_ls_current === ver.bsl_ls_latest.version && (
+                        <span className="text-emerald-600 dark:text-emerald-400">{t.bsl.upToDate}</span>
+                      )}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-slate-400 dark:text-slate-500">{loadingVer ? t.common.loading : ''}</p>
+                  )}
+                </div>
+                {ver?.bsl_ls_latest?.jar_url && (
+                  <Btn variant="primary" onClick={downloadBslLs} disabled={downloading} className="!text-xs !py-1.5">
+                    <Download size={14} /> {downloading ? t.bsl.downloading : t.bsl.download}
+                  </Btn>
+                )}
+              </div>
             </div>
-            <button onClick={handleInstallJava} disabled={installingJava}
-              className="flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-500 disabled:opacity-50">
-              <Coffee size={14} /> {installingJava ? 'Installing...' : 'Install Java'}
-            </button>
           </div>
-          {javaInstallResult && (
-            <p className={`mt-2 text-xs ${javaInstallResult.startsWith('Error') ? 'text-red-500' : 'text-green-500'}`}>
-              {javaInstallResult.startsWith('Error') ? <XCircle size={12} className="inline mr-1" /> : <CheckCircle size={12} className="inline mr-1" />}
-              {javaInstallResult}
-            </p>
-          )}
-        </div>
-      </div>
 
-      <div className="bg-gray-900 rounded-xl border border-gray-200">
-        <div className="flex items-center justify-between px-4 py-2 border-b border-gray-700">
-          <div className="flex items-center gap-2 text-gray-400">
+          <div className="mt-3 border border-slate-200 dark:border-slate-800 rounded-lg p-4">
+            <p className="text-[11px] text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-2">{t.bsl.javaJdk}</p>
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="text-[13px] text-slate-700 dark:text-slate-200 font-mono">{ver?.java || t.bsl.notFound}</p>
+                <p className="text-xs text-slate-400 dark:text-slate-500">{t.bsl.javaJdkHint}</p>
+              </div>
+              <Btn variant="primary" onClick={handleInstallJava} disabled={installingJava} className="!text-xs !py-1.5">
+                <Coffee size={14} /> {installingJava ? t.bsl.installing : t.bsl.installJava}
+              </Btn>
+            </div>
+            {javaInstallResult && (
+              <p className={`mt-2 text-xs ${javaInstallResult.startsWith('Error') ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                {javaInstallResult.startsWith('Error') ? <XCircle size={12} className="inline mr-1" /> : <CheckCircle size={12} className="inline mr-1" />}
+                {javaInstallResult}
+              </p>
+            )}
+          </div>
+        </CardBody>
+      </Card>
+
+      <div className="rounded-xl border border-slate-800 bg-slate-950 overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-2 border-b border-slate-800">
+          <div className="flex items-center gap-2 text-slate-400">
             <Terminal size={14} />
-            <span className="text-xs">BSL LS logs</span>
+            <span className="text-xs">{t.bsl.logsTitle}</span>
           </div>
           <div className="flex items-center gap-3">
-            <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer">
-              <input type="checkbox" checked={autoScroll} onChange={e => setAutoScroll(e.target.checked)} className="rounded" />
-              Auto-scroll
+            <label className="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer">
+              <input type="checkbox" checked={autoScroll} onChange={e => setAutoScroll(e.target.checked)} className="rounded accent-indigo-600" />
+              {t.bsl.autoscroll}
             </label>
-            <button onClick={clearLogs} className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Clear</button>
+            <button onClick={clearLogs} className="text-xs text-slate-500 hover:text-slate-300 transition-colors cursor-pointer">{t.logs.clear}</button>
           </div>
         </div>
         <div ref={logsRef} className="h-64 overflow-y-auto p-4 font-mono text-xs leading-relaxed">
           {logs.length === 0 ? (
-            <p className="text-gray-600 italic">No logs yet</p>
+            <p className="text-slate-600 italic">{t.bsl.noLogs}</p>
           ) : (
             logs.map((line, i) => (
               <div key={i} className={
                 line.includes('ERROR') || line.includes('Error') || line.includes('Exception')
                   ? 'text-red-400'
                   : line.includes('WARN') || line.includes('WARNING')
-                  ? 'text-yellow-500'
-                  : 'text-green-400'
+                  ? 'text-amber-400'
+                  : 'text-emerald-400'
               }>
                 {line}
               </div>

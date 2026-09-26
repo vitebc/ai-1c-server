@@ -1,38 +1,31 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import type { Client } from '../types';
+import { t } from '../i18n';
+import { PageHeader, TableShell, Th, Td, Row } from '../components/ui';
 
 export default function Clients() {
   const [items, setItems] = useState<Client[]>([]);
 
-  useEffect(() => { api.getClients().then(setItems); }, []);
+  useEffect(() => { api.getClients().then(setItems).catch(() => {}); }, []);
 
   return (
     <div>
-      <h2 className="text-2xl font-bold text-gray-800 mb-6">Clients</h2>
-      <div className="bg-gray-100 rounded-xl border border-gray-200 overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-gray-200 bg-gray-50">
-              <th className="text-left px-4 py-3 font-medium text-gray-600">ID</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-600">Name</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-600">Version</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-600">Last Seen</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map(item => (
-              <tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50">
-                <td className="px-4 py-3 font-mono text-xs text-gray-600">{item.id}</td>
-                <td className="px-4 py-3 font-medium text-gray-800">{item.name || '-'}</td>
-                <td className="px-4 py-3 text-gray-600">{item.version || '-'}</td>
-                <td className="px-4 py-3 text-gray-600 text-xs">{item.last_seen || '-'}</td>
-              </tr>
-            ))}
-            {items.length === 0 && <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-400">No clients registered</td></tr>}
-          </tbody>
-        </table>
-      </div>
+      <PageHeader title={t.clients.title} hint={`${items.length}`} />
+      <TableShell
+        colSpan={4}
+        empty={items.length === 0 ? { text: t.clients.noClients } : null}
+        head={<><Th>{t.clients.id}</Th><Th>{t.clients.name}</Th><Th>{t.clients.version}</Th><Th>{t.clients.lastSeen}</Th></>}
+      >
+        {items.map(item => (
+          <Row key={item.id}>
+            <Td><span className="font-mono text-xs text-slate-500 dark:text-slate-400">{item.id}</span></Td>
+            <Td><span className="font-medium text-slate-800 dark:text-slate-100">{item.name || '—'}</span></Td>
+            <Td><span className="text-slate-600 dark:text-slate-300">{item.version || '—'}</span></Td>
+            <Td><span className="text-xs text-slate-500">{item.last_seen || '—'}</span></Td>
+          </Row>
+        ))}
+      </TableShell>
     </div>
   );
 }

@@ -2,15 +2,17 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshCw, Trash2, Pause, Play } from 'lucide-react';
 import { api } from '../api/client';
 import type { LogEntry } from '../types';
+import { t } from '../i18n';
+import { PageHeader, Btn, Select, TextInput, Segmented } from '../components/ui';
 
 const LEVELS = ['all', 'ERROR', 'WARN', 'INFO', 'DEBUG', 'TRACE'];
 
 const LEVEL_STYLE: Record<string, string> = {
-  ERROR: 'text-red-400',
-  WARN: 'text-yellow-400',
-  INFO: 'text-green-400',
-  DEBUG: 'text-blue-400',
-  TRACE: 'text-gray-500',
+  ERROR: 'text-red-500 dark:text-red-400',
+  WARN: 'text-amber-600 dark:text-amber-400',
+  INFO: 'text-emerald-600 dark:text-emerald-400',
+  DEBUG: 'text-indigo-500 dark:text-indigo-300',
+  TRACE: 'text-slate-400',
 };
 
 export default function Logs() {
@@ -19,7 +21,8 @@ export default function Logs() {
   const [bslLines, setBslLines] = useState<string[]>([]);
   const [level, setLevel] = useState('all');
   const [target, setTarget] = useState('all');
-  const [targets, setTargets] = useState<string[]>([]);  const [search, setSearch] = useState('');
+  const [targets, setTargets] = useState<string[]>([]);
+  const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const [auto, setAuto] = useState(true);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -38,39 +41,35 @@ export default function Logs() {
         ]);
         setEntries(data);
         if (tg) {
-          // Merge server-side distinct list with targets seen in this page,
-          // so the dropdown never loses the current selection.
           setTargets(prev => {
             const seen = new Set([...tg.targets, ...data.map(e => e.target)]);
-            const merged = [...seen].filter(t => t.startsWith('ai_1c_server')).sort();
+            const merged = [...seen].filter(x => x.startsWith('ai_1c_server')).sort();
             return merged.length ? merged : prev;
           });
         } else {
           setTargets(prev => {
             const seen = new Set([...prev, ...data.map(e => e.target)]);
-            return [...seen].filter(t => t.startsWith('ai_1c_server')).sort();
+            return [...seen].filter(x => x.startsWith('ai_1c_server')).sort();
           });
         }
       } else {
         setBslLines(await api.getBslLsLogs());
       }
-    } catch {
-      /* server may be restarting */
-    }
+    } catch { /* сервер может перезапускаться */ }
   }, [tab, level, search, target]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     if (!auto) return;
-    const t = setInterval(load, 3000);
-    return () => clearInterval(t);
+    const timer = setInterval(load, 3000);
+    return () => clearInterval(timer);
   }, [auto, load]);
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [entries, bslLines]);
 
   async function handleClear() {
-    if (!confirm('Clear logs?')) return;
+    if (!confirm(t.logs.clearConfirm)) return;
     if (tab === 'server') await api.clearLogs();
     else await api.clearBslLsLogs();
     load();
@@ -83,67 +82,55 @@ export default function Logs() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-2xl font-bold text-gray-800">Logs</h2>
-        <div className="flex items-center gap-2">
-          <button onClick={() => setAuto(a => !a)} title={auto ? 'Pause auto-refresh' : 'Resume auto-refresh'}
-            className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-200 transition-colors">
-            {auto ? <Pause size={16} /> : <Play size={16} />} {auto ? 'Live' : 'Paused'}
-          </button>
-          <button onClick={load}
-            className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-200 transition-colors">
-            <RefreshCw size={16} /> Refresh
-          </button>
-          <button onClick={handleClear}
-            className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-200 transition-colors">
-            <Trash2 size={16} /> Clear
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title={t.logs.title}
+        right={<>
+          <Btn variant="outline" onClick={() => setAuto(a => !a)} title={auto ? 'Приостановить автообновление' : 'Продолжить автообновление'}>
+            {auto ? <Pause size={15} /> : <Play size={15} />} {auto ? t.logs.live : t.logs.paused}
+          </Btn>
+          <Btn variant="outline" onClick={load}><RefreshCw size={15} /> {t.common.refresh}</Btn>
+          <Btn variant="outline" onClick={handleClear}><Trash2 size={15} /> {t.logs.clear}</Btn>
+        </>}
+      />
 
-      <div className="flex gap-2 mb-4">
-        {(['server', 'bsl'] as const).map(t => (
-          <button key={t} onClick={() => setTab(t)}
-            className={`px-4 py-1.5 text-sm rounded-lg transition-colors ${tab === t ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 border border-gray-200 hover:bg-gray-200'}`}>
-            {t === 'server' ? 'Server' : 'BSL LS'}
-          </button>
-        ))}
+      <div className="flex gap-2 mb-3 flex-wrap items-center">
+        <Segmented
+          value={tab}
+          onChange={setTab}
+          options={[{ key: 'server', label: t.logs.server }, { key: 'bsl', label: 'BSL LS' }]}
+        />
         {tab === 'server' && (
           <>
-            <select value={level} onChange={e => setLevel(e.target.value)}
-              className="ml-2 px-3 py-1.5 text-sm bg-gray-100 text-gray-700 border border-gray-200 rounded-lg focus:outline-none">
-              {LEVELS.map(l => <option key={l} value={l}>{l === 'all' ? 'All levels' : l}</option>)}
-            </select>
-            <select value={target} onChange={e => setTarget(e.target.value)} title="Filter by module (prefix match)"
-              className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 border border-gray-200 rounded-lg focus:outline-none max-w-[220px]">
-              <option value="all">All modules</option>
-              {targets.map(t => <option key={t} value={t}>{t.replace(/^ai_1c_server::/, '')}</option>)}
-            </select>
-            <form onSubmit={submitSearch} className="flex-1">
-              <input value={searchInput} onChange={e => setSearchInput(e.target.value)}
-                placeholder="Search… (Enter)"
-                className="w-full px-3 py-1.5 text-sm bg-gray-100 text-gray-700 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <Select value={level} onChange={e => setLevel(e.target.value)} className="!w-auto">
+              {LEVELS.map(l => <option key={l} value={l}>{l === 'all' ? t.logs.allLevels : l}</option>)}
+            </Select>
+            <Select value={target} onChange={e => setTarget(e.target.value)} title="Фильтр по модулю" className="!w-auto max-w-[220px]">
+              <option value="all">{t.logs.allModules}</option>
+              {targets.map(x => <option key={x} value={x}>{x.replace(/^ai_1c_server::/, '')}</option>)}
+            </Select>
+            <form onSubmit={submitSearch} className="flex-1 min-w-[180px]">
+              <TextInput value={searchInput} onChange={e => setSearchInput(e.target.value)} placeholder={`${t.common.search} (Enter)`} />
             </form>
           </>
         )}
       </div>
 
-      <div className="bg-gray-900 font-mono text-xs p-4 rounded-xl border border-gray-200 h-[60vh] overflow-y-auto">
+      <div className="rounded-xl border border-slate-200 bg-slate-950 font-mono text-xs p-4 h-[60vh] overflow-y-auto dark:border-slate-800">
         {tab === 'server' ? (
           entries.length === 0
-            ? <p className="text-gray-500 italic">No log entries</p>
+            ? <p className="text-slate-500 italic">{t.logs.noEntries}</p>
             : entries.map((e, i) => (
               <div key={i} className="flex gap-2 py-px leading-relaxed break-all">
-                <span className="text-gray-500 shrink-0">{e.ts.slice(11, 23)}</span>
-                <span className={`shrink-0 w-12 font-bold ${LEVEL_STYLE[e.level] || 'text-gray-400'}`}>{e.level}</span>
-                <span className="text-gray-500 shrink-0 max-w-[220px] truncate" title={e.target}>{e.target}</span>
-                <span className="text-gray-200">{e.msg}</span>
+                <span className="text-slate-500 shrink-0 tabular-nums">{e.ts.slice(11, 23)}</span>
+                <span className={`shrink-0 w-12 font-bold ${LEVEL_STYLE[e.level] || 'text-slate-400'}`}>{e.level}</span>
+                <span className="text-slate-500 shrink-0 max-w-[220px] truncate" title={e.target}>{e.target}</span>
+                <span className="text-slate-200">{e.msg}</span>
               </div>
             ))
         ) : (
           bslLines.length === 0
-            ? <p className="text-gray-500 italic">BSL LS log is empty</p>
-            : bslLines.map((l, i) => <div key={i} className="text-gray-200 py-px leading-relaxed break-all">{l}</div>)
+            ? <p className="text-slate-500 italic">{t.logs.bslEmpty}</p>
+            : bslLines.map((l, i) => <div key={i} className="text-slate-200 py-px leading-relaxed break-all">{l}</div>)
         )}
         <div ref={bottomRef} />
       </div>

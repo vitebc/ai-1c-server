@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, RotateCcw, Copy, Check, FolderOpen, BarChart3, X, DatabaseZap, Wrench } from 'lucide-react';
+import { Plus, Pencil, Trash2, RotateCcw, Copy, Check, FolderOpen, BarChart3, DatabaseZap, Wrench } from 'lucide-react';
 import { api } from '../api/client';
 import { copyText } from '../clipboard';
 import FileBrowser from '../components/FileBrowser';
 import type { McpServer, ServerStatus } from '../types';
+import { t } from '../i18n';
+import { PageHeader, Card, CardBody, Btn, IconBtn, Badge, StatusDot, TableShell, Th, Td, Row, Field, TextInput, TextArea, Select, Modal, Alert } from '../components/ui';
 
 const SERVER_TYPES = ['custom', 'local', 'remote', 'builtin'];
 const TRANSPORTS = ['stdio', 'sse', 'http'];
@@ -36,7 +38,7 @@ export default function McpServers() {
   function openEdit(item: McpServer) { setEdit(item); setShowForm(true); }
 
   async function handleDelete(id: string) {
-    if (!confirm('Delete this server?')) return;
+    if (!confirm(t.mcp.deleteConfirm)) return;
     await api.deleteMcpServer(id);
     load();
   }
@@ -47,13 +49,13 @@ export default function McpServers() {
   }
 
   async function handleReindex(item: McpServer) {
-    if (!confirm(`Full reindex of "${item.name}"? Shared rows using the same folders will be stopped too, index files deleted and rebuilt in background (may take minutes).`)) return;
+    if (!confirm(t.mcp.reindexConfirm(item.name))) return;
     setOpMsg('');
     try {
       const res = await api.reindexMcp(item.id);
       setReindexJob({ jobId: res.job_id, name: item.name });
     } catch (e) {
-      setOpMsg(e instanceof Error ? `Reindex failed: ${e.message}` : 'Reindex failed');
+      setOpMsg(e instanceof Error ? `Ошибка переиндексации: ${e.message}` : 'Ошибка переиндексации');
     }
   }
 
@@ -65,7 +67,7 @@ export default function McpServers() {
       setCopied(format);
       setTimeout(() => setCopied(null), 1500);
     } catch (e) {
-      setCopyError(e instanceof Error ? e.message : 'Copy failed');
+      setCopyError(e instanceof Error ? e.message : 'Ошибка копирования');
     }
   }
 
@@ -79,12 +81,11 @@ export default function McpServers() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold text-gray-800">MCP Servers</h2>
-        <button onClick={openCreate} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition-colors">
-          <Plus size={16} /> Add Server
-        </button>
-      </div>
+      <PageHeader
+        title={t.mcp.title}
+        hint={`${items.length}`}
+        right={<Btn variant="primary" onClick={openCreate}><Plus size={15} /> {t.mcp.add}</Btn>}
+      />
 
       {showForm && (
         <ServerForm item={edit} onClose={() => setShowForm(false)} onSaved={load} />
@@ -103,73 +104,66 @@ export default function McpServers() {
         />
       )}
       {opMsg && (
-        <p className={`text-xs px-3 py-2 rounded-lg border mb-4 ${opMsg.startsWith('Reindex failed') ? 'text-red-600 bg-red-50 border-red-200' : 'text-green-600 bg-green-50 border-green-200'}`}>{opMsg}</p>
+        <div className="mb-4">
+          <Alert tone={/fail|ошиб/i.test(opMsg) ? 'red' : 'green'}>{opMsg}</Alert>
+        </div>
       )}
 
-      <div className="bg-gray-100 rounded-xl border border-gray-200 p-4 mb-4">
-        <div className="text-sm font-medium text-gray-700 mb-1">Single entry point (all enabled servers)</div>
-        <code className="block text-xs font-mono text-gray-600 bg-gray-50 border border-gray-200 rounded px-2 py-1.5 mb-3 break-all">{aggUrl}</code>
-        <div className="flex flex-wrap gap-2">
-          {formats.map(f => (
-            <button key={f.key} onClick={() => copyExport(f.key)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-700 hover:bg-gray-200 transition-colors">
-              {copied === f.key ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
-              Copy {f.label}.json
-            </button>
-          ))}
-        </div>
-        {copyError && <p className="text-xs text-red-600 mt-2">{copyError}</p>}
-      </div>
-
-      <div className="bg-gray-100 rounded-xl border border-gray-200 overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-gray-200 bg-gray-50">
-              <th className="text-left px-4 py-3 font-medium text-gray-600">Name</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-600">Type</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-600">Transport</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-600">Command</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
-              <th className="text-right px-4 py-3 font-medium text-gray-600">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map(item => (
-              <tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50">
-                <td className="px-4 py-3 font-medium text-gray-800">{item.name}</td>
-                <td className="px-4 py-3 text-gray-600">{item.server_type}</td>
-                <td className="px-4 py-3 text-gray-600">{item.transport}</td>
-                <td className="px-4 py-3 text-gray-600 font-mono text-xs">{item.command || '-'}</td>
-                <td className="px-4 py-3">
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${item.enabled ? 'bg-green-50 text-green-500' : 'bg-gray-200 text-gray-400'}`}>
-                    {item.enabled ? 'Enabled' : 'Disabled'}
-                  </span>
-                  {item.enabled && live[item.id] && (
-                    <span className={`ml-1.5 text-xs px-2 py-0.5 rounded-full ${live[item.id] === 'running' ? 'bg-green-600 text-white' : 'bg-red-100 text-red-600'}`}>
-                      {live[item.id]}
-                    </span>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-right whitespace-nowrap">
-                  {item.server_type.startsWith('search') && (
-                    <button title="Index stats" onClick={() => setStatsFor(item)} className="p-1.5 text-gray-400 hover:text-purple-500 transition-colors"><BarChart3 size={16} /></button>
-                  )}
-                  {item.server_type.startsWith('search') && (
-                    <button title="Full reindex (deletes index, rebuilds in background)" onClick={() => handleReindex(item)} className="p-1.5 text-gray-400 hover:text-orange-500 transition-colors"><DatabaseZap size={16} /></button>
-                  )}
-                  <button title="Tools (live tools/list)" onClick={() => setToolsFor(item)} className="p-1.5 text-gray-400 hover:text-blue-500 transition-colors"><Wrench size={16} /></button>
-                  <button title="Restart (hot-reload)" onClick={() => handleRestart(item.id)} className="p-1.5 text-gray-400 hover:text-green-600 transition-colors"><RotateCcw size={16} /></button>
-                  <button onClick={() => openEdit(item)} className="p-1.5 text-gray-400 hover:text-blue-600 transition-colors"><Pencil size={16} /></button>
-                  <button onClick={() => handleDelete(item.id)} className="p-1.5 text-gray-400 hover:text-red-600 transition-colors"><Trash2 size={16} /></button>
-                </td>
-              </tr>
+      <Card className="mb-4">
+        <CardBody>
+          <div className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-2">{t.mcp.singlePoint}</div>
+          <code className="block text-xs font-mono text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1.5 mb-3 truncate">{aggUrl}</code>
+          <div className="flex flex-wrap gap-2">
+            {formats.map(f => (
+              <Btn key={f.key} variant="outline" onClick={() => copyExport(f.key)} className="!px-2.5 !py-1.5 !text-xs">
+                {copied === f.key ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
+                {t.common.copy} {f.label}.json
+              </Btn>
             ))}
-            {items.length === 0 && (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">No servers configured</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+          </div>
+          {copyError && <p className="text-xs text-red-600 dark:text-red-400 mt-2">{copyError}</p>}
+        </CardBody>
+      </Card>
+
+      <TableShell
+        colSpan={6}
+        empty={items.length === 0 ? { text: t.mcp.noServers } : null}
+        head={<><Th>{t.mcp.name}</Th><Th>{t.mcp.type}</Th><Th>{t.mcp.transport}</Th><Th>{t.mcp.command}</Th><Th>{t.mcp.status}</Th><Th right>{t.common.actions}</Th></>}
+      >
+        {items.map(item => (
+          <Row key={item.id}>
+            <Td><span className="font-medium text-slate-800 dark:text-slate-100">{item.name}</span></Td>
+            <Td><span className="text-slate-600 dark:text-slate-300">{item.server_type}</span></Td>
+            <Td><span className="text-slate-600 dark:text-slate-300">{item.transport}</span></Td>
+            <Td><span className="block font-mono text-xs text-slate-600 dark:text-slate-300 truncate max-w-[280px]" title={item.command || '-'}>{item.command || '-'}</span></Td>
+            <Td>
+              <span className="inline-flex items-center gap-1.5">
+                <Badge tone={item.enabled ? 'green' : 'neutral'}>
+                  {item.enabled ? t.common.enabled : t.common.disabled}
+                </Badge>
+                {item.enabled && live[item.id] && (
+                  <Badge tone={live[item.id] === 'running' ? 'green' : 'red'}>
+                    <StatusDot status={live[item.id]} />
+                    {live[item.id]}
+                  </Badge>
+                )}
+              </span>
+            </Td>
+            <Td className="text-right whitespace-nowrap">
+              {item.server_type.startsWith('search') && (
+                <IconBtn title={t.mcp.indexStats} onClick={() => setStatsFor(item)}><BarChart3 size={15} /></IconBtn>
+              )}
+              {item.server_type.startsWith('search') && (
+                <IconBtn title={t.mcp.reindex} onClick={() => handleReindex(item)}><DatabaseZap size={15} /></IconBtn>
+              )}
+              <IconBtn title={t.mcp.liveTools} onClick={() => setToolsFor(item)}><Wrench size={15} /></IconBtn>
+              <IconBtn title={t.mcp.restart} onClick={() => handleRestart(item.id)}><RotateCcw size={15} /></IconBtn>
+              <IconBtn title={t.common.edit} onClick={() => openEdit(item)}><Pencil size={15} /></IconBtn>
+              <IconBtn title={t.common.delete} onClick={() => handleDelete(item.id)} className="hover:!text-red-600 dark:hover:!text-red-400"><Trash2 size={15} /></IconBtn>
+            </Td>
+          </Row>
+        ))}
+      </TableShell>
     </div>
   );
 }
@@ -208,60 +202,64 @@ function ServerForm({ item, onClose, onSaved }: { item?: McpServer | null; onClo
       onSaved();
       onClose();
     } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : 'Save failed');
+      setSubmitError(err instanceof Error ? err.message : 'Ошибка сохранения');
     }
   }
 
+  const typeOpts = SERVER_TYPES.includes(form.server_type) ? SERVER_TYPES : [...SERVER_TYPES, form.server_type];
+  const transportOpts = TRANSPORTS.includes(form.transport) ? TRANSPORTS : [...TRANSPORTS, form.transport];
+
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-gray-100 rounded-xl shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <h3 className="text-lg font-semibold text-gray-800">{item ? 'Edit Server' : 'Add Server'}</h3>
-          <Field label="Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} required />
-          <div className="grid grid-cols-2 gap-3">
-            <SelectField label="Type" value={form.server_type} options={SERVER_TYPES}
-              onChange={v => setForm(f => ({ ...f, server_type: v }))} />
-            <SelectField label="Transport" value={form.transport} options={TRANSPORTS}
-              onChange={v => setForm(f => ({ ...f, transport: v }))} />
+    <Modal title={item ? t.mcp.editTitle : t.mcp.newTitle} onClose={onClose} wide>
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <Field label={t.mcp.name}>
+          <TextInput value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} required />
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label={t.mcp.type}>
+            <Select value={form.server_type} onChange={e => setForm(f => ({ ...f, server_type: e.target.value }))}>
+              {typeOpts.map(o => <option key={o} value={o}>{o}</option>)}
+            </Select>
+          </Field>
+          <Field label={t.mcp.transport}>
+            <Select value={form.transport} onChange={e => setForm(f => ({ ...f, transport: e.target.value }))}>
+              {transportOpts.map(o => <option key={o} value={o}>{o}</option>)}
+            </Select>
+          </Field>
+        </div>
+        <Field label={t.mcp.command} hint={t.mcp.searchBinaryHint}>
+          <div className="flex gap-2">
+            <TextInput
+              value={form.command}
+              onChange={e => setForm(f => ({ ...f, command: e.target.value }))}
+              placeholder="/path/to/mcp-binary"
+              mono
+              className="flex-1"
+            />
+            <Btn variant="outline" type="button" onClick={() => setBrowse(true)} className="shrink-0">
+              <FolderOpen size={15} /> {t.mcp.browse}
+            </Btn>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Command</label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={form.command}
-                onChange={e => setForm(f => ({ ...f, command: e.target.value }))}
-                placeholder="/path/to/mcp-binary"
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-              <button type="button" onClick={() => setBrowse(true)}
-                className="flex items-center gap-1.5 px-3 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm hover:bg-gray-300 transition-colors shrink-0">
-                <FolderOpen size={16} /> Browse
-              </button>
-            </div>
-          </div>
-          <JsonField label="Args (JSON array)" value={form.args}
-            onChange={v => setForm(f => ({ ...f, args: v }))}
-            placeholder='["--port", "8080"]' kind="array" />
-          <JsonField label="Env (JSON object)" value={form.env}
-            onChange={v => setForm(f => ({ ...f, env: v }))}
-            placeholder='{"KEY": "value"}' kind="object" />
-          <Field label="URL" value={form.url} onChange={v => setForm(f => ({ ...f, url: v }))} placeholder="http://... (for http/sse transport)" />
-          <label className="flex items-center gap-2 text-sm text-gray-700">
-            <input type="checkbox" checked={form.enabled} onChange={e => setForm(f => ({ ...f, enabled: e.target.checked }))} className="rounded" />
-            Enabled
-          </label>
-          {submitError && (
-            <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{submitError}</p>
-          )}
-          <div className="flex justify-end gap-3 pt-2">
-            <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 transition-colors">Cancel</button>
-            <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition-colors">
-              {item ? 'Save' : 'Create'}
-            </button>
-          </div>
-        </form>
-      </div>
+        </Field>
+        <JsonField label={t.mcp.args} value={form.args}
+          onChange={v => setForm(f => ({ ...f, args: v }))}
+          placeholder='["--port", "8080"]' kind="array" />
+        <JsonField label={t.mcp.env} value={form.env}
+          onChange={v => setForm(f => ({ ...f, env: v }))}
+          placeholder='{"KEY": "value"}' kind="object" />
+        <Field label={t.mcp.url}>
+          <TextInput value={form.url} onChange={e => setForm(f => ({ ...f, url: e.target.value }))} placeholder="http://… (для транспортов http/sse)" mono />
+        </Field>
+        <label className="flex items-center gap-2 text-[13px] text-slate-700 dark:text-slate-300 cursor-pointer">
+          <input type="checkbox" checked={form.enabled} onChange={e => setForm(f => ({ ...f, enabled: e.target.checked }))} className="rounded accent-indigo-600" />
+          {t.mcp.enabled}
+        </label>
+        {submitError && <Alert tone="red">{submitError}</Alert>}
+        <div className="flex justify-end gap-2 pt-1">
+          <Btn variant="ghost" type="button" onClick={onClose}>{t.common.cancel}</Btn>
+          <Btn variant="primary" type="submit">{item ? t.common.save : t.common.create}</Btn>
+        </div>
+      </form>
       {browse && (
         <FileBrowser
           initialPath={form.command.includes('/') ? form.command.slice(0, form.command.lastIndexOf('/')) || '/' : undefined}
@@ -269,39 +267,7 @@ function ServerForm({ item, onClose, onSaved }: { item?: McpServer | null; onClo
           onClose={() => setBrowse(false)}
         />
       )}
-    </div>
-  );
-}
-
-function Field({ label, value, onChange, required, placeholder }: { label: string; value: string; onChange: (v: string) => void; required?: boolean; placeholder?: string }) {
-  return (
-    <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
-      <input
-        type="text"
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        required={required}
-        placeholder={placeholder}
-        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-      />
-    </div>
-  );
-}
-
-function SelectField({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (v: string) => void }) {
-  const opts = options.includes(value) ? options : [...options, value];
-  return (
-    <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
-      <select
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-100 text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-      >
-        {opts.map(o => <option key={o} value={o}>{o}</option>)}
-      </select>
-    </div>
+    </Modal>
   );
 }
 
@@ -313,10 +279,10 @@ function JsonField({ label, value, onChange, placeholder, kind }: {
   if (trimmed) {
     try {
       const parsed = JSON.parse(trimmed);
-      if (kind === 'array' && !Array.isArray(parsed)) error = 'Must be a JSON array';
-      if (kind === 'object' && (Array.isArray(parsed) || typeof parsed !== 'object' || parsed === null)) error = 'Must be a JSON object';
+      if (kind === 'array' && !Array.isArray(parsed)) error = 'Должен быть JSON-массивом';
+      if (kind === 'object' && (Array.isArray(parsed) || typeof parsed !== 'object' || parsed === null)) error = 'Должен быть JSON-объектом';
     } catch (e) {
-      error = e instanceof Error ? e.message : 'Invalid JSON';
+      error = e instanceof Error ? e.message : 'Некорректный JSON';
     }
   }
 
@@ -328,51 +294,50 @@ function JsonField({ label, value, onChange, placeholder, kind }: {
   return (
     <div>
       <div className="flex items-center justify-between mb-1">
-        <label className="block text-sm font-medium text-gray-700">{label}</label>
+        <label className="block text-[13px] font-medium text-slate-700 dark:text-slate-300">{label}</label>
         <div className="flex items-center gap-2">
-          {trimmed && !error && <span className="text-xs text-green-600">Valid JSON</span>}
-          {error && <span className="text-xs text-red-600 max-w-[300px] truncate" title={error}>{error}</span>}
+          {trimmed && !error && <span className="text-xs text-emerald-600 dark:text-emerald-400">{t.mcp.validJson}</span>}
+          {error && <span className="text-xs text-red-600 dark:text-red-400 max-w-[300px] truncate" title={error}>{error}</span>}
           <button type="button" onClick={format} disabled={!trimmed || !!error}
-            className="text-xs px-2 py-0.5 text-gray-600 border border-gray-300 rounded hover:bg-gray-200 disabled:opacity-40 transition-colors">
-            Format
+            className="text-xs px-2 py-0.5 text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-700 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 transition-colors cursor-pointer">
+            {t.mcp.format}
           </button>
         </div>
       </div>
-      <textarea
+      <TextArea
         value={value}
         onChange={e => onChange(e.target.value)}
         placeholder={placeholder}
         rows={3}
         spellCheck={false}
-        className={`w-full px-3 py-2 border rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${error ? 'border-red-400 bg-red-50/50' : 'border-gray-300'}`}
+        mono
+        className={error ? '!border-red-400 !bg-red-50 dark:!bg-red-950/30' : ''}
       />
     </div>
   );
 }
 
-function StatsModal({ item, onClose }: { item: McpServer; onClose: () => void }) {  const [text, setText] = useState<string | null>(null);
+function StatsModal({ item, onClose }: { item: McpServer; onClose: () => void }) {
+  const [text, setText] = useState<string | null>(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
     api.getMcpStats(item.id)
-      .then(r => setText(r.text || '(empty — index may still be building)'))
-      .catch(e => setError(e instanceof Error ? e.message : 'Failed to load stats'));
+      .then(r => setText(r.text || '(пусто — индекс, возможно, ещё строится)'))
+      .catch(e => setError(e instanceof Error ? e.message : 'Не удалось загрузить статистику'));
   }, [item.id]);
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-gray-100 rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between p-4 border-b border-gray-200">
-          <h4 className="text-sm font-semibold text-gray-800">Index stats: {item.name}</h4>
-          <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-700 transition-colors"><X size={18} /></button>
-        </div>
-        <div className="p-4 overflow-y-auto">
-          {error && <p className="text-xs text-red-600">{error}</p>}
-          {!text && !error && <p className="text-sm text-gray-400">Loading…</p>}
-          {text && <pre className="text-xs font-mono text-gray-700 bg-gray-50 border border-gray-200 rounded-lg p-3 whitespace-pre-wrap break-all">{text}</pre>}
+    <Modal title={`${t.mcp.indexStats}: ${item.name}`} onClose={onClose}>
+      <div className="space-y-3">
+        {error && <Alert tone="red">{error}</Alert>}
+        {!text && !error && <p className="text-sm text-slate-400 dark:text-slate-500">{t.common.loading}</p>}
+        {text && <pre className="text-xs font-mono text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-3 whitespace-pre-wrap break-all">{text}</pre>}
+        <div className="flex justify-end">
+          <Btn variant="ghost" onClick={onClose}>{t.common.close}</Btn>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -384,43 +349,38 @@ function ToolsModal({ item, onClose }: { item: McpServer; onClose: () => void })
   useEffect(() => {
     api.getMcpTools(item.id)
       .then(r => setTools(r.tools || []))
-      .catch(e => setError(e instanceof Error ? e.message : 'Failed to load tools'));
+      .catch(e => setError(e instanceof Error ? e.message : 'Не удалось загрузить инструменты'));
   }, [item.id]);
 
-  const shown = (tools || []).filter(t =>
-    !filter || t.name.toLowerCase().includes(filter.toLowerCase())
-      || (t.description || '').toLowerCase().includes(filter.toLowerCase()));
+  const shown = (tools || []).filter(tl =>
+    !filter || tl.name.toLowerCase().includes(filter.toLowerCase())
+      || (tl.description || '').toLowerCase().includes(filter.toLowerCase()));
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-gray-100 rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between p-4 border-b border-gray-200">
-          <h4 className="text-sm font-semibold text-gray-800">
-            Tools: {item.name}
-            {tools && <span className="ml-2 text-xs font-normal text-gray-500">{tools.length}</span>}
-          </h4>
-          <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-700 transition-colors"><X size={18} /></button>
-        </div>
-        <div className="p-4 overflow-y-auto space-y-2">
-          {error && <p className="text-xs text-red-600">{error}</p>}
-          {!tools && !error && <p className="text-sm text-gray-400">Loading…</p>}
-          {tools && tools.length === 0 && <p className="text-sm text-gray-400">No tools (server running, empty list)</p>}
-          {tools && tools.length > 0 && (
-            <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Filter…"
-              className="w-full px-3 py-1.5 text-sm bg-gray-50 text-gray-700 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          )}
-          {shown.map(t => (
-            <div key={t.name} className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
-              <div className="text-xs font-mono font-semibold text-gray-800 break-all">{t.name}</div>
-              {t.description && <div className="text-xs text-gray-500 mt-0.5 break-words">{t.description}</div>}
+    <Modal title={`${t.mcp.tools}: ${item.name}${tools ? ` (${tools.length})` : ''}`} onClose={onClose}>
+      <div className="space-y-2">
+        {error && <Alert tone="red">{error}</Alert>}
+        {!tools && !error && <p className="text-sm text-slate-400 dark:text-slate-500">{t.common.loading}</p>}
+        {tools && tools.length === 0 && <p className="text-sm text-slate-400 dark:text-slate-500">Нет инструментов (сервер работает, список пуст)</p>}
+        {tools && tools.length > 0 && (
+          <TextInput value={filter} onChange={e => setFilter(e.target.value)} placeholder={t.common.filter} />
+        )}
+        <div className="space-y-2 max-h-[50vh] overflow-y-auto">
+          {shown.map(tl => (
+            <div key={tl.name} className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2">
+              <div className="text-xs font-mono font-semibold text-slate-800 dark:text-slate-100 break-all">{tl.name}</div>
+              {tl.description && <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 break-words">{tl.description}</div>}
             </div>
           ))}
-          {tools && tools.length > 0 && shown.length === 0 && (
-            <p className="text-sm text-gray-400">Nothing matches «{filter}»</p>
-          )}
+        </div>
+        {tools && tools.length > 0 && shown.length === 0 && (
+          <p className="text-sm text-slate-400 dark:text-slate-500">Ничего не найдено по «{filter}»</p>
+        )}
+        <div className="flex justify-end pt-1">
+          <Btn variant="ghost" onClick={onClose}>{t.common.close}</Btn>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -438,58 +398,51 @@ function ReindexProgress({ jobId, name, onClose }: { jobId: string; name: string
         const j = await api.getReindexJob(jobId);
         if (alive) setJob(j);
       } catch (e) {
-        if (alive) setFetchError(e instanceof Error ? e.message : 'Poll failed');
+        if (alive) setFetchError(e instanceof Error ? e.message : 'Ошибка опроса');
       }
     };
     poll();
-    const t = setInterval(poll, 3000);
-    return () => { alive = false; clearInterval(t); };
+    const timer = setInterval(poll, 3000);
+    return () => { alive = false; clearInterval(timer); };
   }, [jobId]);
 
   const done = job?.state === 'done' || job?.state === 'error';
   const pct = job?.progress ?? 0;
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => done && onClose()}>
-      <div className="bg-gray-100 rounded-xl shadow-xl w-full max-w-lg mx-4" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between p-4 border-b border-gray-200">
-          <h4 className="text-sm font-semibold text-gray-800">Reindex: {name}</h4>
-          {done && <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-700 transition-colors"><X size={18} /></button>}
-        </div>
-        <div className="p-4 space-y-3">
-          {fetchError && <p className="text-xs text-red-600">{fetchError}</p>}
-          {!job && !fetchError && <p className="text-sm text-gray-400">Starting…</p>}
-          {job && (
-            <>
-              <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
-                <div
-                  className={`h-2.5 rounded-full transition-all duration-500 ${job.state === 'error' ? 'bg-red-500' : 'bg-blue-600'}`}
-                  style={{ width: `${pct}%` }}
-                />
-              </div>
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-gray-600 truncate">{job.message}</span>
-                <span className="text-gray-500 font-mono ml-2 shrink-0">{pct}%</span>
-              </div>
-              {job.neighbors.length > 0 && (
-                <p className="text-[11px] text-gray-500">Shared rows stopped too: {job.neighbors.join(', ')}</p>
-              )}
-              {job.deleted.length > 0 && (
-                <p className="text-[11px] text-gray-500">Removed {job.deleted.length} index file(s)</p>
-              )}
-              {job.state === 'done' && (
-                <button onClick={onClose} className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition-colors">
-                  Close
-                </button>
-              )}
-              {job.state === 'error' && (
-                <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{job.error || 'Reindex failed'}</p>
-              )}
-            </>
-          )}
-        </div>
+    <Modal title={`Переиндексация: ${name}`} onClose={() => { if (done) onClose(); }}>
+      <div className="space-y-3">
+        {fetchError && <Alert tone="red">{fetchError}</Alert>}
+        {!job && !fetchError && <p className="text-sm text-slate-400 dark:text-slate-500">{t.common.starting}</p>}
+        {job && (
+          <>
+            <div className="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-2.5 overflow-hidden">
+              <div
+                className={`h-2.5 rounded-full transition-all duration-500 ${job.state === 'error' ? 'bg-red-500' : 'bg-indigo-600'}`}
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-slate-600 dark:text-slate-300 truncate">{job.message}</span>
+              <span className="text-slate-500 dark:text-slate-400 font-mono ml-2 shrink-0">{pct}%</span>
+            </div>
+            {job.neighbors.length > 0 && (
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">Также остановлены общие строки: {job.neighbors.join(', ')}</p>
+            )}
+            {job.deleted.length > 0 && (
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">Удалено файлов индекса: {job.deleted.length}</p>
+            )}
+            {job.state === 'done' && (
+              <Btn variant="primary" onClick={onClose} className="w-full justify-center">
+                {t.common.close}
+              </Btn>
+            )}
+            {job.state === 'error' && (
+              <Alert tone="red">{job.error || 'Ошибка переиндексации'}</Alert>
+            )}
+          </>
+        )}
       </div>
-    </div>
+    </Modal>
   );
 }
-

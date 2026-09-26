@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { Plus, Trash2, CheckCircle, XCircle, Download, Upload } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api, authFetch } from '../api/client';
 import type { Skill } from '../types';
+import { t } from '../i18n';
+import { PageHeader, Card, CardBody, Btn, Field, TextInput, TextArea, Alert } from '../components/ui';
 
 export default function Skills() {
   const [items, setItems] = useState<Skill[]>([]);
@@ -14,7 +16,7 @@ export default function Skills() {
   const folderRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { load(); }, []);
-  function load() { api.getSkills().then(setItems); }
+  function load() { api.getSkills().then(setItems).catch(() => {}); }
 
   async function handleExport() {
     try {
@@ -26,15 +28,16 @@ export default function Skills() {
       a.download = 'skills.zip';
       a.click();
       URL.revokeObjectURL(url);
-    } catch (e: any) {
-      setImportResult(`Export error: ${e.message}`);
+    } catch (e) {
+      setImportResult(`Ошибка экспорта: ${e instanceof Error ? e.message : 'неизвестная ошибка'}`);
     }
   }
 
-  async function handleFolderPick(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleFolderPick(e: ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-    setImporting(true); setImportResult(null);
+    setImporting(true);
+    setImportResult(null);
     const mdFiles: { path: string; content: string }[] = [];
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
@@ -43,54 +46,69 @@ export default function Skills() {
     }
     try {
       const r = await authFetch('/skills/upload', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ files: mdFiles }),
       });
       const data = await r.json();
-      const errs = data.errors?.length ? `\nErrors: ${data.errors.join('; ')}` : '';
-      setImportResult(`Imported: ${data.imported}, skipped: ${data.skipped}${errs}`);
+      const errs = data.errors?.length ? `\nОшибки: ${data.errors.join('; ')}` : '';
+      setImportResult(`Импортировано: ${data.imported}, пропущено: ${data.skipped}${errs}`);
       load();
-    } catch (e: any) { setImportResult(`Error: ${e.message}`);
-    } finally { setImporting(false); if (folderRef.current) folderRef.current.value = ''; }
+    } catch (e) {
+      setImportResult(`Ошибка: ${e instanceof Error ? e.message : 'неизвестная ошибка'}`);
+    } finally {
+      setImporting(false);
+      if (folderRef.current) folderRef.current.value = '';
+    }
   }
 
-  // Group by category
+  // Группировка по категориям
   const grouped = new Map<string, Skill[]>();
   for (const s of items) {
-    const cat = s.category || 'Uncategorized';
+    const cat = s.category || t.skills.uncategorized;
     if (!grouped.has(cat)) grouped.set(cat, []);
     grouped.get(cat)!.push(s);
   }
   const sortedGroups = Array.from(grouped.entries()).sort((a, b) => a[0].localeCompare(b[0]));
 
+  const isError = importResult != null && /^(ошибка|error|export error)/i.test(importResult.trim());
+
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold text-gray-800">Skills</h2>
-        <div className="flex gap-2">
-          <button onClick={handleExport}
-            className="flex items-center gap-2 px-3 py-2 text-sm text-gray-400 border border-gray-300 rounded-lg hover:bg-gray-200">
-            <Download size={16} /> Export
-          </button>
-          <input type="file" ref={folderRef} onChange={handleFolderPick} multiple
-            // @ts-ignore
-            style={{ display: 'none' }} webkitdirectory="" directory="" />
-          <button onClick={() => folderRef.current?.click()} disabled={importing}
-            className="flex items-center gap-2 px-3 py-2 text-sm text-gray-400 border border-gray-300 rounded-lg hover:bg-gray-200 disabled:opacity-50">
-            <Upload size={16} /> Import
-          </button>
-          <button onClick={() => { setSelected(null); setShowForm(true); }}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-500 transition-colors">
-            <Plus size={16} /> Add Skill
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title={t.skills.title}
+        hint={`${items.length}`}
+        right={
+          <>
+            <Btn variant="outline" onClick={handleExport}>
+              <Download size={15} /> {t.skills.export}
+            </Btn>
+            <input
+              type="file"
+              ref={folderRef}
+              onChange={handleFolderPick}
+              multiple
+              style={{ display: 'none' }}
+              {...({ webkitdirectory: '', directory: '' } as Record<string, string>)}
+            />
+            <Btn variant="outline" onClick={() => folderRef.current?.click()} disabled={importing}>
+              <Upload size={15} /> {t.skills.import}
+            </Btn>
+            <Btn variant="primary" onClick={() => { setSelected(null); setShowForm(true); }}>
+              <Plus size={15} /> {t.skills.add}
+            </Btn>
+          </>
+        }
+      />
 
       {importResult && (
-        <div className={`mb-4 p-3 rounded-xl text-sm ${importResult.startsWith('Error') ? 'bg-red-50 text-red-400 border border-red-300' : 'bg-green-50 text-green-500 border border-green-300'}`}
-          style={{ whiteSpace: 'pre-wrap' }}>
-          {importResult.startsWith('Error') ? <XCircle size={16} className="inline mr-1" /> : <CheckCircle size={16} className="inline mr-1" />}
-          {importResult}
+        <div className="mb-4">
+          <Alert tone={isError ? 'red' : 'green'}>
+            <span className="inline-flex items-start gap-1.5" style={{ whiteSpace: 'pre-wrap' }}>
+              {isError ? <XCircle size={15} className="shrink-0 mt-px" /> : <CheckCircle size={15} className="shrink-0 mt-px" />}
+              <span>{importResult}</span>
+            </span>
+          </Alert>
         </div>
       )}
 
@@ -98,22 +116,27 @@ export default function Skills() {
         <div className="w-72 shrink-0 space-y-1 overflow-y-auto max-h-[calc(100vh-12rem)]">
           {sortedGroups.map(([cat, skills]) => (
             <div key={cat}>
-              <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide px-3 py-2 mt-2 first:mt-0">
-                {cat} <span className="text-gray-500 font-normal">({skills.length})</span>
+              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wide px-3 py-2 mt-2 first:mt-0">
+                {cat} <span className="text-slate-500 dark:text-slate-500 font-normal">({skills.length})</span>
               </div>
               {skills.map(s => (
-                <button key={s.id} onClick={() => { setSelected(s); setShowForm(false); }}
-                  className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
-                    selected?.id === s.id ? 'bg-blue-50 text-blue-500' : 'text-gray-700 hover:bg-gray-200'
-                  }`}>
+                <button
+                  key={s.id}
+                  onClick={() => { setSelected(s); setShowForm(false); }}
+                  className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer ${
+                    selected?.id === s.id
+                      ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300'
+                      : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
+                  }`}
+                >
                   <div className="font-medium">{s.name}</div>
-                  <div className="text-xs text-gray-400 mt-0.5 font-mono">{s.tool_name}</div>
+                  <div className="text-xs text-slate-400 mt-0.5 font-mono">{s.tool_name}</div>
                 </button>
               ))}
             </div>
           ))}
           {items.length === 0 && (
-            <p className="text-sm text-gray-400 px-3 py-8 text-center">No skills. Import or add one.</p>
+            <p className="text-sm text-slate-400 px-3 py-8 text-center">{t.skills.noSkills}</p>
           )}
         </div>
 
@@ -123,9 +146,11 @@ export default function Skills() {
           ) : selected ? (
             <SkillDetail key={selected.id} skill={selected} onSaved={() => { load(); }} onDeleted={() => { setSelected(null); load(); }} />
           ) : (
-            <div className="bg-gray-100 rounded-xl border border-gray-200 p-8 text-center text-gray-400">
-              <p>Select a skill from the list to edit</p>
-            </div>
+            <Card>
+              <CardBody className="p-8 text-center text-slate-400 dark:text-slate-500">
+                <p className="text-sm">{t.skills.selectHint}</p>
+              </CardBody>
+            </Card>
           )}
         </div>
       </div>
@@ -162,75 +187,78 @@ function SkillDetail({ skill, onSaved, onDeleted }: { skill: Skill; onSaved: () 
         metadata: form.metadata || null,
       });
       onSaved();
-    } finally { setSaving(false); }
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleDelete() {
-    if (!confirm('Delete this skill?')) return;
+    if (!confirm(t.skills.deleteConfirm)) return;
     await api.deleteSkill(skill.id);
     onDeleted();
   }
 
+  const set = (k: keyof typeof form) => (v: string) => setForm(f => ({ ...f, [k]: v }));
+
   return (
-    <div className="bg-gray-100 rounded-xl border border-gray-200 p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-gray-800">{skill.name}</h3>
-        <button onClick={handleDelete} className="flex items-center gap-1 px-3 py-1.5 text-xs text-red-500 border border-red-300 rounded-lg hover:bg-red-50">
-          <Trash2 size={14} /> Delete
-        </button>
-      </div>
-
-      {/* Metadata fields */}
-      <div className="grid grid-cols-2 gap-4">
-        <Field label="Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} />
-        <Field label="Tool Name" value={form.tool_name} onChange={v => setForm(f => ({ ...f, tool_name: v }))} />
-        <Field label="Server ID" value={form.server_id} onChange={v => setForm(f => ({ ...f, server_id: v }))} />
-        <Field label="Category" value={form.category} onChange={v => setForm(f => ({ ...f, category: v }))} />
-        <Field label="Version" value={form.version} onChange={v => setForm(f => ({ ...f, version: v }))} />
-        <div className="flex items-end pb-2">
-          <label className="flex items-center gap-2 text-sm text-gray-700">
-            <input type="checkbox" checked={form.enabled} onChange={e => setForm(f => ({ ...f, enabled: e.target.checked }))} className="rounded" />
-            Enabled
-          </label>
+    <Card>
+      <CardBody className="p-6 space-y-6">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">{skill.name}</h3>
+          <Btn variant="danger-outline" onClick={handleDelete}>
+            <Trash2 size={14} /> {t.common.delete}
+          </Btn>
         </div>
-      </div>
 
-      {/* Description */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-        <textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-          rows={2} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-      </div>
-
-      {/* Instruction — Markdown Editor + Preview */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Instruction (Markdown)</label>
         <div className="grid grid-cols-2 gap-4">
-          <textarea value={form.instruction} onChange={e => setForm(f => ({ ...f, instruction: e.target.value }))}
-            rows={24}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
-          <div className="prose prose-invert prose-sm max-w-none border border-gray-300 rounded-lg p-3 overflow-y-auto bg-gray-100 text-gray-700">
-            <Markdown remarkPlugins={[remarkGfm]}>{form.instruction || '*No content*'}</Markdown>
+          <Field label={t.skills.name}><TextInput value={form.name} onChange={e => set('name')(e.target.value)} /></Field>
+          <Field label={t.skills.toolName}><TextInput value={form.tool_name} onChange={e => set('tool_name')(e.target.value)} mono /></Field>
+          <Field label={t.skills.serverId}><TextInput value={form.server_id} onChange={e => set('server_id')(e.target.value)} mono /></Field>
+          <Field label={t.skills.category}><TextInput value={form.category} onChange={e => set('category')(e.target.value)} /></Field>
+          <Field label={t.skills.version}><TextInput value={form.version} onChange={e => set('version')(e.target.value)} mono /></Field>
+          <div className="flex items-end pb-2">
+            <label className="flex items-center gap-2 text-[13px] text-slate-700 dark:text-slate-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.enabled}
+                onChange={e => setForm(f => ({ ...f, enabled: e.target.checked }))}
+                className="rounded accent-indigo-600"
+              />
+              {t.common.enabled}
+            </label>
           </div>
         </div>
-      </div>
 
-      {/* Tool Schema */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Tool Schema (JSON)</label>
-        <textarea value={form.tool_schema} onChange={e => setForm(f => ({ ...f, tool_schema: e.target.value }))}
-          rows={4}
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-      </div>
+        <Field label={t.skills.description}>
+          <TextArea value={form.description} onChange={e => set('description')(e.target.value)} rows={2} />
+        </Field>
 
-      {/* Save */}
-      <div className="flex justify-end">
-        <button onClick={handleSave} disabled={saving}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-500 disabled:opacity-50 transition-colors">
-          {saving ? 'Saving...' : 'Save'}
-        </button>
-      </div>
-    </div>
+        <Field label={t.skills.instruction}>
+          <div className="grid grid-cols-2 gap-4">
+            <TextArea
+              value={form.instruction}
+              onChange={e => set('instruction')(e.target.value)}
+              rows={24}
+              mono
+              className="resize-none"
+            />
+            <div className="md-preview border border-slate-300 dark:border-slate-700 rounded-lg p-3 overflow-y-auto max-h-[580px] bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-300">
+              <Markdown remarkPlugins={[remarkGfm]}>{form.instruction || '*Нет содержимого*'}</Markdown>
+            </div>
+          </div>
+        </Field>
+
+        <Field label={t.skills.schema}>
+          <TextArea value={form.tool_schema} onChange={e => set('tool_schema')(e.target.value)} rows={4} mono />
+        </Field>
+
+        <div className="flex justify-end">
+          <Btn variant="primary" onClick={handleSave} disabled={saving}>
+            {saving ? t.common.saving : t.common.save}
+          </Btn>
+        </div>
+      </CardBody>
+    </Card>
   );
 }
 
@@ -253,7 +281,6 @@ function SkillForm({ item, onClose, onSaved }: { item?: Skill | null; onClose: (
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (item) {
-      // Update case — use update endpoint
       await api.updateSkill(item.id, {
         ...form,
         server_id: form.server_id || null,
@@ -263,68 +290,67 @@ function SkillForm({ item, onClose, onSaved }: { item?: Skill | null; onClose: (
         metadata: form.metadata || null,
       });
     } else {
-      await api.createSkill(form as any);
+      await api.createSkill(form);
     }
     onSaved();
     onClose();
   }
 
+  const set = (k: keyof typeof form) => (v: string) => setForm(f => ({ ...f, [k]: v }));
+
   return (
-    <div className="bg-gray-100 rounded-xl border border-gray-200 p-6">
-      <h3 className="text-lg font-semibold text-gray-800 mb-6">{item ? 'Edit Skill' : 'New Skill'}</h3>
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} />
-          <Field label="Tool Name" value={form.tool_name} onChange={v => setForm(f => ({ ...f, tool_name: v }))} />
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Server ID" value={form.server_id} onChange={v => setForm(f => ({ ...f, server_id: v }))} />
-          <Field label="Category" value={form.category} onChange={v => setForm(f => ({ ...f, category: v }))} />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-          <textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-            rows={2}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Instruction (Markdown)</label>
-          <textarea value={form.instruction} onChange={e => setForm(f => ({ ...f, instruction: e.target.value }))}
-            rows={20}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Tool Schema (JSON)</label>
-          <textarea value={form.tool_schema} onChange={e => setForm(f => ({ ...f, tool_schema: e.target.value }))}
-            rows={4}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Version" value={form.version} onChange={v => setForm(f => ({ ...f, version: v }))} />
-          <div className="flex items-end pb-2">
-            <label className="flex items-center gap-2 text-sm text-gray-700">
-              <input type="checkbox" checked={form.enabled} onChange={e => setForm(f => ({ ...f, enabled: e.target.checked }))} className="rounded" />
-              Enabled
-            </label>
+    <Card>
+      <CardBody className="p-6">
+        <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100 mb-6">{t.skills.add}</h3>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <Field label={t.skills.name}><TextInput value={form.name} onChange={e => set('name')(e.target.value)} required /></Field>
+            <Field label={t.skills.toolName}><TextInput value={form.tool_name} onChange={e => set('tool_name')(e.target.value)} required mono /></Field>
           </div>
-        </div>
-        <div className="flex justify-end gap-3 pt-2">
-          <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-400 border border-gray-300 rounded-lg hover:bg-gray-200">Cancel</button>
-          <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-500">{item ? 'Save' : 'Create'}</button>
-        </div>
-      </form>
-    </div>
-  );
-}
-
-// ─── Field component ───────────────────────────────────────
-
-function Field({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
-  return (
-    <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
-      <input type="text" value={value} onChange={e => onChange(e.target.value)}
-        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-    </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label={t.skills.serverId}><TextInput value={form.server_id} onChange={e => set('server_id')(e.target.value)} mono /></Field>
+            <Field label={t.skills.category}><TextInput value={form.category} onChange={e => set('category')(e.target.value)} /></Field>
+          </div>
+          <Field label={t.skills.description}>
+            <TextArea value={form.description} onChange={e => set('description')(e.target.value)} rows={2} />
+          </Field>
+          <Field label={t.skills.instruction}>
+            <div className="grid grid-cols-2 gap-4">
+              <TextArea
+                value={form.instruction}
+                onChange={e => set('instruction')(e.target.value)}
+                rows={24}
+                mono
+                className="resize-none"
+              />
+              <div className="md-preview border border-slate-300 dark:border-slate-700 rounded-lg p-3 overflow-y-auto max-h-[580px] bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-300">
+                <Markdown remarkPlugins={[remarkGfm]}>{form.instruction || '*Нет содержимого*'}</Markdown>
+              </div>
+            </div>
+          </Field>
+          <Field label={t.skills.schema}>
+            <TextArea value={form.tool_schema} onChange={e => set('tool_schema')(e.target.value)} rows={4} mono />
+          </Field>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label={t.skills.version}><TextInput value={form.version} onChange={e => set('version')(e.target.value)} mono /></Field>
+            <div className="flex items-end pb-2">
+              <label className="flex items-center gap-2 text-[13px] text-slate-700 dark:text-slate-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.enabled}
+                  onChange={e => setForm(f => ({ ...f, enabled: e.target.checked }))}
+                  className="rounded accent-indigo-600"
+                />
+                {t.common.enabled}
+              </label>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Btn variant="ghost" type="button" onClick={onClose}>{t.common.cancel}</Btn>
+            <Btn variant="primary" type="submit">{item ? t.common.save : t.common.create}</Btn>
+          </div>
+        </form>
+      </CardBody>
+    </Card>
   );
 }

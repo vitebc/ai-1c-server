@@ -1,66 +1,55 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
-  --color-gray-50: #0B0E14;
-  --color-gray-100: #1A1F29;
-  --color-gray-200: #2D3640;
-  --color-gray-300: #3D4A5C;
-  --color-gray-400: #4D5A6C;
-  --color-gray-500: #707A8C;
-  --color-gray-600: #8A9BB5;
-  --color-gray-700: #B3B1AD;
-  --color-gray-800: #CBCCC6;
-  --color-gray-900: #E8E7E0;
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
 
-  --color-blue-50: #1A2744;
-  --color-blue-100: #223A5E;
-  --color-blue-200: #2A4A78;
-  --color-blue-300: #3A5F98;
-  --color-blue-400: #5A7FB8;
-  --color-blue-500: #73B8FF;
-  --color-blue-600: #5A9FDF;
-  --color-blue-700: #4A8FCF;
-
-  --color-green-50: #142B25;
-  --color-green-100: #1A332E;
-  --color-green-200: #25473E;
-  --color-green-300: #356050;
-  --color-green-400: #508A70;
-  --color-green-500: #95E6CB;
-  --color-green-600: #75C6AB;
-  --color-green-700: #5AA690;
-
-  --color-red-50: #2E1519;
-  --color-red-100: #3D1C22;
-  --color-red-200: #4D2530;
-  --color-red-300: #6A3540;
-  --color-red-400: #8A4550;
-  --color-red-500: #F07178;
-  --color-red-600: #D06168;
-  --color-red-700: #B04A52;
-  --color-red-800: #E85A60;
-
-  --color-orange-50: #2E1C0D;
-  --color-orange-100: #3D2815;
-  --color-orange-500: #FF8F40;
-
-  --color-purple-50: #1E1830;
-  --color-purple-100: #2A2045;
-  --color-purple-500: #D4A0FF;
-
-  --color-yellow-50: #2E280D;
-  --color-yellow-500: #FFD173;
+html, body, #root {
+  height: 100%;
 }
 
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
 }
 
-input, textarea, select {
-  color: #CBCCC6;
+/* Тонкие скроллбары для плотной dev-консоли */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(148 163 184 / 0.45) transparent;
 }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: rgb(148 163 184 / 0.45); border-radius: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
 
-input:focus, textarea:focus, select:focus {
-  color: #E8E7E0;
+/* Markdown-превью в скиллах */
+.md-preview {
+  font-size: 0.875rem;
+  line-height: 1.6;
+  word-break: break-word;
+}
+.md-preview h1, .md-preview h2, .md-preview h3 { font-weight: 700; margin: 0.75em 0 0.4em; }
+.md-preview h1 { font-size: 1.15rem; } .md-preview h2 { font-size: 1.05rem; } .md-preview h3 { font-size: 0.95rem; }
+.md-preview p { margin: 0.4em 0; }
+.md-preview ul, .md-preview ol { padding-left: 1.25rem; margin: 0.4em 0; }
+.md-preview ul { list-style: disc; } .md-preview ol { list-style: decimal; }
+.md-preview code { font-family: var(--font-mono); font-size: 0.8em; padding: 0.1em 0.35em; border-radius: 6px; }
+.md-preview pre { padding: 0.75rem; border-radius: 0.6rem; overflow-x: auto; }
+.md-preview pre code { padding: 0; background: transparent; }
+.md-preview table { border-collapse: collapse; width: 100%; font-size: 0.8rem; margin: 0.5em 0; }
+.md-preview th, .md-preview td { border: 1px solid rgb(148 163 184 / 0.35); padding: 4px 8px; text-align: left; }
+.md-preview blockquote { border-left: 3px solid rgb(148 163 184 / 0.5); padding-left: 0.75rem; opacity: 0.85; margin: 0.5em 0; }
+
+.dark .md-preview code { background: rgb(255 255 255 / 0.08); }
+.dark .md-preview pre { background: #0b0e14; }
+:root .md-preview code { background: rgb(15 23 42 / 0.06); }
+:root .md-preview pre { background: #0f172a; color: #e2e8f0; }
+:root .md-preview pre code { color: inherit; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
 }

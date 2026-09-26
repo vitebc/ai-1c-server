@@ -3,6 +3,8 @@ import { Plus, Pencil, Trash2, Play, Pause, Square, RotateCcw, RefreshCw, Server
 import { api } from '../api/client';
 import FileBrowser from '../components/FileBrowser';
 import type { AgentItem, SkillFileItem, PatternItem, AgentOverview, AgentBackendStatus, EnvEntry, Me, McpServer, ServerStatus } from '../types';
+import { t } from '../i18n';
+import { PageHeader, Card, CardBody, Btn, IconBtn, Badge, TableShell, Th, Td, Row, Field, TextInput, TextArea, Select, Modal as UiModal, Alert, Segmented } from '../components/ui';
 
 type Tab = 'agents' | 'skills' | 'patterns' | 'backend' | 'env';
 
@@ -28,80 +30,62 @@ export default function AgentStudio({ me }: { me: Me | null }) {
       const [o, live] = await Promise.all([api.getAgentOverview(), api.getLiveTools().catch(() => null)]);
       setOv(o);
       if (live?.reachable && live.data) {
-        // Live ToolRegistry from the backend — the source of truth.
-        setTools(live.data.tools.map(t => ({ name: t.name, description: t.description || '' })));
+        setTools(live.data.tools.map(x => ({ name: x.name, description: x.description || '' })));
         setToolsMode(live.data.mode);
       } else {
-        // Backend down: fall back to the static known list.
-        const t = await api.getAgentTools();
-        setTools(t.map(name => ({ name, description: '' })));
+        const list = await api.getAgentTools();
+        setTools(list.map(name => ({ name, description: '' })));
         setToolsMode(null);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Load failed');
+      setError(e instanceof Error ? e.message : 'Ошибка загрузки');
     }
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
   async function pickRoot(path: string) {
-    if (!confirm(`Switch agent project root to:\n${path}\nAll file/backend operations will target this directory.`)) return;
+    if (!confirm(t.studio.rootConfirm(path))) return;
     setBrowseRoot(false);
     try {
       await api.putSetting('agent_project_root', path);
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to set root');
+      setError(e instanceof Error ? e.message : 'Не удалось сменить корень');
     }
   }
   const allTabs: { key: Tab; label: string }[] = [
-    { key: 'agents', label: 'Agents' },
-    { key: 'skills', label: 'Agent Skills' },
-    { key: 'patterns', label: 'Patterns' },
-    { key: 'backend', label: 'Backend' },
-    { key: 'env', label: 'Config (.env)' },
+    { key: 'agents', label: t.studio.agents },
+    { key: 'skills', label: t.studio.agentSkills },
+    { key: 'patterns', label: t.studio.patterns },
+    { key: 'backend', label: t.studio.backend },
+    { key: 'env', label: t.studio.env },
   ];
-  const tabs = allTabs.filter((t: { key: Tab; label: string }) =>
-    !me || me.sections.includes(TAB_SECTION[t.key]));
+  const tabs = allTabs.filter(x => !me || me.sections.includes(TAB_SECTION[x.key]));
 
-  // If the active tab is not permitted (e.g. after role change), jump to the first allowed one.
   useEffect(() => {
     if (me && !me.sections.includes(TAB_SECTION[tab])) {
       const first = (['agents', 'skills', 'patterns', 'backend', 'env'] as Tab[])
-        .find(t => me.sections.includes(TAB_SECTION[t]));
+        .find(x => me.sections.includes(TAB_SECTION[x]));
       if (first) setTab(first);
     }
   }, [me, tab]);
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-start gap-2">
-          <div>
-            <h2 className="text-2xl font-bold text-gray-800">AI Agent Studio</h2>
-            <p className="text-xs text-gray-500 font-mono mt-0.5">
-              {ov ? ov.root : '…'} {!ov?.root_exists && ov && <span className="text-red-500">— project root not found</span>}
-            </p>
-          </div>
-          <button onClick={() => setBrowseRoot(true)} title="Change project root directory"
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-200 transition-colors mt-1">
-            <FolderOpen size={14} /> Root…
-          </button>
-        </div>
-        <button onClick={load} className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-200 transition-colors">
-          <RefreshCw size={16} /> Reload
-        </button>
-      </div>
+      <PageHeader
+        title={t.studio.title}
+        hint={ov ? `${ov.root}${!ov.root_exists ? ` ${t.studio.rootMissing}` : ''}` : undefined}
+        right={<>
+          <Btn variant="outline" onClick={() => setBrowseRoot(true)}><FolderOpen size={15} /> {t.studio.rootChange}</Btn>
+          <Btn variant="outline" onClick={load}><RefreshCw size={15} /> {t.common.reload}</Btn>
+        </>}
+      />
 
-      {error && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-4">{error}</p>}
+      {error && <div className="mb-3"><Alert tone="red">{error}</Alert></div>}
 
-      <div className="flex gap-2 mb-4 flex-wrap">
-        {tabs.map(t => (
-          <button key={t.key} onClick={() => setTab(t.key)}
-            className={`px-4 py-1.5 text-sm rounded-lg transition-colors ${tab === t.key ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 border border-gray-200 hover:bg-gray-200'}`}>
-            {t.label}
-          </button>
-        ))}
+      <div className="mb-4">
+        <Segmented value={tab} onChange={setTab} options={tabs} />
       </div>
 
       {tab === 'agents' && ov && <AgentsTab ov={ov} tools={tools} toolsMode={toolsMode} skillNames={ov.skills.map(s => s.name)} onChanged={load} />}
@@ -112,7 +96,7 @@ export default function AgentStudio({ me }: { me: Me | null }) {
       {browseRoot && (
         <FileBrowser
           dirsOnly
-          title="Select agent project root (contains backend/ + docker-compose.yml)"
+          title="Выберите корень агентского проекта (содержит backend/ + docker-compose.yml)"
           initialPath={ov?.root || undefined}
           onPick={pickRoot}
           onClose={() => setBrowseRoot(false)}
@@ -127,15 +111,12 @@ export default function AgentStudio({ me }: { me: Me | null }) {
 function Err({ text }: { text: string | null }) {
   if (!text) return null;
   return (
-    <span className="ml-1.5 inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded bg-red-50 text-red-600 border border-red-200" title={text}>
-      <AlertTriangle size={12} /> broken
+    <span className="ml-1.5 inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded bg-red-50 text-red-600 border border-red-200 dark:bg-red-950 dark:text-red-300 dark:border-red-900" title={text}>
+      <AlertTriangle size={12} /> битый
     </span>
   );
 }
 
-/// Mirror of the agent backend naming rules (`onec/aggregated.py` +
-/// `api/mod.rs::tool_prefix`): `server__tool` carries the subserver tag,
-/// unprefixed names are backend built-ins (default-proxy / local).
 function toolServer(toolName: string): string | null {
   const i = toolName.indexOf('__');
   return i > 0 ? toolName.slice(0, i) : null;
@@ -148,15 +129,11 @@ function toolPrefix(name: string): string {
 
 function ToolsCheck({ all, selected, onChange, mode, mcpFilter }: {
   all: { name: string; description: string }[]; selected: string[]; onChange: (v: string[]) => void; mode: string | null;
-  /// Selected MCP row names (agent form): prefixed tools are shown only for
-  /// these servers. Backend built-ins (no `__`) are always shown.
-  /// `null` = no filtering (skill form has no mcp field).
   mcpFilter?: string[] | null;
 }) {
-  const toggle = (t: string) =>
-    onChange(selected.includes(t) ? selected.filter(x => x !== t) : [...selected, t]);
-  // Keep already-selected tools visible even if the live registry no longer lists them.
-  const extra = selected.filter(s => !all.some(t => t.name === s)).map(name => ({ name, description: '(not in live registry)' }));
+  const toggle = (x: string) =>
+    onChange(selected.includes(x) ? selected.filter(v => v !== x) : [...selected, x]);
+  const extra = selected.filter(s => !all.some(x => x.name === s)).map(name => ({ name, description: '(нет в live-реестре)' }));
   const list = [...all, ...extra];
   const visible = (name: string) => {
     if (!mcpFilter) return true;
@@ -164,36 +141,34 @@ function ToolsCheck({ all, selected, onChange, mode, mcpFilter }: {
     if (srv === null) return true;
     return mcpFilter.some(s => s === srv || toolPrefix(s) === srv);
   };
-  const shown = list.filter(t => visible(t.name));
-  const hiddenSelected = selected.filter(s => !shown.some(t => t.name === s));
+  const shown = list.filter(x => visible(x.name));
+  const hiddenSelected = selected.filter(s => !shown.some(x => x.name === s));
   return (
     <div>
       <div className="flex items-center justify-between mb-1">
-        <label className="block text-sm font-medium text-gray-700">Tools (subset of ToolRegistry)</label>
-        <span className={`text-[11px] px-1.5 py-0.5 rounded ${mode ? 'bg-green-50 text-green-600' : 'bg-gray-200 text-gray-500'}`} title={mode ? 'Live list from backend GET /tools' : 'Backend unreachable — static fallback list'}>
-          {mode ? `live · ${mode} · ${all.length}` : `offline · static · ${all.length}`}
-        </span>
+        <label className="block text-[13px] font-medium text-slate-700 dark:text-slate-300">{t.studio.toolsLabel}</label>
+        <Badge tone={mode ? 'green' : 'neutral'}>{mode ? `${t.studio.live} · ${mode} · ${all.length}` : `${t.studio.offline} · ${all.length}`}</Badge>
       </div>
       {mcpFilter && (
-        <p className="text-[11px] text-gray-500 mb-1">
-          Filtered by MCP: {mcpFilter.length ? mcpFilter.join(', ') : 'default'}
+        <p className="text-[11px] text-slate-500 mb-1">
+          Фильтр по MCP: {mcpFilter.length ? mcpFilter.join(', ') : 'default'}
           {hiddenSelected.length > 0 && (
-            <span className="text-yellow-600"> · {hiddenSelected.length} selected hidden (kept on save)</span>
+            <span className="text-amber-600 dark:text-amber-400"> · выбрано скрытых: {hiddenSelected.length} (сохранятся)</span>
           )}
         </p>
       )}
-      <div className="border border-gray-300 rounded-lg p-2 max-h-40 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1 bg-gray-50">
-        {shown.map(t => {
-          const srv = toolServer(t.name);
+      <div className="border border-slate-300 dark:border-slate-700 rounded-lg p-2 max-h-40 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1 bg-slate-50 dark:bg-slate-950">
+        {shown.map(x => {
+          const srv = toolServer(x.name);
           return (
-            <label key={t.name} title={t.description} className="flex items-center gap-2 text-xs text-gray-700 px-1 py-0.5 rounded hover:bg-gray-200 cursor-pointer">
-              <input type="checkbox" checked={selected.includes(t.name)} onChange={() => toggle(t.name)} className="rounded" />
-              <span className="font-mono truncate">{t.name}</span>
-              {srv !== null && <span className="text-[10px] text-gray-400 shrink-0">{srv}</span>}
+            <label key={x.name} title={x.description} className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 px-1 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer">
+              <input type="checkbox" checked={selected.includes(x.name)} onChange={() => toggle(x.name)} className="rounded accent-indigo-600" />
+              <span className="font-mono truncate">{x.name}</span>
+              {srv !== null && <span className="text-[10px] text-slate-400 shrink-0">{srv}</span>}
             </label>
           );
         })}
-        {shown.length === 0 && <span className="text-xs text-gray-400">No tools for the selected MCP servers</span>}
+        {shown.length === 0 && <span className="text-xs text-slate-400">Нет инструментов для выбранных MCP-серверов</span>}
       </div>
     </div>
   );
@@ -201,27 +176,20 @@ function ToolsCheck({ all, selected, onChange, mode, mcpFilter }: {
 
 function BodyField({ value, onChange, rows }: { value: string; onChange: (v: string) => void; rows?: number }) {
   return (
-    <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">Body (markdown, after second ---)</label>
-      <textarea value={value} onChange={e => onChange(e.target.value)} rows={rows || 10} spellCheck={false}
-        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
-    </div>
+    <Field label="Тело (markdown, после второго ---)">
+      <TextArea value={value} onChange={e => onChange(e.target.value)} rows={rows || 10} spellCheck={false} mono />
+    </Field>
   );
 }
 
 function TextField({ label, value, onChange, mono, placeholder }: { label: string; value: string; onChange: (v: string) => void; mono?: boolean; placeholder?: string }) {
   return (
-    <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
-      <input type="text" value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
-        className={`w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${mono ? 'font-mono' : ''}`} />
-    </div>
+    <Field label={label}>
+      <TextInput value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} mono={mono} />
+    </Field>
   );
 }
 
-/// MCP server multi-picker for the agent `mcp:` field (same UX as Tools):
-/// checkboxes over ai-1c-server rows (running first). Falls back to
-/// comma-separated free text when the mcp-servers section is not visible.
 function McpSelect({ selected, onChange }: { selected: string[]; onChange: (v: string[]) => void }) {
   const [servers, setServers] = useState<McpServer[] | null>(null);
   const [live, setLive] = useState<Record<string, string>>({});
@@ -247,35 +215,34 @@ function McpSelect({ selected, onChange }: { selected: string[]; onChange: (v: s
     onChange(selected.includes(name) ? selected.filter(x => x !== name) : [...selected, name]);
 
   if (servers === null) {
-    return <TextField label="MCP servers (comma-separated, empty = default)" value={selected.join(', ')}
+    return <TextField label="MCP-серверы (через запятую, пусто = default)" value={selected.join(', ')}
       onChange={v => onChange(v.split(',').map(s => s.trim()).filter(Boolean))} mono />;
   }
   const sorted = [...servers].sort((a, b) =>
     ((live[b.id] === 'running') ? 1 : 0) - ((live[a.id] === 'running') ? 1 : 0)
     || a.name.localeCompare(b.name));
-  // Keep previously saved custom values visible even if no such row exists.
   const extra = selected.filter(s => s !== 'default' && !sorted.some(r => r.name === s));
   return (
     <div>
       <div className="flex items-center justify-between mb-1">
-        <label className="block text-sm font-medium text-gray-700">MCP servers</label>
-        <span className="text-[11px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-500">{selected.length || 'default'}</span>
+        <label className="block text-[13px] font-medium text-slate-700 dark:text-slate-300">{t.studio.mcpServers}</label>
+        <Badge tone="neutral">{selected.length || 'default'}</Badge>
       </div>
-      <div className="border border-gray-300 rounded-lg p-2 max-h-40 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1 bg-gray-50">
-        <label className="flex items-center gap-2 text-xs text-gray-700 px-1 py-0.5 rounded hover:bg-gray-200 cursor-pointer" title="Backend default">
-          <input type="checkbox" checked={selected.includes('default')} onChange={() => toggle('default')} className="rounded" />
+      <div className="border border-slate-300 dark:border-slate-700 rounded-lg p-2 max-h-40 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1 bg-slate-50 dark:bg-slate-950">
+        <label className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 px-1 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer" title="Default бэкенда">
+          <input type="checkbox" checked={selected.includes('default')} onChange={() => toggle('default')} className="rounded accent-indigo-600" />
           <span className="font-mono">default</span>
         </label>
         {sorted.map(s => (
-          <label key={s.id} className="flex items-center gap-2 text-xs text-gray-700 px-1 py-0.5 rounded hover:bg-gray-200 cursor-pointer" title={s.transport}>
-            <input type="checkbox" checked={selected.includes(s.name)} onChange={() => toggle(s.name)} className="rounded" />
+          <label key={s.id} className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 px-1 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer" title={s.transport}>
+            <input type="checkbox" checked={selected.includes(s.name)} onChange={() => toggle(s.name)} className="rounded accent-indigo-600" />
             <span className="font-mono truncate">{s.name}</span>
-            {live[s.id] === 'running' && <span className="text-[10px] text-green-600">●</span>}
+            {live[s.id] === 'running' && <span className="text-[10px] text-emerald-500">●</span>}
           </label>
         ))}
         {extra.map(name => (
-          <label key={name} className="flex items-center gap-2 text-xs text-gray-700 px-1 py-0.5 rounded hover:bg-gray-200 cursor-pointer" title="Saved value, no such server row">
-            <input type="checkbox" checked={selected.includes(name)} onChange={() => toggle(name)} className="rounded" />
+          <label key={name} className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 px-1 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer" title="Сохранённое значение, такой строки нет">
+            <input type="checkbox" checked={selected.includes(name)} onChange={() => toggle(name)} className="rounded accent-indigo-600" />
             <span className="font-mono truncate">{name}</span>
           </label>
         ))}
@@ -284,23 +251,20 @@ function McpSelect({ selected, onChange }: { selected: string[]; onChange: (v: s
   );
 }
 
-function Modal({ title, onClose, onSubmit, error, children, wide }: {
+function FormModal({ title, onClose, onSubmit, error, children, wide }: {
   title: string; onClose: () => void; onSubmit: (e: React.FormEvent) => void; error: string; children: React.ReactNode; wide?: boolean;
 }) {
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
-      <div className={`bg-gray-100 rounded-xl shadow-xl w-full ${wide ? 'max-w-3xl' : 'max-w-lg'} mx-4 max-h-[90vh] overflow-y-auto`} onClick={e => e.stopPropagation()}>
-        <form onSubmit={onSubmit} className="p-6 space-y-4">
-          <h3 className="text-lg font-semibold text-gray-800">{title}</h3>
-          {children}
-          {error && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
-          <div className="flex justify-end gap-3 pt-2">
-            <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancel</button>
-            <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">Save</button>
-          </div>
-        </form>
-      </div>
-    </div>
+    <UiModal title={title} onClose={onClose} wide={wide}>
+      <form onSubmit={onSubmit} className="space-y-3">
+        {children}
+        {error && <Alert tone="red">{error}</Alert>}
+        <div className="flex justify-end gap-2 pt-1">
+          <Btn variant="ghost" type="button" onClick={onClose}>{t.common.cancel}</Btn>
+          <Btn variant="primary" type="submit">{t.common.save}</Btn>
+        </div>
+      </form>
+    </UiModal>
   );
 }
 
@@ -312,8 +276,8 @@ function AgentsTab({ ov, tools, toolsMode, skillNames, onChanged }: { ov: AgentO
   const [formError, setFormError] = useState('');
 
   async function remove(a: AgentItem) {
-    if (!confirm(`Delete agent "${a.name}"? The folder backend/agents/${a.name}/ will be removed.`)) return;
-    if (!confirm(`Type-confirm: really delete agent "${a.name}"?`)) return;
+    if (!confirm(`Удалить агента «${a.name}»? Папка backend/agents/${a.name}/ будет удалена.`)) return;
+    if (!confirm(`Подтвердите: точно удалить агента «${a.name}»?`)) return;
     await api.deleteAgent(a.name);
     onChanged();
   }
@@ -321,10 +285,9 @@ function AgentsTab({ ov, tools, toolsMode, skillNames, onChanged }: { ov: AgentO
   return (
     <div>
       <div className="flex justify-end mb-3">
-        <button onClick={() => { setEdit(null); setFormError(''); setShowNew(true); }}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">
-          <Plus size={16} /> New Agent
-        </button>
+        <Btn variant="primary" onClick={() => { setEdit(null); setFormError(''); setShowNew(true); }}>
+          <Plus size={15} /> {t.studio.newAgent}
+        </Btn>
       </div>
       {(showNew || edit) && (
         <AgentForm
@@ -338,38 +301,28 @@ function AgentsTab({ ov, tools, toolsMode, skillNames, onChanged }: { ov: AgentO
           onError={setFormError}
         />
       )}
-      <div className="bg-gray-100 rounded-xl border border-gray-200 overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-gray-200 bg-gray-50">
-              <th className="text-left px-4 py-3 font-medium text-gray-600">Name</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-600">Title / Description</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-600">Tools</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-600">Skills</th>
-              <th className="text-right px-4 py-3 font-medium text-gray-600">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ov.agents.map(a => (
-              <tr key={a.name} className="border-b border-gray-100 hover:bg-gray-50">
-                <td className="px-4 py-3 font-mono text-xs font-medium text-gray-800">{a.name}<Err text={a.error} /></td>
-                <td className="px-4 py-3 text-gray-600 text-xs max-w-[260px]">
-                  <span className="font-medium text-gray-800">{a.title || '—'}</span>
-                  {a.description && <span className="block truncate" title={a.description}>{a.description}</span>}
-                  {a.model && <span className="block font-mono text-[11px] text-gray-500">model: {a.model}</span>}
-                </td>
-                <td className="px-4 py-3 text-gray-600 font-mono text-[11px] max-w-[220px] truncate" title={a.tools.join(', ')}>{a.tools.join(', ') || '—'}</td>
-                <td className="px-4 py-3 text-gray-600 font-mono text-[11px] max-w-[160px] truncate" title={a.skills.join(', ')}>{a.skills.join(', ') || '—'}</td>
-                <td className="px-4 py-3 text-right whitespace-nowrap">
-                  <button onClick={() => { setEdit(a); setFormError(''); setShowNew(false); }} className="p-1.5 text-gray-400 hover:text-blue-600"><Pencil size={16} /></button>
-                  <button onClick={() => remove(a)} className="p-1.5 text-gray-400 hover:text-red-600"><Trash2 size={16} /></button>
-                </td>
-              </tr>
-            ))}
-            {ov.agents.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400">No agents</td></tr>}
-          </tbody>
-        </table>
-      </div>
+      <TableShell
+        colSpan={5}
+        empty={ov.agents.length === 0 ? { text: t.studio.noAgents } : null}
+        head={<><Th>Имя</Th><Th>Заголовок / Описание</Th><Th>Инструменты</Th><Th>Скиллы</Th><Th right>{t.common.actions}</Th></>}
+      >
+        {ov.agents.map(a => (
+          <Row key={a.name}>
+            <Td><span className="font-mono text-xs font-medium text-slate-800 dark:text-slate-100">{a.name}</span><Err text={a.error} /></Td>
+            <Td className="max-w-[260px]">
+              <span className="font-medium text-[13px] text-slate-800 dark:text-slate-100">{a.title || '—'}</span>
+              {a.description && <span className="block truncate text-xs text-slate-500" title={a.description}>{a.description}</span>}
+              {a.model && <span className="block font-mono text-[11px] text-slate-400">model: {a.model}</span>}
+            </Td>
+            <Td><span className="font-mono text-[11px] text-slate-500 max-w-[220px] truncate block" title={a.tools.join(', ')}>{a.tools.join(', ') || '—'}</span></Td>
+            <Td><span className="font-mono text-[11px] text-slate-500 max-w-[160px] truncate block" title={a.skills.join(', ')}>{a.skills.join(', ') || '—'}</span></Td>
+            <Td className="text-right whitespace-nowrap">
+              <IconBtn title={t.common.edit} onClick={() => { setEdit(a); setFormError(''); setShowNew(false); }}><Pencil size={15} /></IconBtn>
+              <IconBtn title={t.common.delete} onClick={() => remove(a)} className="hover:!text-red-600"><Trash2 size={15} /></IconBtn>
+            </Td>
+          </Row>
+        ))}
+      </TableShell>
     </div>
   );
 }
@@ -384,7 +337,6 @@ function AgentForm({ item, tools, toolsMode, skillNames, error, onClose, onSaved
   const [selTools, setSelTools] = useState<string[]>(item?.tools || []);
   const [selSkills, setSelSkills] = useState<string[]>(item?.skills || []);
   const [allSkills, setAllSkills] = useState(item ? item.skills.includes('*') : false);
-  // `mcp` arrives as a list; tolerate legacy scalar files/custom values.
   const [selMcp, setSelMcp] = useState<string[]>(() => {
     const v: unknown = item?.mcp;
     if (Array.isArray(v)) return v.filter(x => typeof x === 'string');
@@ -408,45 +360,45 @@ function AgentForm({ item, tools, toolsMode, skillNames, error, onClose, onSaved
       onSaved();
       onClose();
     } catch (err) {
-      onError(err instanceof Error ? err.message : 'Save failed');
+      onError(err instanceof Error ? err.message : 'Ошибка сохранения');
     }
   }
 
   return (
-    <Modal title={item ? `Edit agent ${item.name}` : 'New agent'} onClose={onClose} onSubmit={submit} error={error} wide>
+    <FormModal title={item ? `Редактировать агента ${item.name}` : t.studio.newAgent} onClose={onClose} onSubmit={submit} error={error} wide>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <TextField label="Name (folder, ^[a-z0-9-]+$)" value={name} onChange={setName} mono />
-        <TextField label="Title (1C dropdown)" value={title} onChange={setTitle} />
+        <TextField label="Имя (папка, ^[a-z0-9-]+$)" value={name} onChange={setName} mono />
+        <TextField label="Заголовок (выпадашка в 1С)" value={title} onChange={setTitle} />
       </div>
-      <TextField label="Description" value={description} onChange={setDescription} />
+      <TextField label={t.skills.description} value={description} onChange={setDescription} />
       <ToolsCheck all={tools} selected={selTools} onChange={setSelTools} mode={toolsMode} mcpFilter={selMcp} />
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Skills</label>
-        <label className="flex items-center gap-2 text-xs text-gray-700 mb-1">
-          <input type="checkbox" checked={allSkills} onChange={e => setAllSkills(e.target.checked)} className="rounded" />
-          All skills (*)
+        <label className="block text-[13px] font-medium text-slate-700 dark:text-slate-300 mb-1">Скиллы</label>
+        <label className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 mb-1 cursor-pointer">
+          <input type="checkbox" checked={allSkills} onChange={e => setAllSkills(e.target.checked)} className="rounded accent-indigo-600" />
+          Все скиллы (*)
         </label>
         {!allSkills && (
-          <div className="border border-gray-300 rounded-lg p-2 max-h-28 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1 bg-gray-50">
+          <div className="border border-slate-300 dark:border-slate-700 rounded-lg p-2 max-h-28 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1 bg-slate-50 dark:bg-slate-950">
             {skillNames.map(s => (
-              <label key={s} className="flex items-center gap-2 text-xs text-gray-700 px-1 py-0.5 rounded hover:bg-gray-200 cursor-pointer">
+              <label key={s} className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 px-1 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer">
                 <input type="checkbox" checked={selSkills.includes(s)}
                   onChange={() => setSelSkills(selSkills.includes(s) ? selSkills.filter(x => x !== s) : [...selSkills, s])}
-                  className="rounded" />
+                  className="rounded accent-indigo-600" />
                 <span className="font-mono">{s}</span>
               </label>
             ))}
-            {skillNames.length === 0 && <span className="text-xs text-gray-400">No skills yet</span>}
+            {skillNames.length === 0 && <span className="text-xs text-slate-400">Скиллов пока нет</span>}
           </div>
         )}
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <McpSelect selected={selMcp} onChange={setSelMcp} />
-        <TextField label="Model override (empty = config)" value={model} onChange={setModel} mono />
+        <TextField label="Переопределение модели (пусто = из конфига)" value={model} onChange={setModel} mono />
       </div>
       <BodyField value={body} onChange={setBody} rows={12} />
-      <p className="text-[11px] text-gray-500">Saved to backend/agents/&lt;name&gt;/AGENT.md. Rename = folder move. Backend picks it up without restart.</p>
-    </Modal>
+      <p className="text-[11px] text-slate-400">Сохраняется в backend/agents/&lt;имя&gt;/AGENT.md. Переименование = перемещение папки. Бэкенд подхватывает без рестарта.</p>
+    </FormModal>
   );
 }
 
@@ -458,8 +410,8 @@ function SkillsTab({ ov, tools, toolsMode, onChanged }: { ov: AgentOverview; too
   const [formError, setFormError] = useState('');
 
   async function remove(s: SkillFileItem) {
-    if (!confirm(`Delete skill "${s.name}"? The folder backend/skills/${s.name}/ will be removed.`)) return;
-    if (!confirm(`Type-confirm: really delete skill "${s.name}"?`)) return;
+    if (!confirm(`Удалить скилл «${s.name}»? Папка backend/skills/${s.name}/ будет удалена.`)) return;
+    if (!confirm(`Подтвердите: точно удалить скилл «${s.name}»?`)) return;
     await api.deleteAgentSkill(s.name);
     onChanged();
   }
@@ -467,42 +419,32 @@ function SkillsTab({ ov, tools, toolsMode, onChanged }: { ov: AgentOverview; too
   return (
     <div>
       <div className="flex justify-end mb-3">
-        <button onClick={() => { setEdit(null); setFormError(''); setShowNew(true); }}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">
-          <Plus size={16} /> New Skill
-        </button>
+        <Btn variant="primary" onClick={() => { setEdit(null); setFormError(''); setShowNew(true); }}>
+          <Plus size={15} /> {t.studio.newSkill}
+        </Btn>
       </div>
       {(showNew || edit) && (
         <SkillForm item={edit} tools={tools} toolsMode={toolsMode} error={formError}
           onClose={() => { setShowNew(false); setEdit(null); }} onSaved={onChanged} onError={setFormError} />
       )}
-      <div className="bg-gray-100 rounded-xl border border-gray-200 overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-gray-200 bg-gray-50">
-              <th className="text-left px-4 py-3 font-medium text-gray-600">Name</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-600">Description</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-600">Tools</th>
-              <th className="text-right px-4 py-3 font-medium text-gray-600">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ov.skills.map(s => (
-              <tr key={s.name} className="border-b border-gray-100 hover:bg-gray-50">
-                <td className="px-4 py-3 font-mono text-xs font-medium text-gray-800">{s.name}<Err text={s.error} /></td>
-                <td className="px-4 py-3 text-gray-600 text-xs max-w-[320px] truncate" title={s.description}>{s.description || '—'}</td>
-                <td className="px-4 py-3 text-gray-600 font-mono text-[11px] max-w-[220px] truncate" title={s.tools.join(', ')}>{s.tools.join(', ') || '—'}</td>
-                <td className="px-4 py-3 text-right whitespace-nowrap">
-                  <button onClick={() => { setEdit(s); setFormError(''); setShowNew(false); }} className="p-1.5 text-gray-400 hover:text-blue-600"><Pencil size={16} /></button>
-                  <button onClick={() => remove(s)} className="p-1.5 text-gray-400 hover:text-red-600"><Trash2 size={16} /></button>
-                </td>
-              </tr>
-            ))}
-            {ov.skills.length === 0 && <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-400">No skills</td></tr>}
-          </tbody>
-        </table>
-      </div>
-      <p className="text-[11px] text-gray-500 mt-2">Agent runtime skills (backend/skills/*/SKILL.md) — not to be confused with ai-1c-server Skills in the sidebar.</p>
+      <TableShell
+        colSpan={4}
+        empty={ov.skills.length === 0 ? { text: t.studio.noSkills } : null}
+        head={<><Th>Имя</Th><Th>Описание</Th><Th>Инструменты</Th><Th right>{t.common.actions}</Th></>}
+      >
+        {ov.skills.map(s => (
+          <Row key={s.name}>
+            <Td><span className="font-mono text-xs font-medium text-slate-800 dark:text-slate-100">{s.name}</span><Err text={s.error} /></Td>
+            <Td><span className="text-xs text-slate-500 max-w-[320px] truncate block" title={s.description}>{s.description || '—'}</span></Td>
+            <Td><span className="font-mono text-[11px] text-slate-500 max-w-[220px] truncate block" title={s.tools.join(', ')}>{s.tools.join(', ') || '—'}</span></Td>
+            <Td className="text-right whitespace-nowrap">
+              <IconBtn title={t.common.edit} onClick={() => { setEdit(s); setFormError(''); setShowNew(false); }}><Pencil size={15} /></IconBtn>
+              <IconBtn title={t.common.delete} onClick={() => remove(s)} className="hover:!text-red-600"><Trash2 size={15} /></IconBtn>
+            </Td>
+          </Row>
+        ))}
+      </TableShell>
+      <p className="text-[11px] text-slate-400 mt-2">Скиллы рантайма агентов (backend/skills/*/SKILL.md) — не путать со Скиллами сервера в сайдбаре.</p>
     </div>
   );
 }
@@ -526,19 +468,19 @@ function SkillForm({ item, tools, toolsMode, error, onClose, onSaved, onError }:
       onSaved();
       onClose();
     } catch (err) {
-      onError(err instanceof Error ? err.message : 'Save failed');
+      onError(err instanceof Error ? err.message : 'Ошибка сохранения');
     }
   }
 
   return (
-    <Modal title={item ? `Edit skill ${item.name}` : 'New skill'} onClose={onClose} onSubmit={submit} error={error} wide>
+    <FormModal title={item ? `Редактировать скилл ${item.name}` : t.studio.newSkill} onClose={onClose} onSubmit={submit} error={error} wide>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <TextField label="Name (folder, ^[a-z0-9-]+$)" value={name} onChange={setName} mono />
-        <TextField label="Description (auto-match)" value={description} onChange={setDescription} />
+        <TextField label="Имя (папка, ^[a-z0-9-]+$)" value={name} onChange={setName} mono />
+        <TextField label="Описание (автомэтчинг)" value={description} onChange={setDescription} />
       </div>
       <ToolsCheck all={tools} selected={selTools} onChange={setSelTools} mode={toolsMode} />
       <BodyField value={body} onChange={setBody} rows={12} />
-    </Modal>
+    </FormModal>
   );
 }
 
@@ -550,8 +492,8 @@ function PatternsTab({ ov, onChanged }: { ov: AgentOverview; onChanged: () => vo
   const [formError, setFormError] = useState('');
 
   async function remove(p: PatternItem) {
-    if (!confirm(`Delete pattern "${p.name}"? The file backend/patterns/${p.name}.md will be removed.`)) return;
-    if (!confirm(`Type-confirm: really delete pattern "${p.name}"?`)) return;
+    if (!confirm(`Удалить паттерн «${p.name}»? Файл backend/patterns/${p.name}.md будет удалён.`)) return;
+    if (!confirm(`Подтвердите: точно удалить паттерн «${p.name}»?`)) return;
     await api.deletePattern(p.name);
     onChanged();
   }
@@ -559,39 +501,30 @@ function PatternsTab({ ov, onChanged }: { ov: AgentOverview; onChanged: () => vo
   return (
     <div>
       <div className="flex justify-end mb-3">
-        <button onClick={() => { setEdit(null); setFormError(''); setShowNew(true); }}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">
-          <Plus size={16} /> New Pattern
-        </button>
+        <Btn variant="primary" onClick={() => { setEdit(null); setFormError(''); setShowNew(true); }}>
+          <Plus size={15} /> {t.studio.newPattern}
+        </Btn>
       </div>
       {(showNew || edit) && (
         <PatternForm item={edit} error={formError}
           onClose={() => { setShowNew(false); setEdit(null); }} onSaved={onChanged} onError={setFormError} />
       )}
-      <div className="bg-gray-100 rounded-xl border border-gray-200 overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-gray-200 bg-gray-50">
-              <th className="text-left px-4 py-3 font-medium text-gray-600">Name</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-600">Description</th>
-              <th className="text-right px-4 py-3 font-medium text-gray-600">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ov.patterns.map(p => (
-              <tr key={p.name} className="border-b border-gray-100 hover:bg-gray-50">
-                <td className="px-4 py-3 font-mono text-xs font-medium text-gray-800">{p.name}<Err text={p.error} /></td>
-                <td className="px-4 py-3 text-gray-600 text-xs max-w-[420px] truncate" title={p.description}>{p.description || '—'}</td>
-                <td className="px-4 py-3 text-right whitespace-nowrap">
-                  <button onClick={() => { setEdit(p); setFormError(''); setShowNew(false); }} className="p-1.5 text-gray-400 hover:text-blue-600"><Pencil size={16} /></button>
-                  <button onClick={() => remove(p)} className="p-1.5 text-gray-400 hover:text-red-600"><Trash2 size={16} /></button>
-                </td>
-              </tr>
-            ))}
-            {ov.patterns.length === 0 && <tr><td colSpan={3} className="px-4 py-8 text-center text-gray-400">No patterns</td></tr>}
-          </tbody>
-        </table>
-      </div>
+      <TableShell
+        colSpan={3}
+        empty={ov.patterns.length === 0 ? { text: t.studio.noPatterns } : null}
+        head={<><Th>Имя</Th><Th>Описание</Th><Th right>{t.common.actions}</Th></>}
+      >
+        {ov.patterns.map(p => (
+          <Row key={p.name}>
+            <Td><span className="font-mono text-xs font-medium text-slate-800 dark:text-slate-100">{p.name}</span><Err text={p.error} /></Td>
+            <Td><span className="text-xs text-slate-500 max-w-[420px] truncate block" title={p.description}>{p.description || '—'}</span></Td>
+            <Td className="text-right whitespace-nowrap">
+              <IconBtn title={t.common.edit} onClick={() => { setEdit(p); setFormError(''); setShowNew(false); }}><Pencil size={15} /></IconBtn>
+              <IconBtn title={t.common.delete} onClick={() => remove(p)} className="hover:!text-red-600"><Trash2 size={15} /></IconBtn>
+            </Td>
+          </Row>
+        ))}
+      </TableShell>
     </div>
   );
 }
@@ -614,18 +547,18 @@ function PatternForm({ item, error, onClose, onSaved, onError }: {
       onSaved();
       onClose();
     } catch (err) {
-      onError(err instanceof Error ? err.message : 'Save failed');
+      onError(err instanceof Error ? err.message : 'Ошибка сохранения');
     }
   }
 
   return (
-    <Modal title={item ? `Edit pattern ${item.name}` : 'New pattern'} onClose={onClose} onSubmit={submit} error={error} wide>
+    <FormModal title={item ? `Редактировать паттерн ${item.name}` : t.studio.newPattern} onClose={onClose} onSubmit={submit} error={error} wide>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <TextField label="Name (file, ^[a-z0-9-]+$)" value={name} onChange={setName} mono />
-        <TextField label="Description" value={description} onChange={setDescription} />
+        <TextField label="Имя (файл, ^[a-z0-9-]+$)" value={name} onChange={setName} mono />
+        <TextField label={t.skills.description} value={description} onChange={setDescription} />
       </div>
       <BodyField value={body} onChange={setBody} rows={14} />
-    </Modal>
+    </FormModal>
   );
 }
 
@@ -656,9 +589,7 @@ function BackendTab() {
         skills: ls.data?.skills.map(s => s.name) || [],
         errors: [...(la.data?.errors || []), ...(ls.data?.errors || [])],
       });
-    } catch {
-      /* backend down — status shows it */
-    }
+    } catch { /* бэкенд лежит — статус покажет */ }
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -672,7 +603,7 @@ function BackendTab() {
       setOutput(r.output);
       await load();
     } catch (e) {
-      setOutput(e instanceof Error ? e.message : 'Failed');
+      setOutput(e instanceof Error ? e.message : 'Ошибка');
     } finally {
       setBusy(false);
     }
@@ -683,15 +614,15 @@ function BackendTab() {
       const r = await api.getAgentBackendLogs(logService || undefined, logTail, logTs, logGrep || undefined);
       setLog(r.log);
     } catch (e) {
-      setLog(e instanceof Error ? e.message : 'Failed');
+      setLog(e instanceof Error ? e.message : 'Ошибка');
     }
   }, [logService, logTail, logTs, logGrep]);
 
   useEffect(() => { loadLogs(); }, [loadLogs]);
   useEffect(() => {
     if (!logLive) return;
-    const t = setInterval(loadLogs, 3000);
-    return () => clearInterval(t);
+    const timer = setInterval(loadLogs, 3000);
+    return () => clearInterval(timer);
   }, [logLive, loadLogs]);
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -702,103 +633,92 @@ function BackendTab() {
 
   return (
     <div className="space-y-4">
-      <div className="bg-gray-100 rounded-xl border border-gray-200 p-4">
+      <Card><CardBody>
         <div className="flex items-center justify-between mb-3">
-          <h3 className="font-semibold text-gray-800 flex items-center gap-2">
-            <Server size={18} /> Compose services
-            {!st?.compose_available && <span className="text-xs text-red-500 font-normal">docker compose unavailable</span>}
+          <h3 className="text-sm font-semibold flex items-center gap-2 text-slate-800 dark:text-slate-200">
+            <Server size={17} /> {t.studio.backendTitle}
+            {!st?.compose_available && <span className="text-xs text-red-500 font-normal">{t.studio.noCompose}</span>}
           </h3>
-          <button onClick={load} className="p-1.5 text-gray-400 hover:text-blue-600"><RefreshCw size={16} /></button>
+          <IconBtn title={t.common.refresh} onClick={load}><RefreshCw size={15} /></IconBtn>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 mb-3">
           {(st?.services || []).map(s => (
-            <div key={s.name} className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
-              <p className="font-mono text-xs font-medium text-gray-800">{s.name}</p>
-              <p className="text-[11px] text-gray-500">{s.state}{s.health ? ` (${s.health})` : ''}</p>
+            <div key={s.name} className="border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 bg-slate-50 dark:bg-slate-950">
+              <p className="font-mono text-xs font-medium text-slate-800 dark:text-slate-100">{s.name}</p>
+              <p className="text-[11px] text-slate-500">{s.state}{s.health ? ` (${s.health})` : ''}</p>
             </div>
           ))}
-          {(st?.services.length || 0) === 0 && <p className="text-xs text-gray-400">No containers (or compose unavailable)</p>}
+          {(st?.services.length || 0) === 0 && <p className="text-xs text-slate-400">Нет контейнеров (или compose недоступен)</p>}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <label className="flex items-center gap-1.5 text-xs text-gray-600">
-            <input type="checkbox" checked={profiles.includes('rag')} onChange={() => toggleProfile('rag')} className="rounded" /> rag (tei)
+          <label className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 cursor-pointer">
+            <input type="checkbox" checked={profiles.includes('rag')} onChange={() => toggleProfile('rag')} className="rounded accent-indigo-600" /> rag (tei)
           </label>
-          <label className="flex items-center gap-1.5 text-xs text-gray-600">
-            <input type="checkbox" checked={profiles.includes('onec')} onChange={() => toggleProfile('onec')} className="rounded" /> onec (mcp-proxy)
+          <label className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 cursor-pointer">
+            <input type="checkbox" checked={profiles.includes('onec')} onChange={() => toggleProfile('onec')} className="rounded accent-indigo-600" /> onec (mcp-proxy)
           </label>
           <span className="flex-1" />
-          <button disabled={busy} onClick={() => run(() => api.agentBackendUp([], profiles))}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs hover:bg-green-700 disabled:opacity-40">
-            <Play size={14} /> Start
-          </button>
-          <button disabled={busy} onClick={() => run(() => api.agentBackendStop([]), 'Stop all agent-backend containers? (data volumes are kept)')}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-200 text-gray-700 rounded-lg text-xs hover:bg-gray-300 disabled:opacity-40">
-            <Square size={14} /> Stop all
-          </button>
-          <button disabled={busy} onClick={() => run(() => api.agentBackendRestart(['backend']), 'Restart the backend container? In-flight chat requests will fail.')}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-200 text-gray-700 rounded-lg text-xs hover:bg-gray-300 disabled:opacity-40">
-            <RotateCcw size={14} /> Restart backend
-          </button>
+          <Btn variant="primary" disabled={busy} onClick={() => run(() => api.agentBackendUp([], profiles))} className="!bg-emerald-600 hover:!bg-emerald-500 dark:!bg-emerald-600">
+            <Play size={13} /> {t.studio.start}
+          </Btn>
+          <Btn variant="outline" disabled={busy} onClick={() => run(() => api.agentBackendStop([]), 'Остановить все контейнеры агент-бэкенда? (данные сохранятся)')}>
+            <Square size={13} /> {t.studio.stopAll}
+          </Btn>
+          <Btn variant="outline" disabled={busy} onClick={() => run(() => api.agentBackendRestart(['backend']), 'Перезапустить контейнер бэкенда? Текущие chat-запросы упадут.')}>
+            <RotateCcw size={13} /> {t.studio.restartBackend}
+          </Btn>
         </div>
-        {output && <pre className="mt-3 text-[11px] font-mono text-gray-600 bg-gray-900 text-green-400 rounded-lg p-3 max-h-48 overflow-y-auto whitespace-pre-wrap">{output}</pre>}
-      </div>
+        {output && <pre className="mt-3 text-[11px] font-mono text-emerald-300 bg-slate-950 rounded-lg p-3 max-h-48 overflow-y-auto whitespace-pre-wrap">{output}</pre>}
+      </CardBody></Card>
 
-      <div className="bg-gray-100 rounded-xl border border-gray-200 p-4">
-        <h3 className="font-semibold text-gray-800 mb-2">Backend API ({st?.backend_url})</h3>
-        <p className="text-xs text-gray-600 mb-2">
-          Reachable: {st?.backend_reachable ? <span className="text-green-500 font-medium">yes</span> : <span className="text-red-500 font-medium">no</span>}
+      <Card><CardBody>
+        <h3 className="text-sm font-semibold mb-2 text-slate-800 dark:text-slate-200">Backend API ({st?.backend_url})</h3>
+        <p className="text-xs text-slate-500 mb-2">
+          Доступен: {st?.backend_reachable ? <span className="text-emerald-500 font-medium">да</span> : <span className="text-red-500 font-medium">нет</span>}
           {live && (
             <span className="ml-3">
-              live agents: <span className="font-mono">{live.agents.join(', ') || '—'}</span>
-              {' '}· live skills: <span className="font-mono">{live.skills.length}</span>
+              live-агенты: <span className="font-mono">{live.agents.join(', ') || '—'}</span>
+              {' '}· live-скиллы: <span className="font-mono">{live.skills.length}</span>
             </span>
           )}
         </p>
         {live && live.errors.length > 0 && (
-          <div className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-            Backend reports broken files: {live.errors.join('; ')}
-          </div>
+          <Alert tone="red">Бэкенд сообщает о битых файлах: {live.errors.join('; ')}</Alert>
         )}
-      </div>
+      </CardBody></Card>
 
-      <div className="bg-gray-100 rounded-xl border border-gray-200 p-4">
+      <Card><CardBody>
         <div className="flex items-center gap-2 mb-2 flex-wrap">
-          <h3 className="font-semibold text-gray-800">Logs</h3>
-          <select value={logService} onChange={e => setLogService(e.target.value)}
-            className="px-2 py-1 text-xs border border-gray-300 rounded-lg bg-gray-50 text-gray-700">
-            <option value="">all services</option>
+          <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Логи</h3>
+          <Select value={logService} onChange={e => setLogService(e.target.value)} className="!w-auto !py-1 !text-xs">
+            <option value="">все сервисы</option>
             <option value="backend">backend</option>
             <option value="postgres">postgres</option>
             <option value="tei">tei</option>
             <option value="mcp-proxy">mcp-proxy</option>
-          </select>
-          <select value={logTail} onChange={e => setLogTail(Number(e.target.value))}
-            className="px-2 py-1 text-xs border border-gray-300 rounded-lg bg-gray-50 text-gray-700" title="Lines to fetch">
-            {[100, 200, 500, 1000].map(n => <option key={n} value={n}>tail {n}</option>)}
-          </select>
-          <label className="flex items-center gap-1 text-xs text-gray-600" title="docker --timestamps">
-            <input type="checkbox" checked={logTs} onChange={e => setLogTs(e.target.checked)} className="rounded" /> ts
+          </Select>
+          <Select value={logTail} onChange={e => setLogTail(Number(e.target.value))} title="Сколько строк" className="!w-auto !py-1 !text-xs">
+            {[100, 200, 500, 1000].map(n => <option key={n} value={n}>хвост {n}</option>)}
+          </Select>
+          <label className="flex items-center gap-1 text-xs text-slate-500 cursor-pointer" title="docker --timestamps">
+            <input type="checkbox" checked={logTs} onChange={e => setLogTs(e.target.checked)} className="rounded accent-indigo-600" /> ts
           </label>
-          <input type="text" value={logGrep} onChange={e => setLogGrep(e.target.value)} placeholder="grep…" title="case-insensitive filter"
-            className="px-2 py-1 text-xs border border-gray-300 rounded-lg bg-gray-50 text-gray-700 w-40" />
-          <button onClick={() => setLogGrep(v => v === 'agent1c.loop' ? '' : 'agent1c.loop')}
-            title="Quick filter: agent1c.loop"
-            className={`px-2 py-1 text-xs font-mono border rounded-lg transition-colors ${logGrep === 'agent1c.loop' ? 'bg-blue-600 text-white border-blue-600' : 'text-gray-600 border-gray-300 hover:bg-gray-200'}`}>
+          <TextInput value={logGrep} onChange={e => setLogGrep(e.target.value)} placeholder="grep…" title="Фильтр без учёта регистра" className="!w-40 !py-1 !text-xs" />
+          <Btn variant="outline" onClick={() => setLogGrep(v => v === 'agent1c.loop' ? '' : 'agent1c.loop')} title="Быстрый фильтр: agent1c.loop" className="!py-1 !text-xs !font-mono">
             agent1c.loop
-          </button>
-          <button onClick={() => setLogLive(v => !v)} title={logLive ? 'Pause live tail' : 'Resume live tail'}
-            className="flex items-center gap-1.5 px-3 py-1 text-xs text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-200">
-            {logLive ? <Pause size={12} /> : <Play size={12} />} {logLive ? 'Live' : 'Paused'}
-          </button>
-          <button onClick={loadLogs} className="flex items-center gap-1.5 px-3 py-1 text-xs text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-200">
-            <RefreshCw size={12} /> Refresh
-          </button>
+          </Btn>
+          <Btn variant="outline" onClick={() => setLogLive(v => !v)} title={logLive ? 'Приостановить' : 'Продолжить'} className="!py-1 !text-xs">
+            {logLive ? <Pause size={12} /> : <Play size={12} />} {logLive ? t.logs.live : t.logs.paused}
+          </Btn>
+          <Btn variant="outline" onClick={loadLogs} className="!py-1 !text-xs">
+            <RefreshCw size={12} /> {t.common.refresh}
+          </Btn>
         </div>
         <div className="relative">
-          <pre className="text-[11px] font-mono text-green-400 bg-gray-900 rounded-lg p-3 max-h-[60vh] overflow-y-auto whitespace-pre-wrap">{log || 'No logs'}</pre>
+          <pre className="text-[11px] font-mono text-emerald-300 bg-slate-950 rounded-lg p-3 max-h-[60vh] overflow-y-auto whitespace-pre-wrap">{log || 'Логов нет'}</pre>
           <div ref={logEndRef} />
         </div>
-      </div>
+      </CardBody></Card>
     </div>
   );
 }
@@ -815,7 +735,7 @@ function EnvTab() {
     try {
       setEntries(await api.getAgentEnv());
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : 'Load failed');
+      setMsg(e instanceof Error ? e.message : 'Ошибка загрузки');
     }
   }, []);
 
@@ -823,81 +743,71 @@ function EnvTab() {
 
   async function save(key: string) {
     const value = editing[key] ?? '';
-    if (!confirm(`Write ${key} to the project .env? Backend restart is required to apply.`)) return;
+    if (!confirm(`Записать ${key} в .env проекта? Потребуется рестарт бэкенда.`)) return;
     setMsg('');
     try {
       await api.putAgentEnv(key, value);
-      setMsg(`${key} saved — restart the backend container to apply.`);
+      setMsg(`${key} сохранён — перезапустите контейнер бэкенда.`);
       setEditing(prev => { const n = { ...prev }; delete n[key]; return n; });
       setRevealed(prev => ({ ...prev, [key]: false }));
       await load();
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : 'Save failed');
+      setMsg(e instanceof Error ? e.message : 'Ошибка сохранения');
     }
   }
 
   return (
     <div>
-      <p className="text-xs text-gray-500 mb-3">
-        Project <span className="font-mono">.env</span> (allowlisted keys only). Secrets are masked — enter a new value to replace, empty editor keeps the stored value.
+      <p className="text-xs text-slate-500 mb-3">
+        Проектный <span className="font-mono">.env</span> (только разрешённые ключи). Секреты скрыты — введите новое значение для замены, пустой редактор сохраняет текущее.
       </p>
-      {msg && <p className="text-xs text-gray-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 mb-3">{msg}</p>}
-      <div className="bg-gray-100 rounded-xl border border-gray-200 overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-gray-200 bg-gray-50">
-              <th className="text-left px-4 py-3 font-medium text-gray-600">Key</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-600">Value</th>
-              <th className="text-right px-4 py-3 font-medium text-gray-600">Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {entries.map(e => {
-              const isEditing = editing[e.key] !== undefined;
-              const showSecret = revealed[e.key];
-              return (
-                <tr key={e.key} className="border-b border-gray-100 hover:bg-gray-50">
-                  <td className="px-4 py-2.5 font-mono text-xs text-gray-800">
-                    {e.key}
-                    {!e.present && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-500">absent</span>}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    {isEditing ? (
-                      <input type={e.masked && !showSecret ? 'password' : 'text'}
-                        value={editing[e.key]} autoFocus
-                        onChange={ev => setEditing(prev => ({ ...prev, [e.key]: ev.target.value }))}
-                        placeholder={e.masked ? '(leave empty to keep)' : e.value || ''}
-                        className="w-full px-2 py-1 border border-gray-300 rounded text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                    ) : (
-                      <span className="font-mono text-xs text-gray-600">
-                        {e.masked ? (e.present ? '***' : '—') : (e.value || '—')}
-                      </span>
+      {msg && <div className="mb-3"><Alert tone="blue">{msg}</Alert></div>}
+      <TableShell
+        colSpan={3}
+        empty={entries.length === 0 ? { text: 'Переменных нет' } : null}
+        head={<><Th>Ключ</Th><Th>Значение</Th><Th right>Действие</Th></>}
+      >
+        {entries.map(e => {
+          const isEditing = editing[e.key] !== undefined;
+          const showSecret = revealed[e.key];
+          return (
+            <Row key={e.key}>
+              <Td>
+                <span className="font-mono text-xs text-slate-800 dark:text-slate-100">{e.key}</span>
+                {!e.present && <Badge tone="neutral"><span className="text-[10px]">отсутствует</span></Badge>}
+              </Td>
+              <Td>
+                {isEditing ? (
+                  <TextInput type={e.masked && !showSecret ? 'password' : 'text'}
+                    value={editing[e.key]} autoFocus
+                    onChange={ev => setEditing(prev => ({ ...prev, [e.key]: ev.target.value }))}
+                    placeholder={e.masked ? '(пусто — оставить)' : e.value || ''}
+                    mono className="!py-1 !text-xs" />
+                ) : (
+                  <span className="font-mono text-xs text-slate-500">
+                    {e.masked ? (e.present ? '***' : '—') : (e.value || '—')}
+                  </span>
+                )}
+              </Td>
+              <Td className="text-right whitespace-nowrap">
+                {isEditing ? (
+                  <>
+                    <Btn variant="primary" onClick={() => save(e.key)} className="!py-1 !text-xs mr-1">{t.common.save}</Btn>
+                    <Btn variant="ghost" onClick={() => setEditing(prev => { const n = { ...prev }; delete n[e.key]; return n; })} className="!py-1 !text-xs">{t.common.cancel}</Btn>
+                  </>
+                ) : (
+                  <>
+                    {e.masked && e.present && (
+                      <Btn variant="ghost" onClick={() => setEditing(prev => ({ ...prev, [e.key]: '' }))} className="!py-1 !text-xs mr-1">Заменить</Btn>
                     )}
-                  </td>
-                  <td className="px-4 py-2.5 text-right whitespace-nowrap">
-                    {isEditing ? (
-                      <>
-                        <button onClick={() => save(e.key)} className="px-3 py-1 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 mr-1">Save</button>
-                        <button onClick={() => setEditing(prev => { const n = { ...prev }; delete n[e.key]; return n; })}
-                          className="px-3 py-1 text-xs text-gray-500 hover:text-gray-800">Cancel</button>
-                      </>
-                    ) : (
-                      <>
-                        {e.masked && e.present && (
-                          <button onClick={() => setEditing(prev => ({ ...prev, [e.key]: '' }))}
-                            className="px-2 py-1 text-xs text-gray-500 hover:text-gray-800 mr-1">Replace</button>
-                        )}
-                        <button onClick={() => setEditing(prev => ({ ...prev, [e.key]: e.masked ? '' : (e.value || '') }))}
-                          className="p-1.5 text-gray-400 hover:text-blue-600"><Pencil size={14} /></button>
-                      </>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+                    <IconBtn title={t.common.edit} onClick={() => setEditing(prev => ({ ...prev, [e.key]: e.masked ? '' : (e.value || '') }))}><Pencil size={14} /></IconBtn>
+                  </>
+                )}
+              </Td>
+            </Row>
+          );
+        })}
+      </TableShell>
     </div>
   );
 }
