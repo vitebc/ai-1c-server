@@ -127,7 +127,7 @@ function ConfigForm({ item, mains, onClose, onSaved }: { item?: ConfigProfile | 
       {browse && (
         <FileBrowser
           dirsOnly
-          title="Select configuration folder"
+          title="Выберите папку конфигурации"
           initialPath={path || undefined}
           onPick={p => { setPath(p); setBrowse(false); }}
           onClose={() => setBrowse(false)}
