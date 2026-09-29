@@ -364,6 +364,7 @@ function AgentForm({ item, tools, toolsMode, skills, error, onClose, onSaved, on
   });
   const [model, setModel] = useState(item?.model || '');
   const [provider, setProvider] = useState(item?.provider || '');
+  const [ftab, setFtab] = useState<'main' | 'tools' | 'skills'>('main');
   const [body, setBody] = useState(item?.body || '');
   const [providers, setProviders] = useState<{ name: string; default_model: string | null; models: string[]; is_default: boolean }[]>([]);
 
@@ -407,15 +408,33 @@ function AgentForm({ item, tools, toolsMode, skills, error, onClose, onSaved, on
   }
 
   return (
-    <FormModal title={item ? `Редактировать агента ${item.name}` : t.studio.newAgent} onClose={onClose} onSubmit={submit} error={error} xwide>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="space-y-3 min-w-0">
+    <FormModal title={item ? `Редактировать агента ${item.name}` : t.studio.newAgent} onClose={onClose} onSubmit={submit} error={error} wide>
+      <Segmented value={ftab} onChange={setFtab} options={[
+        { key: 'main', label: t.studio.tabMain },
+        { key: 'tools', label: `${t.studio.tabTools} (${selTools.length})` },
+        { key: 'skills', label: `${t.studio.tabSkills} (${allSkills ? '*' : selSkills.length})` },
+      ]} />
+      {ftab === 'main' && (
+      <div className="space-y-3 mt-3">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <TextField label="Имя (папка, ^[a-z0-9-]+$)" value={name} onChange={setName} mono />
         <TextField label="Заголовок (выпадашка в 1С)" value={title} onChange={setTitle} />
       </div>
       <TextField label={t.skills.description} value={description} onChange={setDescription} />
+      <Field label="Промпт (markdown, после второго ---)">
+        <TextArea value={body} onChange={e => setBody(e.target.value)} rows={16} spellCheck={false} mono />
+      </Field>
+      <p className="text-[11px] text-slate-400">Сохраняется в backend/agents/&lt;имя&gt;/AGENT.md. Переименование = перемещение папки. Бэкенд подхватывает без рестарта.</p>
+      </div>
+      )}
+      {ftab === 'tools' && (
+      <div className="space-y-3 mt-3">
       <ToolsCheck all={tools} selected={selTools} onChange={setSelTools} mode={toolsMode} mcpFilter={selMcp} />
+      <McpSelect selected={selMcp} onChange={setSelMcp} />
+      </div>
+      )}
+      {ftab === 'skills' && (
+      <div className="space-y-3 mt-3">
       <div>
         <label className="block text-[13px] font-medium text-slate-700 dark:text-slate-300 mb-1">Скиллы</label>
         <label className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 mb-1 cursor-pointer">
@@ -443,9 +462,7 @@ function AgentForm({ item, tools, toolsMode, skills, error, onClose, onSaved, on
           </>
         )}
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <McpSelect selected={selMcp} onChange={setSelMcp} />
-        <div>
+      <div>
           <label className="block text-[13px] font-medium text-slate-700 dark:text-slate-300 mb-1">{t.studio.provider}</label>
           <select value={providers.some(p => p.name === provider) ? provider : ''} onChange={e => pickProvider(e.target.value)}
             className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100">
@@ -458,7 +475,6 @@ function AgentForm({ item, tools, toolsMode, skills, error, onClose, onSaved, on
             )}
           </select>
         </div>
-      </div>
       <div>
         <label className="block text-[13px] font-medium text-slate-700 dark:text-slate-300 mb-1">{t.studio.modelLabel}</label>
         <input value={model} onChange={e => setModel(e.target.value)} list="agent-model-list" spellCheck={false}
@@ -469,14 +485,8 @@ function AgentForm({ item, tools, toolsMode, skills, error, onClose, onSaved, on
           ))}
         </datalist>
       </div>
-        </div>
-        <div className="flex flex-col min-w-0">
-          <Field label="Промпт (markdown, после второго ---)">
-            <TextArea value={body} onChange={e => setBody(e.target.value)} rows={24} spellCheck={false} mono className="flex-1 min-h-[420px]" />
-          </Field>
-          <p className="text-[11px] text-slate-400 mt-2">Сохраняется в backend/agents/&lt;имя&gt;/AGENT.md. Переименование = перемещение папки. Бэкенд подхватывает без рестарта.</p>
-        </div>
       </div>
+      )}
     </FormModal>
   );
 }
