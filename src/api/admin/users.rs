@@ -15,6 +15,19 @@ use serde_json::json;
 use super::super::AppState;
 use crate::auth;
 
+/// Caller may see/touch admin accounts: legacy token or admin role.
+fn is_admin_ident(ident: &auth::AuthIdentity) -> bool {
+    ident.system || ident.role == auth::ROLE_ADMIN
+}
+
+fn forbidden_admin() -> Response {
+    (
+        StatusCode::FORBIDDEN,
+        Json(json!({ "error": "admin role required" })),
+    )
+        .into_response()
+}
+
 #[derive(Debug, Serialize)]
 pub struct UserDto {
     pub id: String,
@@ -46,7 +59,10 @@ fn row_to_dto(
     }
 }
 
-pub async fn list(State(state): State<Arc<AppState>>) -> Json<Vec<UserDto>> {
+pub async fn list(
+    State(state): State<Arc<AppState>>,
+    Extension(ident): Extension<auth::AuthIdentity>,
+) -> Json<Vec<UserDto>> {
     let db = state.db.lock().await;
     let mut stmt = db
         .conn
@@ -68,7 +84,13 @@ pub async fn list(State(state): State<Arc<AppState>>) -> Json<Vec<UserDto>> {
             ))
         })
         .unwrap();
-    Json(rows.flatten().collect())
+    Json(
+        rows
+            .flatten()
+            // Non-admins never see admin accounts (usernames stay hidden too).
+            .filter(|u| is_admin_ident(&ident) || u.role != "admin")
+            .collect(),
+    )
 }
 
 #[derive(Debug, Deserialize)]
@@ -89,6 +111,7 @@ fn valid_role(role: &str) -> bool {
 
 pub async fn create(
     State(state): State<Arc<AppState>>,
+    Extension(ident): Extension<auth::AuthIdentity>,
     Json(body): Json<CreateUser>,
 ) -> Response {
     let username = body.username.trim().to_string();
@@ -112,6 +135,9 @@ pub async fn create(
             Json(json!({ "error": "role must be admin|operator|viewer" })),
         )
             .into_response();
+    }
+    if body.role == "admin" && !is_admin_ident(&ident) {
+        return forbidden_admin();
     }
     let hash = match auth::hash_password(&body.password) {
         Ok(h) => h,
@@ -198,14 +224,25 @@ pub async fn update(
         }
     }
     let db = state.db.lock().await;
-    let exists: bool = db
+    let target_role: Option<String> = db
         .conn
-        .query_row("SELECT COUNT(*) > 0 FROM users WHERE id = ?1", [&id], |row| {
+        .query_row("SELECT role FROM users WHERE id = ?1", [&id], |row| {
             row.get(0)
         })
-        .unwrap_or(false);
-    if !exists {
-        return StatusCode::NOT_FOUND.into_response();
+        .ok();
+    let target_role = match target_role {
+        Some(r) => r,
+        None => return StatusCode::NOT_FOUND.into_response(),
+    };
+    // Non-admins can neither touch admin accounts nor grant the admin role.
+    // Admin targets are hidden from them entirely (404, as in list).
+    if !is_admin_ident(&ident) {
+        if target_role == "admin" {
+            return StatusCode::NOT_FOUND.into_response();
+        }
+        if body.role.as_deref() == Some("admin") {
+            return forbidden_admin();
+        }
     }
     // Forbid disabling/demoting the last enabled admin.
     if body.enabled == Some(false) || body.role.as_deref() == Some("operator") || body.role.as_deref() == Some("viewer") {
@@ -284,18 +321,27 @@ pub async fn update(
 pub async fn reset_password(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
+    Extension(ident): Extension<auth::AuthIdentity>,
 ) -> Response {
     let db = state.db.lock().await;
-    let username: Option<String> = db
+    let target: Option<(String, String)> = db
         .conn
-        .query_row("SELECT username FROM users WHERE id = ?1", [&id], |row| {
-            row.get(0)
-        })
+        .query_row(
+            "SELECT username, role FROM users WHERE id = ?1",
+            [&id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
         .ok();
-    let username = match username {
-        Some(u) => u,
-        None => return StatusCode::NOT_FOUND.into_response(),
+    let (username, role) = match target {
+        Some(t) => t,
+        None => {
+            return StatusCode::NOT_FOUND.into_response();
+        }
     };
+    if role == "admin" && !is_admin_ident(&ident) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let username = username;
     let password = auth::random_password();
     let hash = match auth::hash_password(&password) {
         Ok(h) => h,
@@ -334,6 +380,7 @@ pub struct SetPasswordBody {
 pub async fn set_password(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
+    Extension(ident): Extension<auth::AuthIdentity>,
     Json(body): Json<SetPasswordBody>,
 ) -> Response {
     if body.password.len() < 8 || body.password.len() > 128 {
@@ -344,16 +391,21 @@ pub async fn set_password(
             .into_response();
     }
     let db = state.db.lock().await;
-    let username: Option<String> = db
+    let target: Option<(String, String)> = db
         .conn
-        .query_row("SELECT username FROM users WHERE id = ?1", [&id], |row| {
-            row.get(0)
-        })
+        .query_row(
+            "SELECT username, role FROM users WHERE id = ?1",
+            [&id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
         .ok();
-    let username = match username {
-        Some(u) => u,
+    let (username, role) = match target {
+        Some(t) => t,
         None => return StatusCode::NOT_FOUND.into_response(),
     };
+    if role == "admin" && !is_admin_ident(&ident) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
     let hash = match auth::hash_password(&body.password) {
         Ok(h) => h,
         Err(e) => {
@@ -387,6 +439,11 @@ pub async fn delete(
     Path(id): Path<String>,
     Extension(ident): Extension<auth::AuthIdentity>,
 ) -> Response {
+    // Only admins delete users (deletion is destructive; operators manage
+    // day-to-day entities, not accounts).
+    if !is_admin_ident(&ident) {
+        return forbidden_admin();
+    }
     let self_id = ident.user_id.clone();
     if id == self_id {
         return (
