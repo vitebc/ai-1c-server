@@ -487,8 +487,8 @@ function AgentForm({ item, tools, toolsMode, skills, error, onClose, onSaved, on
         </datalist>
       </div>
       </div>
-      </div>
       )}
+      </div>
     </FormModal>
   );
 }
