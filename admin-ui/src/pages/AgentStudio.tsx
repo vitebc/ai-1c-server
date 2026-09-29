@@ -128,9 +128,10 @@ function toolPrefix(name: string): string {
   return s.slice(0, 32);
 }
 
-function ToolsCheck({ all, selected, onChange, mode, mcpFilter }: {
+function ToolsCheck({ all, selected, onChange, mode, mcpFilter, cols = 2 }: {
   all: { name: string; description: string }[]; selected: string[]; onChange: (v: string[]) => void; mode: string | null;
   mcpFilter?: string[] | null;
+  cols?: 1 | 2;
 }) {
   const toggle = (x: string) =>
     onChange(selected.includes(x) ? selected.filter(v => v !== x) : [...selected, x]);
@@ -193,7 +194,7 @@ function ToolsCheck({ all, selected, onChange, mode, mcpFilter }: {
                   {names.filter(n => selected.includes(n)).length}/{names.length}
                 </span>
               </label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
+              <div className={`grid grid-cols-1 gap-1 ${cols === 2 ? 'sm:grid-cols-2' : ''}`}>
                 {items.map(x => (
                   <label key={x.name} title={x.description} className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 px-1 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer">
                     <input type="checkbox" checked={selected.includes(x.name)} onChange={() => toggle(x.name)} className="rounded accent-blue-600" />
@@ -633,20 +634,10 @@ function SkillForm({ item, tools, toolsMode, error, onClose, onSaved, onError }:
 
   return (
     <FormModal title={item ? `Редактировать скилл ${item.name}` : t.studio.newSkill} onClose={onClose} onSubmit={submit} error={error} wide>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4">
         <div className="space-y-3 min-w-0">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <TextField label="Имя (папка, ^[a-z0-9-]+$)" value={name} onChange={setName} mono />
-            <TextField label="Описание (автомэтчинг)" value={description} onChange={setDescription} />
-          </div>
-          <TextField label={t.skills.description} value={description} onChange={setDescription} />
-          <Field label="Промпт (markdown, после второго ---)">
-            <TextArea value={body} onChange={e => setBody(e.target.value)} rows={20} spellCheck={false} mono className="min-h-[300px]" />
-          </Field>
-          <p className="text-[11px] text-slate-400">Сохраняется в backend/skills/&lt;имя&gt;/SKILL.md. Переименование = перемещение папки. Бэкенд подхватывает без рестарта.</p>
-        </div>
-        <div className="space-y-3 min-w-0">
-          <ToolsCheck all={tools} selected={selTools} onChange={setSelTools} mode={toolsMode} />
+          <TextField label="Имя (папка, ^[a-z0-9-]+$)" value={name} onChange={setName} mono />
+          <TextField label="Описание (автомэтчинг)" value={description} onChange={setDescription} />
           <div className="rounded-lg border border-slate-200 dark:border-slate-800">
             <button type="button" onClick={() => setHintOpen(v => !v)}
               className="w-full flex items-center justify-between px-3 py-2 text-[13px] font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50 rounded-lg cursor-pointer">
@@ -669,6 +660,13 @@ function SkillForm({ item, tools, toolsMode, error, onClose, onSaved, onError }:
               </div>
             )}
           </div>
+          <Field label="Промпт (markdown, после второго ---)">
+            <TextArea value={body} onChange={e => setBody(e.target.value)} rows={20} spellCheck={false} mono className="min-h-[300px]" />
+          </Field>
+          <p className="text-[11px] text-slate-400">Сохраняется в backend/skills/&lt;имя&gt;/SKILL.md. Переименование = перемещение папки. Бэкенд подхватывает без рестарта.</p>
+        </div>
+        <div className="space-y-3 min-w-0">
+          <ToolsCheck all={tools} selected={selTools} onChange={setSelTools} mode={toolsMode} cols={1} />
         </div>
       </div>
     </FormModal>
