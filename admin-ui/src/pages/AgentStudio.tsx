@@ -147,6 +147,22 @@ function ToolsCheck({ all, selected, onChange, mode, mcpFilter }: {
   const shown = list.filter(x => visible(x.name)
     && (!query || x.name.toLowerCase().includes(query) || (x.description || '').toLowerCase().includes(query)));
   const hiddenSelected = selected.filter(s => !shown.some(x => x.name === s));
+  // Group by server tag for per-server "select all".
+  const groups = new Map<string | null, typeof shown>();
+  for (const x of shown) {
+    const srv = toolServer(x.name);
+    const arr = groups.get(srv);
+    if (arr) arr.push(x);
+    else groups.set(srv, [x]);
+  }
+  const ordered = [...groups.entries()].sort((a, b) =>
+    ((a[0] === null) ? 0 : 1) - ((b[0] === null) ? 0 : 1)
+    || (a[0] || '').localeCompare(b[0] || ''));
+  const toggleGroup = (items: typeof shown) => {
+    const names = items.map(x => x.name);
+    const allOn = names.every(n => selected.includes(n));
+    onChange(allOn ? selected.filter(n => !names.includes(n)) : [...selected, ...names.filter(n => !selected.includes(n))]);
+  };
   return (
     <div>
       <div className="flex items-center justify-between mb-1">
@@ -163,15 +179,29 @@ function ToolsCheck({ all, selected, onChange, mode, mcpFilter }: {
       )}
       <input value={q} onChange={e => setQ(e.target.value)} placeholder={`${t.common.search} — имя или описание`}
         className="w-full mb-1 px-2 py-1 text-xs border border-slate-300 rounded-lg bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200" />
-      <div className="border border-slate-300 dark:border-slate-700 rounded-lg p-2 max-h-40 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1 bg-slate-50 dark:bg-slate-950">
-        {shown.map(x => {
-          const srv = toolServer(x.name);
+      <div className="border border-slate-300 dark:border-slate-700 rounded-lg p-2 max-h-80 overflow-y-auto bg-slate-50 dark:bg-slate-950">
+        {ordered.map(([srv, items]) => {
+          const names = items.map(x => x.name);
+          const allOn = names.length > 0 && names.every(n => selected.includes(n));
+          const someOn = !allOn && names.some(n => selected.includes(n));
           return (
-            <label key={x.name} title={x.description} className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 px-1 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer">
-              <input type="checkbox" checked={selected.includes(x.name)} onChange={() => toggle(x.name)} className="rounded accent-blue-600" />
-              <span className="font-mono truncate">{x.name}</span>
-              {srv !== null && <span className="text-[10px] text-slate-400 shrink-0">{srv}</span>}
-            </label>
+            <div key={srv || 'builtin'} className="mb-1">
+              <label className="flex items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-300 px-1 py-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer">
+                <input type="checkbox" checked={allOn} ref={el => { if (el) el.indeterminate = someOn; }} onChange={() => toggleGroup(items)} className="rounded accent-blue-600" />
+                <span className="font-mono">{srv || t.studio.builtIn}</span>
+                <span className="text-[10px] text-slate-400 font-normal">
+                  {names.filter(n => selected.includes(n)).length}/{names.length}
+                </span>
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
+                {items.map(x => (
+                  <label key={x.name} title={x.description} className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 px-1 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer">
+                    <input type="checkbox" checked={selected.includes(x.name)} onChange={() => toggle(x.name)} className="rounded accent-blue-600" />
+                    <span className="font-mono truncate">{srv ? x.name.slice(srv.length + 2) : x.name}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
           );
         })}
         {shown.length === 0 && <span className="text-xs text-slate-400">{query ? 'Ничего не найдено' : 'Нет инструментов для выбранных MCP-серверов'}</span>}
@@ -429,9 +459,9 @@ function AgentForm({ item, tools, toolsMode, skills, error, onClose, onSaved, on
       </div>
       )}
       {ftab === 'tools' && (
-      <div className="space-y-3 mt-3">
-      <ToolsCheck all={tools} selected={selTools} onChange={setSelTools} mode={toolsMode} mcpFilter={selMcp} />
+      <div className="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
       <McpSelect selected={selMcp} onChange={setSelMcp} />
+      <ToolsCheck all={tools} selected={selTools} onChange={setSelTools} mode={toolsMode} mcpFilter={selMcp} />
       </div>
       )}
       {ftab === 'skills' && (

@@ -129,6 +129,7 @@ export const t = {
     toolsLabel: 'Инструменты (подмножество ToolRegistry)',
     live: 'live', offline: 'офлайн', mcpServers: 'MCP-серверы',
     tabMain: 'Основное', tabTools: 'Инструменты', tabSkills: 'Скиллы и модель',
+    builtIn: 'Встроенные',
     provider: 'Провайдер', providerAuto: '— по умолчанию —',
     modelLabel: 'Модель (пусто = из конфига)',
     backendTitle: 'Compose-сервисы', noCompose: 'docker compose недоступен',
