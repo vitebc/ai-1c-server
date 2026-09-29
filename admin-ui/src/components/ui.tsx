@@ -117,9 +117,9 @@ export function Row({ children }: { children: ReactNode }) {
   return <tr className="border-b border-slate-100 last:border-0 hover:bg-slate-50 dark:border-slate-800/70 dark:hover:bg-slate-800/40">{children}</tr>;
 }
 
-export function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
+export function Field({ label, children, hint, className = '' }: { label: string; children: ReactNode; hint?: string; className?: string }) {
   return (
-    <div>
+    <div className={className}>
       <label className="block text-[13px] font-medium text-slate-700 dark:text-slate-300 mb-1">{label}</label>
       {children}
       {hint && <p className="text-[11px] text-slate-400 mt-1">{hint}</p>}

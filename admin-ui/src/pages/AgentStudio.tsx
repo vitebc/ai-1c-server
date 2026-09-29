@@ -128,10 +128,11 @@ function toolPrefix(name: string): string {
   return s.slice(0, 32);
 }
 
-function ToolsCheck({ all, selected, onChange, mode, mcpFilter, cols = 2 }: {
+function ToolsCheck({ all, selected, onChange, mode, mcpFilter, cols = 2, fill = false }: {
   all: { name: string; description: string }[]; selected: string[]; onChange: (v: string[]) => void; mode: string | null;
   mcpFilter?: string[] | null;
   cols?: 1 | 2;
+  fill?: boolean;
 }) {
   const toggle = (x: string) =>
     onChange(selected.includes(x) ? selected.filter(v => v !== x) : [...selected, x]);
@@ -165,7 +166,7 @@ function ToolsCheck({ all, selected, onChange, mode, mcpFilter, cols = 2 }: {
     onChange(allOn ? selected.filter(n => !names.includes(n)) : [...selected, ...names.filter(n => !selected.includes(n))]);
   };
   return (
-    <div>
+    <div className={fill ? 'flex flex-col h-full min-h-0' : ''}>
       <div className="flex items-center justify-between mb-1">
         <label className="block text-[13px] font-medium text-slate-700 dark:text-slate-300">{t.studio.toolsLabel}</label>
         <Badge tone={mode ? 'green' : 'neutral'}>{mode ? `${t.studio.live} · ${mode} · ${all.length}` : `${t.studio.offline} · ${all.length}`}</Badge>
@@ -180,7 +181,7 @@ function ToolsCheck({ all, selected, onChange, mode, mcpFilter, cols = 2 }: {
       )}
       <input value={q} onChange={e => setQ(e.target.value)} placeholder={`${t.common.search} — имя или описание`}
         className="w-full mb-1 px-2 py-1 text-xs border border-slate-300 rounded-lg bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200" />
-      <div className="border border-slate-300 dark:border-slate-700 rounded-lg p-2 max-h-80 overflow-y-auto bg-slate-50 dark:bg-slate-950">
+      <div className={`border border-slate-300 dark:border-slate-700 rounded-lg p-2 overflow-y-auto bg-slate-50 dark:bg-slate-950 ${fill ? 'flex-1 min-h-0' : 'max-h-80'}`}>
         {ordered.map(([srv, items]) => {
           const names = items.map(x => x.name);
           const allOn = names.length > 0 && names.every(n => selected.includes(n));
@@ -633,9 +634,9 @@ function SkillForm({ item, tools, toolsMode, error, onClose, onSaved, onError }:
   }
 
   return (
-    <FormModal title={item ? `Редактировать скилл ${item.name}` : t.studio.newSkill} onClose={onClose} onSubmit={submit} error={error} wide>
-      <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4">
-        <div className="space-y-3 min-w-0">
+    <FormModal title={item ? `Редактировать скилл ${item.name}` : t.studio.newSkill} onClose={onClose} onSubmit={submit} error={error} xwide>
+      <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4 lg:min-h-[68vh]">
+        <div className="space-y-3 min-w-0 flex flex-col">
           <TextField label="Имя (папка, ^[a-z0-9-]+$)" value={name} onChange={setName} mono />
           <TextField label="Описание (автомэтчинг)" value={description} onChange={setDescription} />
           <div className="rounded-lg border border-slate-200 dark:border-slate-800">
@@ -660,13 +661,15 @@ function SkillForm({ item, tools, toolsMode, error, onClose, onSaved, onError }:
               </div>
             )}
           </div>
-          <Field label="Промпт (markdown, после второго ---)">
-            <TextArea value={body} onChange={e => setBody(e.target.value)} rows={20} spellCheck={false} mono className="min-h-[300px]" />
-          </Field>
+          <div className="flex-1 min-h-0">
+            <Field label="Промпт (markdown, после второго ---)" className="h-full flex flex-col">
+              <TextArea value={body} onChange={e => setBody(e.target.value)} rows={20} spellCheck={false} mono className="flex-1 min-h-[300px] resize-y" />
+            </Field>
+          </div>
           <p className="text-[11px] text-slate-400">Сохраняется в backend/skills/&lt;имя&gt;/SKILL.md. Переименование = перемещение папки. Бэкенд подхватывает без рестарта.</p>
         </div>
-        <div className="space-y-3 min-w-0">
-          <ToolsCheck all={tools} selected={selTools} onChange={setSelTools} mode={toolsMode} cols={1} />
+        <div className="min-w-0 flex flex-col">
+          <ToolsCheck all={tools} selected={selTools} onChange={setSelTools} mode={toolsMode} cols={1} fill />
         </div>
       </div>
     </FormModal>
