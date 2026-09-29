@@ -264,11 +264,11 @@ function McpSelect({ selected, onChange }: { selected: string[]; onChange: (v: s
   );
 }
 
-function FormModal({ title, onClose, onSubmit, error, children, wide }: {
-  title: string; onClose: () => void; onSubmit: (e: React.FormEvent) => void; error: string; children: React.ReactNode; wide?: boolean;
+function FormModal({ title, onClose, onSubmit, error, children, wide, xwide }: {
+  title: string; onClose: () => void; onSubmit: (e: React.FormEvent) => void; error: string; children: React.ReactNode; wide?: boolean; xwide?: boolean;
 }) {
   return (
-    <UiModal title={title} onClose={onClose} wide={wide}>
+    <UiModal title={title} onClose={onClose} wide={wide} xwide={xwide}>
       <form onSubmit={onSubmit} className="space-y-3">
         {children}
         {error && <Alert tone="red">{error}</Alert>}
@@ -407,7 +407,9 @@ function AgentForm({ item, tools, toolsMode, skills, error, onClose, onSaved, on
   }
 
   return (
-    <FormModal title={item ? `Редактировать агента ${item.name}` : t.studio.newAgent} onClose={onClose} onSubmit={submit} error={error} wide>
+    <FormModal title={item ? `Редактировать агента ${item.name}` : t.studio.newAgent} onClose={onClose} onSubmit={submit} error={error} xwide>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="space-y-3 min-w-0">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <TextField label="Имя (папка, ^[a-z0-9-]+$)" value={name} onChange={setName} mono />
         <TextField label="Заголовок (выпадашка в 1С)" value={title} onChange={setTitle} />
@@ -467,8 +469,14 @@ function AgentForm({ item, tools, toolsMode, skills, error, onClose, onSaved, on
           ))}
         </datalist>
       </div>
-      <BodyField value={body} onChange={setBody} rows={12} />
-      <p className="text-[11px] text-slate-400">Сохраняется в backend/agents/&lt;имя&gt;/AGENT.md. Переименование = перемещение папки. Бэкенд подхватывает без рестарта.</p>
+        </div>
+        <div className="flex flex-col min-w-0">
+          <Field label="Промпт (markdown, после второго ---)">
+            <TextArea value={body} onChange={e => setBody(e.target.value)} rows={24} spellCheck={false} mono className="flex-1 min-h-[420px]" />
+          </Field>
+          <p className="text-[11px] text-slate-400 mt-2">Сохраняется в backend/agents/&lt;имя&gt;/AGENT.md. Переименование = перемещение папки. Бэкенд подхватывает без рестарта.</p>
+        </div>
+      </div>
     </FormModal>
   );
 }
