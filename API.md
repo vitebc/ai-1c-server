@@ -79,6 +79,7 @@ curl -s -X POST http://localhost:9224/api/mcp-aggregated/mcp -H "$T" \
 | Метод | Путь | Описание |
 |---|---|---|
 | GET | `/status` | `[{id, name, status}]` — running/stopped |
+| GET | `/dashboard` | сводка для дашборда (секция `dashboard`, видна всем): `{servers, skills, configs, clients, mcp[], bsl}` |
 | GET/PUT | `/settings` | все настройки / `{key, value}` (`auth_required`, `agent_project_root`, ...) |
 | GET | `/logs?level=&limit=&search=&target=` | кольцевой буфер; `target` — префикс (`ai_1c_server::mcp` покрывает `::session`...) |
 | GET | `/logs/targets` | distinct `ai_1c_server::*` таргеты |
