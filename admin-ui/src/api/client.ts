@@ -229,4 +229,7 @@ export const api = {
   setUserPassword: (id: string, password: string) =>
     request<{ ok: boolean; username: string }>(`/users/${id}/password`, { method: 'POST', body: JSON.stringify({ password }) }),
   deleteUser: (id: string) => request<void>(`/users/${id}`, { method: 'DELETE' }),
+  getRoles: () => request<{ roles: Record<string, string[]> }>('/users/roles'),
+  updateRoles: (roles: Record<string, string[]>) =>
+    request<{ ok: boolean }>('/users/roles', { method: 'PUT', body: JSON.stringify({ roles }) }),
 };

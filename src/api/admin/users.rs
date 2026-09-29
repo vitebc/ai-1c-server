@@ -1,6 +1,7 @@
 //! User management (admin only — enforced by the RBAC section map).
 //! Passwords: argon2, min 8 chars. Reset returns plaintext **once**.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::{
@@ -106,7 +107,10 @@ fn default_role() -> String {
 }
 
 fn valid_role(role: &str) -> bool {
-    matches!(role, "admin" | "operator" | "viewer")
+    matches!(
+        role,
+        auth::ROLE_ADMIN | auth::ROLE_OPERATOR | auth::ROLE_VIEWER | auth::ROLE_PROMPTER
+    )
 }
 
 pub async fn create(
@@ -132,7 +136,7 @@ pub async fn create(
     if !valid_role(&body.role) {
         return (
             StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "role must be admin|operator|viewer" })),
+            Json(json!({ "error": "role must be admin|operator|viewer|prompter" })),
         )
             .into_response();
     }
@@ -201,7 +205,7 @@ pub async fn update(
         if !valid_role(r) {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(json!({ "error": "role must be admin|operator|viewer" })),
+                Json(json!({ "error": "role must be admin|operator|viewer|prompter" })),
             )
                 .into_response();
         }
@@ -246,7 +250,11 @@ pub async fn update(
         }
     }
     // Forbid disabling/demoting the last enabled admin.
-    if body.enabled == Some(false) || body.role.as_deref() == Some("operator") || body.role.as_deref() == Some("viewer") {
+    if body.enabled == Some(false)
+        || body.role.as_deref() == Some("operator")
+        || body.role.as_deref() == Some("viewer")
+        || body.role.as_deref() == Some(auth::ROLE_PROMPTER)
+    {
         let admins: i64 = db
             .conn
             .query_row(
@@ -315,6 +323,99 @@ pub async fn update(
             .into_response();
     }
     tracing::info!("users: updated {id}");
+    Json(json!({ "ok": true })).into_response()
+}
+
+/// GET /users/roles — effective default sections per configurable role
+/// (admin-configured overrides merged over the hardcoded matrix).
+pub async fn roles(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
+    let db = state.db.lock().await;
+    let mut map = serde_json::Map::new();
+    for role in auth::CONFIGURABLE_ROLES {
+        map.insert(
+            role.to_string(),
+            serde_json::Value::Array(
+                auth::role_base_sections(&db, role)
+                    .into_iter()
+                    .map(serde_json::Value::String)
+                    .collect(),
+            ),
+        );
+    }
+    Json(serde_json::Value::Object({
+        let mut top = serde_json::Map::new();
+        top.insert("roles".into(), serde_json::Value::Object(map));
+        top
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateRoles {
+    pub roles: std::collections::HashMap<String, Vec<String>>,
+}
+
+/// PUT /users/roles — replace default sections for configurable roles.
+/// Admin role only (editing the matrix is privilege escalation otherwise).
+pub async fn update_roles(
+    State(state): State<Arc<AppState>>,
+    Extension(ident): Extension<auth::AuthIdentity>,
+    Json(body): Json<UpdateRoles>,
+) -> Response {
+    if !is_admin_ident(&ident) {
+        return forbidden_admin();
+    }
+    for role in body.roles.keys() {
+        if !auth::CONFIGURABLE_ROLES.contains(&role.as_str()) {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": format!("role {role:?} is not configurable") })),
+            )
+                .into_response();
+        }
+    }
+    let mut clean: std::collections::HashMap<String, Vec<String>> = HashMap::new();
+    for (role, secs) in &body.roles {
+        let mut v: Vec<String> = secs
+            .iter()
+            .filter(|s| auth::SECTIONS.contains(&s.as_str()))
+            .cloned()
+            .collect();
+        v.sort();
+        v.dedup();
+        clean.insert(role.clone(), v);
+    }
+    // Merge over previously stored overrides so partial updates work.
+    let db = state.db.lock().await;
+    let mut stored: std::collections::HashMap<String, Vec<String>> = db
+        .conn
+        .query_row(
+            "SELECT value FROM server_settings WHERE key = 'role_sections'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default();
+    for (role, secs) in clean {
+        stored.insert(role, secs);
+    }
+    let raw = serde_json::to_string(&stored).unwrap_or_else(|_| "{}".into());
+    if db
+        .conn
+        .execute(
+            "INSERT INTO server_settings (key, value) VALUES ('role_sections', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [&raw],
+        )
+        .is_err()
+    {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "save failed" })),
+        )
+            .into_response();
+    }
+    tracing::warn!("users: role matrix updated by {}", ident.username);
     Json(json!({ "ok": true })).into_response()
 }
 

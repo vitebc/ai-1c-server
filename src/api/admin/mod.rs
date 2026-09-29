@@ -221,6 +221,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/auth/me", get(crate::auth::me_handler))
         .route("/auth/password", post(crate::auth::password_handler))
         .route("/users", get(users::list).post(users::create))
+        .route("/users/roles", get(users::roles).put(users::update_roles))
         .route("/users/{id}", put(users::update).delete(users::delete))
         .route("/users/{id}/reset-password", post(users::reset_password))
         .route("/users/{id}/password", post(users::set_password))

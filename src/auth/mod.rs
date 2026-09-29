@@ -136,6 +136,9 @@ pub fn rotate(db: &Database) -> Result<String, Box<dyn std::error::Error>> {
 pub const ROLE_ADMIN: &str = "admin";
 pub const ROLE_OPERATOR: &str = "operator";
 pub const ROLE_VIEWER: &str = "viewer";
+/// Prompt engineer: read-only like viewer, but may edit agent/skill/pattern
+/// files (prompt bodies, tool/skill selections).
+pub const ROLE_PROMPTER: &str = "prompter";
 
 /// All sections known to the RBAC matrix (== admin UI areas + sensitive APIs).
 pub const SECTIONS: &[&str] = &[
@@ -194,7 +197,7 @@ fn base_sections(role: &str) -> Vec<String> {
         .iter()
         .map(|s| s.to_string())
         .collect(),
-        _ => [
+        ROLE_PROMPTER | _ => [
             "dashboard",
             "mcp-servers",
             "models",
@@ -214,10 +217,59 @@ fn base_sections(role: &str) -> Vec<String> {
     }
 }
 
-/// Effective sections = role base with per-user JSON overrides applied
-/// (`{"agent-studio": false}` removes, `{"logs": true}` grants).
-pub fn effective_sections(role: &str, overrides: Option<&str>) -> Vec<String> {
-    let mut set: std::collections::HashSet<String> = base_sections(role).into_iter().collect();
+/// Roles whose default sections an admin may reconfigure (admin itself is
+/// always full access and is not configurable).
+pub const CONFIGURABLE_ROLES: &[&str] = &[ROLE_OPERATOR, ROLE_VIEWER, ROLE_PROMPTER];
+
+/// Admin-configured role defaults from `server_settings(role_sections)`
+/// (`{"viewer": [...]}`); unknown sections/roles are dropped.
+fn custom_role_bases(db: &Database) -> HashMap<String, Vec<String>> {
+    let raw: String = match db.conn.query_row(
+        "SELECT value FROM server_settings WHERE key = 'role_sections'",
+        [],
+        |row| row.get(0),
+    ) {
+        Ok(v) => v,
+        Err(_) => return HashMap::new(),
+    };
+    let parsed: HashMap<String, Vec<String>> = serde_json::from_str(&raw).unwrap_or_default();
+    parsed
+        .into_iter()
+        .filter(|(role, _)| CONFIGURABLE_ROLES.contains(&role.as_str()))
+        .map(|(role, secs)| {
+            let mut clean: Vec<String> = secs
+                .into_iter()
+                .filter(|s| SECTIONS.contains(&s.as_str()))
+                .collect();
+            clean.sort();
+            clean.dedup();
+            (role, clean)
+        })
+        .collect()
+}
+
+/// Role base sections: admin-configured override wins, hardcoded matrix is
+/// the fallback. Admin is always full access.
+pub fn role_base_sections(db: &Database, role: &str) -> Vec<String> {
+    if role == ROLE_ADMIN {
+        return SECTIONS.iter().map(|s| s.to_string()).collect();
+    }
+    if let Some(custom) = custom_role_bases(db).remove(role) {
+        return custom;
+    }
+    base_sections(role)
+}
+
+/// Effective sections = role base (admin-configurable, else hardcoded) with
+/// per-user JSON overrides applied (`{"agent-studio": false}` removes,
+/// `{"logs": true}` grants).
+pub fn effective_sections(
+    db: &Database,
+    role: &str,
+    overrides: Option<&str>,
+) -> Vec<String> {
+    let mut set: std::collections::HashSet<String> =
+        role_base_sections(db, role).into_iter().collect();
     if let Some(raw) = overrides {
         if let Ok(map) = serde_json::from_str::<HashMap<String, bool>>(raw) {
             for (k, v) in map {
@@ -433,8 +485,8 @@ impl AuthIdentity {
         }
     }
 
-    fn of(user: UserRow) -> Self {
-        let sections = effective_sections(&user.role, user.sections.as_deref());
+    fn of(db: &Database, user: UserRow) -> Self {
+        let sections = effective_sections(db, &user.role, user.sections.as_deref());
         Self {
             user_id: user.id,
             username: user.username,
@@ -622,7 +674,7 @@ pub async fn bearer_auth(
         let db = state.db.lock().await;
         match decode_jwt(&db, &t) {
             Some(user) => {
-                let ident = AuthIdentity::of(user);
+                let ident = AuthIdentity::of(&db, user);
                 tracing::debug!("auth: identity role={} user={}", ident.role, ident.username);
                 drop(db);
                 if let Some(deny) = check_access(&ident, &path, &req.method()) {
@@ -653,7 +705,7 @@ pub async fn bearer_auth(
         let identity: Option<AuthIdentity> = if is_legacy {
             Some(AuthIdentity::system())
         } else {
-            decode_jwt(&db, &t).map(AuthIdentity::of)
+            decode_jwt(&db, &t).map(|u| AuthIdentity::of(&db, u))
         };
         drop(db);
         let identity = match identity {
@@ -670,6 +722,21 @@ pub async fn bearer_auth(
 
 /// RBAC section check + viewer read-only rule.
 /// Returns `Some(403)` on denial, `None` when allowed.
+/// Which roles may mutate (non-GET) a path. Admin/operator write anywhere
+/// their sections allow; prompter only edits agent/skill/pattern files;
+/// viewer (and unknown roles) are read-only.
+fn can_write(role: &str, path: &str) -> bool {
+    match role {
+        ROLE_ADMIN | ROLE_OPERATOR => true,
+        ROLE_PROMPTER => {
+            path.starts_with("/api/admin/agent-files/agents")
+                || path.starts_with("/api/admin/agent-files/skills")
+                || path.starts_with("/api/admin/agent-files/patterns")
+        }
+        _ => false,
+    }
+}
+
 fn check_access(identity: &AuthIdentity, path: &str, method: &axum::http::Method) -> Option<Response> {
     // Section check.
     let section = section_for(path).unwrap_or("dashboard");
@@ -688,12 +755,11 @@ fn check_access(identity: &AuthIdentity, path: &str, method: &axum::http::Method
         if !allowed {
             return Some(forbidden());
         }
-        // Viewer (and any restricted role): mutations need operator+.
-        // Role viewer is read-only; overrides can only *remove* sections,
-        // never grant write — write requires role != viewer.
+        // Restricted roles: mutations need a matching can_write rule.
+        // Section overrides can only *remove* sections, never grant write.
         let is_get = *method == axum::http::Method::GET;
         let self_pw = path == "/api/admin/auth/password";
-        if !is_get && !self_pw && identity.role == ROLE_VIEWER {
+        if !is_get && !self_pw && !can_write(&identity.role, path) {
             return Some(forbidden());
         }
     }
@@ -728,7 +794,7 @@ pub async fn login_handler(
         let db = state.db.lock().await;
         match find_user(&db, &body.username) {
             Some((user, hash)) if user.enabled && verify_password(&hash, &body.password) => {
-                let ident = AuthIdentity::of(user.clone());
+                let ident = AuthIdentity::of(&db, user.clone());
                 match issue_jwt(&db, &user, body.remember) {
                     Ok(t) => (true, Some(t), Some(ident)),
                     Err(e) => {
@@ -779,7 +845,7 @@ pub async fn me_handler(
     let db = state.db.lock().await;
     match find_user(&db, &username) {
         Some((u, _)) if u.enabled => {
-            let ident = AuthIdentity::of(u);
+            let ident = AuthIdentity::of(&db, u);
             Json(json!({
                 "username": ident.username,
                 "role": ident.role,

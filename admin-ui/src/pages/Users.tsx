@@ -6,7 +6,7 @@ import { t } from '../i18n';
 import { errText } from '../errors';
 import { PageHeader, TableShell, Th, Td, Row, Badge, IconBtn, Btn, Modal, Field, TextInput, Select, Alert } from '../components/ui';
 
-const ROLES = ['admin', 'operator', 'viewer'];
+const ROLES = ['admin', 'operator', 'viewer', 'prompter'];
 
 const SECTION_GROUPS: { title: string; items: { key: string; label: string }[] }[] = [
   { title: 'Общее', items: [{ key: 'dashboard', label: 'dashboard — main page' }] },
@@ -50,6 +50,7 @@ const ROLE_BASE: Record<string, string[]> = {
   admin: ALL_SECTIONS,
   operator: ['dashboard', 'mcp-servers', 'models', 'agent-studio', 'agent-agents', 'agent-skills', 'agent-patterns', 'agent-backend', 'skills', 'bsl-ls', 'configs', 'client-versions', 'clients', 'logs', 'settings', 'fs', 'env'],
   viewer: ['dashboard', 'mcp-servers', 'models', 'agent-agents', 'agent-skills', 'agent-patterns', 'skills', 'bsl-ls', 'configs', 'client-versions', 'clients', 'logs'],
+  prompter: ['dashboard', 'mcp-servers', 'models', 'agent-agents', 'agent-skills', 'agent-patterns', 'skills', 'bsl-ls', 'configs', 'client-versions', 'clients', 'logs'],
 };
 
 export default function Users() {
@@ -60,12 +61,15 @@ export default function Users() {
   const [newPw, setNewPw] = useState<{ username: string; password: string } | null>(null);
   const [setPwFor, setSetPwFor] = useState<UserDto | null>(null);
   const [selfName, setSelfName] = useState('');
+  const [selfRole, setSelfRole] = useState('');
+  const [roleBase, setRoleBase] = useState<Record<string, string[]>>(ROLE_BASE);
 
   const load = useCallback(async () => {
     setError('');
     try {
       setItems(await api.getUsers());
-      api.getMe().then(m => setSelfName(m.username)).catch(() => {});
+      api.getMe().then(m => { setSelfName(m.username); setSelfRole(m.role); }).catch(() => {});
+      api.getRoles().then(r => setRoleBase({ ...ROLE_BASE, ...r.roles, admin: ALL_SECTIONS })).catch(() => {});
     } catch (e) {
       setError(errText(e, 'Ошибка загрузки'));
     }
@@ -126,11 +130,12 @@ export default function Users() {
       {error && <div className="mb-4"><Alert tone="red">{error}</Alert></div>}
 
       {showNew && <NewUserForm onClose={() => setShowNew(false)} onSaved={load} onError={setError} />}
+      <RolesMatrix roleBase={roleBase} canEdit={selfRole === 'admin'} onChanged={load} onError={setError} />
       {setPwFor && (
         <SetPasswordForm user={setPwFor} onClose={() => setSetPwFor(null)} onSaved={load} onError={setError} />
       )}
       {editSections && (
-        <SectionsEditor user={editSections} onClose={() => setEditSections(null)} onSaved={load} onError={setError} />
+        <SectionsEditor user={editSections} base={roleBase} onClose={() => setEditSections(null)} onSaved={load} onError={setError} />
       )}
       {newPw && (
         <Modal title={`${t.users.newPwTitle}: ${newPw.username}`} onClose={() => setNewPw(null)}>
@@ -157,7 +162,7 @@ export default function Users() {
               <span className="text-slate-600 dark:text-slate-300">
                 {u.sections
                   ? Object.entries(u.sections).map(([k, v]) => `${v ? '+' : '−'}${k}`).join(' ')
-                  : <span className="text-slate-400 dark:text-slate-500">role defaults ({ROLE_BASE[u.role]?.length || 0})</span>}
+                  : <span className="text-slate-400 dark:text-slate-500">role defaults ({roleBase[u.role]?.length || 0})</span>}
               </span>
               <button onClick={() => setEditSections(u)} disabled={u.username === selfName} title={u.username === selfName ? t.users.selfLock : undefined} className="ml-2 text-blue-600 hover:underline dark:text-blue-400 cursor-pointer disabled:opacity-40 disabled:no-underline disabled:cursor-not-allowed">{t.common.edit}</button>
             </Td>
@@ -254,7 +259,73 @@ function SetPasswordForm({ user, onClose, onSaved, onError }: {
   );
 }
 
-function SectionsEditor({ user, onClose, onSaved, onError }: { user: UserDto; onClose: () => void; onSaved: () => void; onError: (e: string) => void;
+function RolesMatrix({ roleBase, canEdit, onChanged, onError }: {
+  roleBase: Record<string, string[]>; canEdit: boolean;
+  onChanged: () => void; onError: (e: string) => void;
+}) {
+  const editable = ['operator', 'viewer', 'prompter'];
+  const [draft, setDraft] = useState<Record<string, string[]> | null>(null);
+  const [saved, setSaved] = useState(false);
+  const shown = draft || roleBase;
+
+  const toggle = (role: string, sec: string) =>
+    setDraft(d => {
+      const base = d || roleBase;
+      const cur = base[role] || [];
+      const next = cur.includes(sec) ? cur.filter(s => s !== sec) : [...cur, sec];
+      return { ...base, [role]: next };
+    });
+
+  async function save() {
+    if (!draft) return;
+    try {
+      const roles: Record<string, string[]> = {};
+      for (const r of editable) roles[r] = [...(draft[r] || [])].sort();
+      await api.updateRoles(roles);
+      setSaved(true);
+      setDraft(null);
+      setTimeout(() => { setSaved(false); onChanged(); }, 800);
+    } catch (err) {
+      onError(errText(err, 'Ошибка сохранения'));
+    }
+  }
+
+  const dirty = draft !== null
+    && editable.some(r => [...(draft[r] || [])].sort().join() !== [...(roleBase[r] || [])].sort().join());
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 p-4 mb-4">
+      <div className="flex items-center justify-between gap-3 mb-1">
+        <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">{t.users.rolesTitle}</h3>
+        {canEdit
+          ? <Btn variant="primary" onClick={save} disabled={!dirty}>{saved ? <><Check size={14} /> OK</> : t.common.save}</Btn>
+          : <span className="text-[11px] text-slate-400">{t.users.rolesAdminOnly}</span>}
+      </div>
+      <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-3">{t.users.rolesHint}</p>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {editable.map(role => (
+          <div key={role}>
+            <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">
+              {role} <span className="normal-case font-normal">({(shown[role] || []).length})</span>
+            </p>
+            <div className="space-y-px max-h-56 overflow-y-auto pr-1">
+              {ALL_SECTIONS.map(sec => (
+                <label key={sec} className={`flex items-center gap-2 text-xs px-1 py-0.5 rounded ${canEdit ? 'cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800' : 'opacity-70'} text-slate-700 dark:text-slate-300`}>
+                  <input type="checkbox" disabled={!canEdit}
+                    checked={(shown[role] || []).includes(sec)}
+                    onChange={() => toggle(role, sec)} className="rounded accent-blue-600" />
+                  <span className="font-mono truncate" title={sec}>{sec}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SectionsEditor({ user, base, onClose, onSaved, onError }: { user: UserDto; base: Record<string, string[]>; onClose: () => void; onSaved: () => void; onError: (e: string) => void;
 }) {
   // Per-section tri-state: default (role) / allow / deny.
   const [state, setState] = useState<Record<string, 'default' | 'allow' | 'deny'>>(() => {
@@ -297,7 +368,7 @@ function SectionsEditor({ user, onClose, onSaved, onError }: { user: UserDto; on
                       className={`px-2.5 py-1 text-[11px] rounded-lg cursor-pointer transition-colors ${state[sec] === v
                         ? v === 'deny' ? 'bg-red-500 text-white' : v === 'allow' ? 'bg-emerald-600 text-white' : 'bg-blue-600 text-white'
                         : 'bg-slate-200 text-slate-500 hover:bg-slate-300 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'}`}>
-                      {v === 'default' ? `default (${ROLE_BASE[user.role]?.includes(sec) ? t.common.on : t.common.off})` : v}
+                      {v === 'default' ? `default (${base[user.role]?.includes(sec) ? t.common.on : t.common.off})` : v}
                     </button>
                   ))}
                 </div>
