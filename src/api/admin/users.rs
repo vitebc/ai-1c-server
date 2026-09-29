@@ -191,13 +191,21 @@ pub async fn update(
     Extension(ident): Extension<auth::AuthIdentity>,
     Json(body): Json<UpdateUser>,
 ) -> Response {
-    // Cannot touch yourself (role/enable/sections) — prevents admin lockout
-    // and self-elevation via section overrides.
+    // Cannot touch yourself (role/enable) — prevents admin lockout.
+    // Sections are editable for admins only: anyone else could escalate.
     let self_id = ident.user_id.clone();
-    if id == self_id && (body.role.is_some() || body.enabled == Some(false) || body.sections.is_some()) {
+    let self_admin = is_admin_ident(&ident);
+    if id == self_id && (body.role.is_some() || body.enabled == Some(false)) {
         return (
             StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "cannot change own role, rights or disable self" })),
+            Json(json!({ "error": "cannot change own role or disable self" })),
+        )
+            .into_response();
+    }
+    if id == self_id && body.sections.is_some() && !self_admin {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "cannot change own rights" })),
         )
             .into_response();
     }

@@ -166,7 +166,7 @@ export default function Users() {
                   ? Object.entries(u.sections).map(([k, v]) => `${v ? '+' : '−'}${k}`).join(' ')
                   : <span className="text-slate-400 dark:text-slate-500">role defaults ({roleBase[u.role]?.length || 0})</span>}
               </span>
-              <button onClick={() => setEditSections(u)} disabled={u.username === selfName} title={u.username === selfName ? t.users.selfLock : undefined} className="ml-2 text-blue-600 hover:underline dark:text-blue-400 cursor-pointer disabled:opacity-40 disabled:no-underline disabled:cursor-not-allowed">{t.common.edit}</button>
+              <button onClick={() => setEditSections(u)} disabled={u.username === selfName && selfRole !== 'admin'} title={u.username === selfName && selfRole !== 'admin' ? t.users.selfLock : undefined} className="ml-2 text-blue-600 hover:underline dark:text-blue-400 cursor-pointer disabled:opacity-40 disabled:no-underline disabled:cursor-not-allowed">{t.common.edit}</button>
             </Td>
             <Td>
               <button onClick={() => toggleEnabled(u)} disabled={u.username === selfName} title={u.username === selfName ? t.users.selfLock : undefined} className="cursor-pointer disabled:cursor-not-allowed">
