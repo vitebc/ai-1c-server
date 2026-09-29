@@ -261,19 +261,20 @@ pub fn role_base_sections(db: &Database, role: &str) -> Vec<String> {
 }
 
 /// Effective sections = role base (admin-configurable, else hardcoded) with
-/// per-user JSON overrides applied (`{"agent-studio": false}` removes,
-/// `{"logs": true}` grants).
+/// per-user JSON overrides applied. Overrides only operate *within* the role
+/// base: `false` removes, `true` re-grants — granting outside the role is
+/// impossible (use the role matrix instead).
 pub fn effective_sections(
     db: &Database,
     role: &str,
     overrides: Option<&str>,
 ) -> Vec<String> {
-    let mut set: std::collections::HashSet<String> =
-        role_base_sections(db, role).into_iter().collect();
+    let base = role_base_sections(db, role);
+    let mut set: std::collections::HashSet<String> = base.iter().cloned().collect();
     if let Some(raw) = overrides {
         if let Ok(map) = serde_json::from_str::<HashMap<String, bool>>(raw) {
             for (k, v) in map {
-                if !SECTIONS.contains(&k.as_str()) {
+                if !SECTIONS.contains(&k.as_str()) || !base.contains(&k) {
                     continue;
                 }
                 if v {

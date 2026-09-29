@@ -130,7 +130,9 @@ export default function Users() {
       {error && <div className="mb-4"><Alert tone="red">{error}</Alert></div>}
 
       {showNew && <NewUserForm onClose={() => setShowNew(false)} onSaved={load} onError={setError} />}
-      <RolesMatrix roleBase={roleBase} canEdit={selfRole === 'admin'} onChanged={load} onError={setError} />
+      {selfRole === 'admin' && (
+        <RolesMatrix roleBase={roleBase} canEdit={selfRole === 'admin'} onChanged={load} onError={setError} />
+      )}
       {setPwFor && (
         <SetPasswordForm user={setPwFor} onClose={() => setSetPwFor(null)} onSaved={load} onError={setError} />
       )}
@@ -339,8 +341,10 @@ function SectionsEditor({ user, base, onClose, onSaved, onError }: { user: UserD
   const [saved, setSaved] = useState(false);
 
   async function save() {
+    const allowed = new Set(base[user.role] || []);
     const overrides: Record<string, boolean> = {};
     for (const [k, v] of Object.entries(state)) {
+      if (!allowed.has(k)) continue;
       if (v === 'allow') overrides[k] = true;
       if (v === 'deny') overrides[k] = false;
     }
@@ -356,10 +360,14 @@ function SectionsEditor({ user, base, onClose, onSaved, onError }: { user: UserD
   return (
     <Modal title={`${t.users.sections}: ${user.username} (${user.role})`} onClose={onClose} wide>
       <div className="space-y-3">
-        {SECTION_GROUPS.map(g => (
+        <p className="text-[11px] text-slate-500 dark:text-slate-400">{t.users.perUserHint(user.role)}</p>
+        {SECTION_GROUPS.map(g => {
+          const items = g.items.filter(i => (base[user.role] || []).includes(i.key));
+          if (!items.length) return null;
+          return (
           <div key={g.title}>
             <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mt-2 mb-1">{g.title}</p>
-            {g.items.map(({ key: sec, label }) => (
+            {items.map(({ key: sec, label }) => (
               <div key={sec} className="flex items-center justify-between gap-3 py-1 border-b border-slate-100 dark:border-slate-800/70">
                 <span className="font-mono text-xs text-slate-700 dark:text-slate-300" title={sec}>{label}</span>
                 <div className="flex gap-1 shrink-0">
@@ -375,7 +383,8 @@ function SectionsEditor({ user, base, onClose, onSaved, onError }: { user: UserD
               </div>
             ))}
           </div>
-        ))}
+          );
+        })}
         <div className="flex justify-end gap-2 pt-2">
           <Btn variant="ghost" onClick={onClose}>{t.common.cancel}</Btn>
           <Btn variant="primary" onClick={save}>
