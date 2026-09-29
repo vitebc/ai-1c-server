@@ -1,8 +1,6 @@
 use std::sync::Arc;
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
-    response::IntoResponse,
     Json,
 };
 use serde::{Deserialize, Serialize};
@@ -250,23 +248,42 @@ pub async fn probe(
             )
             .map_err(|_| super::NotFound)?
     };
+    drop(state);
+    Ok(Json(fetch_models(&base_url, &api_key).await))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ProbeBody {
+    pub base_url: String,
+    pub api_key: Option<String>,
+}
+
+/// POST /model-providers/probe — same probe for an unsaved form
+/// (`{base_url, api_key?}`), used for live model multiselect.
+pub async fn probe_adhoc(Json(body): Json<ProbeBody>) -> Json<serde_json::Value> {
+    Json(fetch_models(&body.base_url, body.api_key.as_deref().unwrap_or("")).await)
+}
+
+async fn fetch_models(base_url: &str, api_key: &str) -> serde_json::Value {
+    let fail = |e: String| serde_json::json!({ "ok": false, "models": [], "error": e });
     let url = format!("{}/models", base_url.trim().trim_end_matches('/'));
-    let client = reqwest::Client::builder()
+    let client = match reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(20))
         .build()
-        .map_err(|e| super::AppError::msg(e.to_string()))?;
+    {
+        Ok(c) => c,
+        Err(e) => return fail(e.to_string()),
+    };
     let mut req = client.get(&url);
     if !api_key.trim().is_empty() {
         req = req.bearer_auth(api_key.trim());
     }
-    let resp = req.send().await.map_err(|e| {
-        super::AppError::msg(format!("probe {url}: {e}"))
-    })?;
+    let resp = match req.send().await {
+        Ok(r) => r,
+        Err(e) => return fail(format!("probe {url}: {e}")),
+    };
     if !resp.status().is_success() {
-        return Ok(Json(serde_json::json!({
-            "ok": false, "models": [],
-            "error": format!("HTTP {}", resp.status()),
-        })));
+        return fail(format!("HTTP {}", resp.status()));
     }
     let body: serde_json::Value = resp.json().await.unwrap_or(serde_json::Value::Null);
     let mut models: Vec<String> = body
@@ -288,7 +305,7 @@ pub async fn probe(
                 .collect();
         }
     }
-    Ok(Json(serde_json::json!({ "ok": true, "models": models })))
+    serde_json::json!({ "ok": true, "models": models })
 }
 
 /// GET /model-providers/options — `{providers: [{name, default_model}]}` for

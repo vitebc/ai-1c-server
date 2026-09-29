@@ -180,6 +180,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/fs/browse", get(fs::browse))
         .route("/model-providers", get(model_providers::list).post(model_providers::create))
         .route("/model-providers/options", get(model_providers::options))
+        .route("/model-providers/probe", post(model_providers::probe_adhoc))
         .route("/model-providers/{id}", get(model_providers::get_by_id).put(model_providers::update).delete(model_providers::delete))
         .route("/model-providers/{id}/probe", post(model_providers::probe))
         .route("/auth/rotate", post(crate::auth::rotate_handler))

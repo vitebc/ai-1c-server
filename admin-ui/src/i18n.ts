@@ -83,6 +83,8 @@ export const t = {
     defaultBadge: 'default', noProviders: 'Провайдеры не настроены',
     deleteConfirm: 'Удалить этот провайдер?',
     probe: 'Проверить', probeHint: 'GET {base_url}/models и подставить список',
+    probing: 'Опрашиваю сервер…', fromServer: 'С сервера', customValue: 'Своё значение',
+    customModel: 'Своя модель…', noModelsYet: 'Введи адрес выше — список подтянется сам',
     probeOk: (n: number) => `Найдено моделей: ${n} — список подставлен в форму, сохраните.`,
     probeFail: (e: string) => `Проверка не удалась: ${e}`,
   },

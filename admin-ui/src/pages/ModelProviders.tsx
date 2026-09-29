@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, Radio } from 'lucide-react';
+import { Plus, Pencil, Trash2 } from 'lucide-react';
 import { api } from '../api/client';
 import type { ModelProvider } from '../types';
 import { t } from '../i18n';
@@ -56,13 +56,44 @@ function ProviderForm({ item, onClose, onSaved }: { item?: ModelProvider | null;
     name: item?.name || '',
     base_url: item?.base_url || '',
     api_key: '',
-    models: (item?.models || []).join(', '),
     enabled: item?.enabled ?? true,
     is_default: item?.is_default ?? false,
   });
+  const [selModels, setSelModels] = useState<string[]>(item?.models || []);
+  const [fetched, setFetched] = useState<string[]>(item?.models || []);
+  const [custom, setCustom] = useState('');
   const [probing, setProbing] = useState(false);
   const [probeMsg, setProbeMsg] = useState('');
   const [error, setError] = useState('');
+
+  // Live probe: fetch the model list shortly after the address/key stops changing.
+  useEffect(() => {
+    const url = form.base_url.trim();
+    if (!/^https?:\/\//.test(url)) {
+      setProbeMsg('');
+      return;
+    }
+    setProbing(true);
+    const h = setTimeout(async () => {
+      try {
+        const r = (item && !form.api_key)
+          ? await api.probeModelProvider(item.id)
+          : await api.probeModelProviderUrl({ base_url: url, api_key: form.api_key || undefined });
+        if (r.ok) {
+          setFetched(r.models);
+          setProbeMsg(t.models.probeOk(r.models.length));
+        } else {
+          setProbeMsg(t.models.probeFail(r.error || 'HTTP error'));
+        }
+      } catch (err) {
+        setProbeMsg(t.models.probeFail(errText(err, 'неизвестная ошибка')));
+      } finally {
+        setProbing(false);
+      }
+    }, 800);
+    return () => clearTimeout(h);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.base_url, form.api_key]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -71,7 +102,7 @@ function ProviderForm({ item, onClose, onSaved }: { item?: ModelProvider | null;
       name: form.name.trim(),
       base_url: form.base_url.trim(),
       ...(form.api_key ? { api_key: form.api_key } : {}),
-      models: form.models.split(',').map(s => s.trim()).filter(Boolean),
+      models: selModels,
       enabled: form.enabled,
       is_default: form.is_default,
     };
@@ -85,26 +116,20 @@ function ProviderForm({ item, onClose, onSaved }: { item?: ModelProvider | null;
     }
   }
 
-  async function handleProbe() {
-    if (!item) return;
-    setProbing(true);
-    setProbeMsg('');
-    try {
-      const r = await api.probeModelProvider(item.id);
-      if (r.ok) {
-        setProbeMsg(t.models.probeOk(r.models.length));
-        if (r.models.length) setForm(f => ({ ...f, models: r.models.join(', ') }));
-      } else {
-        setProbeMsg(t.models.probeFail(r.error || 'HTTP error'));
-      }
-    } catch (err) {
-      setProbeMsg(t.models.probeFail(errText(err, 'неизвестная ошибка')));
-    } finally {
-      setProbing(false);
-    }
+  const toggleModel = (m: string) =>
+    setSelModels(selModels.includes(m) ? selModels.filter(x => x !== m) : [...selModels, m]);
+
+  function addCustom() {
+    const v = custom.trim();
+    if (v && !selModels.includes(v)) setSelModels([...selModels, v]);
+    setCustom('');
   }
 
-  const set = (k: 'name' | 'base_url' | 'api_key' | 'models') => (v: string) => setForm(f => ({ ...f, [k]: v }));
+  // Fetched list union selected (custom values survive even if absent upstream).
+  const options = [...fetched];
+  for (const m of selModels) if (!options.includes(m)) options.push(m);
+
+  const set = (k: 'name' | 'base_url' | 'api_key') => (v: string) => setForm(f => ({ ...f, [k]: v }));
 
   return (
     <Modal title={item ? t.models.editTitle : t.models.newTitle} onClose={onClose}>
@@ -117,18 +142,28 @@ function ProviderForm({ item, onClose, onSaved }: { item?: ModelProvider | null;
           <TextInput type="password" value={form.api_key} onChange={e => set('api_key')(e.target.value)}
             placeholder={item?.api_key_set ? '••••••••' : ''} autoComplete="new-password" />
         </Field>
-        <Field label={t.models.models}>
-          <div className="flex gap-2">
-            <TextInput value={form.models} onChange={e => set('models')(e.target.value)} mono
-              placeholder="qwen3-8b, qwen3-27b" className="flex-1" />
-            {item && (
-              <Btn variant="outline" type="button" onClick={handleProbe} disabled={probing} title={t.models.probeHint}>
-                <Radio size={14} /> {probing ? '…' : t.models.probe}
-              </Btn>
-            )}
+        <Field label={`${t.models.models} (${selModels.length})`}>
+          {probing && <p className="text-[11px] text-slate-400 mb-1">{t.models.probing}</p>}
+          {options.length > 0 ? (
+            <div className="border border-slate-300 dark:border-slate-700 rounded-lg p-2 max-h-40 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1 bg-slate-50 dark:bg-slate-950">
+              {options.map(m => (
+                <label key={m} className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 px-1 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer" title={fetched.includes(m) ? t.models.fromServer : t.models.customValue}>
+                  <input type="checkbox" checked={selModels.includes(m)} onChange={() => toggleModel(m)} className="rounded accent-blue-600" />
+                  <span className="font-mono truncate">{m}</span>
+                </label>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-slate-400">{probing ? t.models.probing : t.models.noModelsYet}</p>
+          )}
+          <div className="flex gap-2 mt-2">
+            <TextInput value={custom} onChange={e => setCustom(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addCustom(); } }}
+              placeholder={t.models.customModel} mono className="flex-1" />
+            <Btn variant="outline" type="button" onClick={addCustom}>{t.common.add}</Btn>
           </div>
         </Field>
-        {probeMsg && <p className="text-xs text-slate-500">{probeMsg}</p>}
+        {probeMsg && !probing && <p className="text-xs text-slate-500">{probeMsg}</p>}
         <div className="flex gap-4">
           <label className="flex items-center gap-2 text-[13px] text-slate-700 dark:text-slate-300 cursor-pointer">
             <input type="checkbox" checked={form.enabled} onChange={e => setForm(f => ({ ...f, enabled: e.target.checked }))} className="rounded accent-blue-600" />

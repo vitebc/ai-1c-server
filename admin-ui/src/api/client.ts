@@ -115,6 +115,8 @@ export const api = {
   deleteModelProvider: (id: string) => request<void>(`/model-providers/${id}`, { method: 'DELETE' }),
   probeModelProvider: (id: string) =>
     request<{ ok: boolean; models: string[]; error?: string }>(`/model-providers/${id}/probe`, { method: 'POST' }),
+  probeModelProviderUrl: (data: { base_url: string; api_key?: string }) =>
+    request<{ ok: boolean; models: string[]; error?: string }>('/model-providers/probe', { method: 'POST', body: JSON.stringify(data) }),
   getModelProviderOptions: () =>
     request<{ providers: { name: string; default_model: string | null; models: string[]; is_default: boolean }[] }>('/model-providers/options'),
 
