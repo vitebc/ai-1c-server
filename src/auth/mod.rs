@@ -463,7 +463,9 @@ fn section_for(path: &str) -> Option<&'static str> {
     };
     Some(if rest.starts_with("mcp-servers") {
         "mcp-servers"
-    } else if rest.starts_with("agent-files/tools") || rest == "agent-files" {
+    } else if rest.starts_with("agent-files/tools")
+        || rest == "agent-files/mcp-options"
+        || rest == "agent-files" {
         "__agent_files_any"
     } else if rest.starts_with("agent-backend/live") {
         "__agent_files_any"

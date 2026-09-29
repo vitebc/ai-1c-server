@@ -557,6 +557,32 @@ pub async fn known_tools() -> Json<Vec<String>> {
     Json(KNOWN_TOOLS.iter().map(|s| s.to_string()).collect())
 }
 
+/// GET /agent-files/mcp-options — names + running flags of enabled MCP
+/// servers for the agent editor multiselect. No commands/URLs/env leak;
+/// readable by any agent file-area holder (`__agent_files_any`).
+pub async fn mcp_options(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let rows: Vec<(String, String)> = {
+        let db = state.db.lock().await;
+        let prepared = db
+            .conn
+            .prepare("SELECT id, name FROM mcp_servers WHERE enabled = 1 ORDER BY name");
+        match prepared {
+            Ok(mut stmt) => stmt
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .map(|r| r.flatten().collect())
+                .unwrap_or_default(),
+            Err(_) => Vec::new(),
+        }
+    };
+    let mut servers = Vec::new();
+    for (id, name) in rows {
+        servers.push(json!({ "name": name, "running": state.mcp.is_running(&id).await }));
+    }
+    Json(json!({ "servers": servers }))
+}
+
 fn write_file(path: &Path, content: &str) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("mkdir: {e}"))?;

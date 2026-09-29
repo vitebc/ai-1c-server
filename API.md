@@ -93,7 +93,7 @@ curl -s -X POST http://localhost:9224/api/mcp-aggregated/mcp -H "$T" \
 `GET /bsl-ls` (статус), `POST /bsl-ls/config|/restart|/stop|/install-java`, `GET /bsl-ls/logs`, `POST /bsl-ls/logs/clear`, `GET /bsl-ls/versions`, `POST /bsl-ls/download/{version}`.
 
 ### AI Agent Studio (проект 1c-ai-agent)
-- `GET /agent-files` — overview (фильтруется по подсекциям), `GET /agent-files/tools` — статический список тулзов.
+- `GET /agent-files` — overview (фильтруется по подсекциям), `GET /agent-files/tools` — статический список тулзов, `GET /agent-files/mcp-options` — `{servers: [{name, running}]}` включённых MCP для мультиселекта редактора (без команд/URL, виден любой файловой подсекции).
 - CRUD агентов/скиллов/паттернов: `POST /agent-files/agents|skills|patterns`, `PUT/DELETE /agent-files/agents/{name}` и т.д. Подсекции: `agent-agents`, `agent-skills`, `agent-patterns`.
 - Backend: `GET /agent-backend/status`, `POST /agent-backend/up|stop|restart` (`{services[], profiles[]}`), `GET /agent-backend/logs?service=&tail=`, `GET/PUT /agent-backend/env` (секция `env`), live: `GET /agent-backend/live/agents|skills[?agent=]|tools` (достаточно любой файловой подсекции).
 

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Plus, Pencil, Trash2, Play, Pause, Square, RotateCcw, RefreshCw, Server, AlertTriangle, FolderOpen } from 'lucide-react';
 import { api } from '../api/client';
 import FileBrowser from '../components/FileBrowser';
-import type { AgentItem, SkillFileItem, PatternItem, AgentOverview, AgentBackendStatus, EnvEntry, Me, McpServer, ServerStatus } from '../types';
+import type { AgentItem, SkillFileItem, PatternItem, AgentOverview, AgentBackendStatus, EnvEntry, Me, McpServer } from '../types';
 import { t } from '../i18n';
 import { PageHeader, Card, CardBody, Btn, IconBtn, Badge, TableShell, Th, Td, Row, Field, TextInput, TextArea, Select, Modal as UiModal, Alert, Segmented } from '../components/ui';
 
@@ -191,21 +191,28 @@ function TextField({ label, value, onChange, mono, placeholder }: { label: strin
 }
 
 function McpSelect({ selected, onChange }: { selected: string[]; onChange: (v: string[]) => void }) {
-  const [servers, setServers] = useState<McpServer[] | null>(null);
-  const [live, setLive] = useState<Record<string, string>>({});
+  // Names come from the lightweight options endpoint (any agent file-area
+  // section); full rows (transports) only when mcp-servers is allowed.
+  const [names, setNames] = useState<{ name: string; running: boolean }[] | null>(null);
+  const [transports, setTransports] = useState<Record<string, string>>({});
 
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const [items, st] = await Promise.all([api.getMcpServers(), api.getStatus().catch(() => [] as ServerStatus[])]);
+        const [opts, full] = await Promise.all([
+          api.getAgentMcpOptions(),
+          api.getMcpServers().catch((): McpServer[] | null => null),
+        ]);
         if (!alive) return;
-        setServers(items);
-        const map: Record<string, string> = {};
-        st.forEach(x => { map[x.id] = x.status; });
-        setLive(map);
+        setNames(opts.servers);
+        if (full) {
+          const m: Record<string, string> = {};
+          full.forEach(s => { m[s.name] = s.transport; });
+          setTransports(m);
+        }
       } catch {
-        if (alive) setServers(null);
+        if (alive) setNames(null);
       }
     })();
     return () => { alive = false; };
@@ -214,12 +221,12 @@ function McpSelect({ selected, onChange }: { selected: string[]; onChange: (v: s
   const toggle = (name: string) =>
     onChange(selected.includes(name) ? selected.filter(x => x !== name) : [...selected, name]);
 
-  if (servers === null) {
+  if (names === null) {
     return <TextField label="MCP-серверы (через запятую, пусто = default)" value={selected.join(', ')}
       onChange={v => onChange(v.split(',').map(s => s.trim()).filter(Boolean))} mono />;
   }
-  const sorted = [...servers].sort((a, b) =>
-    ((live[b.id] === 'running') ? 1 : 0) - ((live[a.id] === 'running') ? 1 : 0)
+  const sorted = [...names].sort((a, b) =>
+    ((b.running) ? 1 : 0) - ((a.running) ? 1 : 0)
     || a.name.localeCompare(b.name));
   const extra = selected.filter(s => s !== 'default' && !sorted.some(r => r.name === s));
   return (
@@ -234,10 +241,10 @@ function McpSelect({ selected, onChange }: { selected: string[]; onChange: (v: s
           <span className="font-mono">default</span>
         </label>
         {sorted.map(s => (
-          <label key={s.id} className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 px-1 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer" title={s.transport}>
+          <label key={s.name} className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 px-1 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer" title={transports[s.name] || (s.running ? 'running' : 'stopped')}>
             <input type="checkbox" checked={selected.includes(s.name)} onChange={() => toggle(s.name)} className="rounded accent-blue-600" />
             <span className="font-mono truncate">{s.name}</span>
-            {live[s.id] === 'running' && <span className="text-[10px] text-emerald-500">●</span>}
+            {s.running && <span className="text-[10px] text-emerald-500">●</span>}
           </label>
         ))}
         {extra.map(name => (
