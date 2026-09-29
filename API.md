@@ -58,7 +58,8 @@ curl -s -X POST http://localhost:9224/api/mcp-aggregated/mcp -H "$T" \
 | POST | `/auth/password` | `{old_password, new_password}` (свой пароль) |
 | GET | `/auth/token` | `{token, auth_required}` (секция `auth-manage`) |
 | POST | `/auth/rotate` | → `{token}`, старый умирает сразу (подтверждать в UI) |
-| GET/POST | `/users` | список (админы скрыты от не-админов) / создать `{username, password, role}` (роль admin — только админ) |
+| GET/POST | `/users` | список (админы скрыты от не-админов) / создать `{username, password, role}` (роль admin — только админ; роли: admin/operator/viewer/prompter) |
+| GET/PUT | `/users/roles` | матрица дефолтных разделов ролей `{roles: {operator, viewer, prompter}}`; PUT — только админ (admin всегда full, не настраивается) |
 | PUT/DELETE | `/users/{id}` | `{role?, enabled?, sections?}`; DELETE — только админ; админы для не-админов — 404/403 |
 | POST | `/users/{id}/reset-password` | → `{username, password}` (сгенерированный; админы скрыты от не-админов) |
 | POST | `/users/{id}/password` | `{password}` (задать вручную; админы скрыты от не-админов) |
