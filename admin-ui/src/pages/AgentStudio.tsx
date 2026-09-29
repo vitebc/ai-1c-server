@@ -632,37 +632,43 @@ function SkillForm({ item, tools, toolsMode, error, onClose, onSaved, onError }:
   }
 
   return (
-    <FormModal title={item ? `Редактировать скилл ${item.name}` : t.studio.newSkill} onClose={onClose} onSubmit={submit} error={error} xwide>
+    <FormModal title={item ? `Редактировать скилл ${item.name}` : t.studio.newSkill} onClose={onClose} onSubmit={submit} error={error} wide>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="space-y-3 min-w-0">
-      <TextField label="Имя (папка, ^[a-z0-9-]+$)" value={name} onChange={setName} mono />
-      <TextField label="Описание (автомэтчинг)" value={description} onChange={setDescription} />
-      <div className="rounded-lg border border-slate-200 dark:border-slate-800">
-        <button type="button" onClick={() => setHintOpen(v => !v)}
-          className="w-full flex items-center justify-between px-3 py-2 text-[13px] font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50 rounded-lg cursor-pointer">
-          Как писать промпт скилла
-          <span className="text-slate-400">{hintOpen ? '▲' : '▼'}</span>
-        </button>
-        {hintOpen && (
-          <div className="px-3 pb-3 text-xs text-slate-600 dark:text-slate-300 space-y-2">
-            <ul className="list-disc pl-4 space-y-1">
-              <li>Один скилл = один сценарий, не свалка.</li>
-              <li>Каждый шаг — конкретный тул и параметры вызова.</li>
-              <li>Блок «Уточнения» обязателен, иначе на каждое «оставь» агент делает полный репоиск.</li>
-              <li>Пример «Вопрос → Действия» — по нему видно, правильно ли агент понял.</li>
-              <li>Описание выше — глаголы пользователя («покажи», «найди»): по нему идёт автомэтчинг.</li>
-            </ul>
-            <button type="button" onClick={insertExample}
-              className="px-3 py-1.5 text-xs text-blue-600 border border-blue-300 rounded-lg hover:bg-blue-50 dark:text-blue-400 dark:border-blue-900 dark:hover:bg-blue-950 cursor-pointer">
-              Вставить пример
-            </button>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <TextField label="Имя (папка, ^[a-z0-9-]+$)" value={name} onChange={setName} mono />
+            <TextField label="Описание (автомэтчинг)" value={description} onChange={setDescription} />
           </div>
-        )}
-      </div>
-      <BodyField value={body} onChange={setBody} rows={16} />
+          <TextField label={t.skills.description} value={description} onChange={setDescription} />
+          <Field label="Промпт (markdown, после второго ---)">
+            <TextArea value={body} onChange={e => setBody(e.target.value)} rows={20} spellCheck={false} mono className="min-h-[300px]" />
+          </Field>
+          <p className="text-[11px] text-slate-400">Сохраняется в backend/skills/&lt;имя&gt;/SKILL.md. Переименование = перемещение папки. Бэкенд подхватывает без рестарта.</p>
         </div>
-        <div className="min-w-0">
-      <ToolsCheck all={tools} selected={selTools} onChange={setSelTools} mode={toolsMode} />
+        <div className="space-y-3 min-w-0">
+          <ToolsCheck all={tools} selected={selTools} onChange={setSelTools} mode={toolsMode} />
+          <div className="rounded-lg border border-slate-200 dark:border-slate-800">
+            <button type="button" onClick={() => setHintOpen(v => !v)}
+              className="w-full flex items-center justify-between px-3 py-2 text-[13px] font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50 rounded-lg cursor-pointer">
+              Как писать промпт скилла
+              <span className="text-slate-400">{hintOpen ? '▲' : '▼'}</span>
+            </button>
+            {hintOpen && (
+              <div className="px-3 pb-3 text-xs text-slate-600 dark:text-slate-300 space-y-2">
+                <ul className="list-disc pl-4 space-y-1">
+                  <li>Один скилл = один сценарий, не свалка.</li>
+                  <li>Каждый шаг — конкретный тул и параметры вызова.</li>
+                  <li>Блок «Уточнения» обязателен, иначе на каждое «оставь» агент делает полный репоиск.</li>
+                  <li>Пример «Вопрос → Действия» — по нему видно, правильно ли агент понял.</li>
+                  <li>Описание выше — глаголы пользователя («покажи», «найди»): по нему идёт автомэтчинг.</li>
+                </ul>
+                <button type="button" onClick={insertExample}
+                  className="px-3 py-1.5 text-xs text-blue-600 border border-blue-300 rounded-lg hover:bg-blue-50 dark:text-blue-400 dark:border-blue-900 dark:hover:bg-blue-950 cursor-pointer">
+                  Вставить пример
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </FormModal>
