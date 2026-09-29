@@ -143,6 +143,37 @@ async fn log_targets(State(state): State<Arc<AppState>>) -> Json<Value> {
     Json(json!({ "targets": state.logs.targets() }))
 }
 
+/// GET /api/admin/dashboard — aggregate numbers for the Dashboard page.
+/// Mapped to the `dashboard` section, so every logged-in user sees real
+/// numbers instead of zeros (counts only, no sensitive details).
+async fn dashboard(State(state): State<Arc<AppState>>) -> Json<Value> {
+    fn count(conn: &rusqlite::Connection, table: &str) -> i64 {
+        conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| {
+            r.get(0)
+        })
+        .unwrap_or(0)
+    }
+    let (servers, skills, configs, clients) = {
+        let db = state.db.lock().await;
+        (
+            count(&db.conn, "mcp_servers"),
+            count(&db.conn, "skills"),
+            count(&db.conn, "config_profiles"),
+            count(&db.conn, "clients"),
+        )
+    };
+    let mcp = status(State(state.clone())).await.0;
+    let bsl = bsl_ls::get_state(State(state.clone())).await.0;
+    Json(json!({
+        "servers": servers,
+        "skills": skills,
+        "configs": configs,
+        "clients": clients,
+        "mcp": mcp,
+        "bsl": bsl,
+    }))
+}
+
 async fn clear_logs(State(state): State<Arc<AppState>>) -> Json<Value> {
     state.logs.clear();
     Json(json!({ "ok": true }))
@@ -173,6 +204,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/client-versions/{id}", get(client_versions::get_by_id).put(client_versions::update).delete(client_versions::delete))
         .route("/clients", get(clients::list))
         .route("/status", get(status))
+        .route("/dashboard", get(dashboard))
         .route("/settings", get(settings::list).put(settings::upsert))
         .route("/logs", get(logs))
         .route("/logs/targets", get(log_targets))

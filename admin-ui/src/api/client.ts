@@ -1,4 +1,4 @@
-import type { BslLsState, Client, ClientVersion, ConfigProfile, FsBrowseResult, LogEntry, McpServer, ModelProvider, ServerStatus, Skill } from '../types';
+import type { BslLsState, Client, ClientVersion, ConfigProfile, DashboardData, FsBrowseResult, LogEntry, McpServer, ModelProvider, ServerStatus, Skill } from '../types';
 import type {
   AgentItem, SkillFileItem, PatternItem, AgentOverview,
   AgentBackendStatus, EnvEntry, LiveAgents, LiveSkills, LiveTools,
@@ -72,6 +72,7 @@ export async function authFetch(path: string, options?: RequestInit): Promise<Re
 
 export const api = {
   getStatus: () => request<ServerStatus[]>('/status'),
+  getDashboard: () => request<DashboardData>('/dashboard'),
 
   getMcpServers: () => request<McpServer[]>('/mcp-servers'),
   getMcpServer: (id: string) => request<McpServer>(`/mcp-servers/${id}`),

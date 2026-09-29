@@ -78,6 +78,15 @@ export interface ServerStatus {
   status: string;
 }
 
+export interface DashboardData {
+  servers: number;
+  skills: number;
+  configs: number;
+  clients: number;
+  mcp: ServerStatus[];
+  bsl: BslLsState;
+}
+
 export interface LogEntry {
   ts: string;
   level: string;

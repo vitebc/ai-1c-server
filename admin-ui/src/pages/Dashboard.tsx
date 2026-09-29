@@ -2,36 +2,29 @@ import { useEffect, useState } from 'react';
 import { Server, Brain, FileJson, Users, Code, KeyRound, Copy, Check, RefreshCw, ShieldCheck, ShieldOff } from 'lucide-react';
 import { api } from '../api/client';
 import { copyText } from '../clipboard';
-import type { BslLsState, Me, ServerStatus } from '../types';
+import type { BslLsState, DashboardData, ServerStatus } from '../types';
 import { t } from '../i18n';
 import { PageHeader, Card, CardBody, CardTitle, Badge, StatusDot, Btn, Alert } from '../components/ui';
 
-export default function Dashboard({ me }: { me: Me | null }) {
+export default function Dashboard() {
   const [status, setStatus] = useState<ServerStatus[]>([]);
   const [counts, setCounts] = useState({ servers: 0, skills: 0, configs: 0, clients: 0 });
   const [bsl, setBsl] = useState<BslLsState | null>(null);
 
-  const can = (s: string) => !me || me.sections.includes(s);
-
   useEffect(() => {
-    const jobs: Promise<unknown>[] = [
-      api.getStatus().then(setStatus).catch(() => {}),
-    ];
-    if (can('mcp-servers')) jobs.push(api.getMcpServers().then(s => setCounts(c => ({ ...c, servers: s.length }))).catch(() => {}));
-    if (can('skills')) jobs.push(api.getSkills().then(s => setCounts(c => ({ ...c, skills: s.length }))).catch(() => {}));
-    if (can('configs')) jobs.push(api.getConfigProfiles().then(c => setCounts(c2 => ({ ...c2, configs: c.length }))).catch(() => {}));
-    if (can('clients')) jobs.push(api.getClients().then(c => setCounts(c2 => ({ ...c2, clients: c.length }))).catch(() => {}));
-    if (can('bsl-ls')) jobs.push(api.getBslLs().then(setBsl).catch(() => {}));
-    Promise.all(jobs);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    api.getDashboard().then((d: DashboardData) => {
+      setCounts({ servers: d.servers, skills: d.skills, configs: d.configs, clients: d.clients });
+      setStatus(d.mcp);
+      setBsl(d.bsl);
+    }).catch(() => {});
   }, []);
 
   const cards = [
-    { section: 'mcp-servers', label: t.dash.mcpServers, value: counts.servers, icon: Server, chip: 'bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-300' },
-    { section: 'skills', label: t.dash.skills, value: counts.skills, icon: Brain, chip: 'bg-sky-50 text-sky-600 dark:bg-sky-950 dark:text-sky-300' },
-    { section: 'configs', label: t.dash.configs, value: counts.configs, icon: FileJson, chip: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-300' },
-    { section: 'clients', label: t.dash.clients, value: counts.clients, icon: Users, chip: 'bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-300' },
-  ].filter(c => can(c.section));
+    { label: t.dash.mcpServers, value: counts.servers, icon: Server, chip: 'bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-300' },
+    { label: t.dash.skills, value: counts.skills, icon: Brain, chip: 'bg-sky-50 text-sky-600 dark:bg-sky-950 dark:text-sky-300' },
+    { label: t.dash.configs, value: counts.configs, icon: FileJson, chip: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-300' },
+    { label: t.dash.clients, value: counts.clients, icon: Users, chip: 'bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-300' },
+  ];
 
   return (
     <div>
@@ -48,7 +41,6 @@ export default function Dashboard({ me }: { me: Me | null }) {
             </div>
           </CardBody></Card>
         ))}
-        {can('bsl-ls') && (
         <Card><CardBody className="flex items-center gap-3">
           <div className={`p-2.5 rounded-lg ${bsl?.status === 'running' ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-300' : bsl?.status === 'error' ? 'bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-300' : 'bg-slate-100 text-slate-400 dark:bg-slate-800'}`}>
             <Code size={20} />
@@ -60,7 +52,6 @@ export default function Dashboard({ me }: { me: Me | null }) {
             <p className="text-xs text-slate-500 dark:text-slate-400">BSL LS</p>
           </div>
         </CardBody></Card>
-        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
@@ -81,7 +72,6 @@ export default function Dashboard({ me }: { me: Me | null }) {
             </div>
           )}
         </CardBody></Card>
-        {can('bsl-ls') && (
         <Card><CardBody>
           <CardTitle>{t.dash.bsl}</CardTitle>
           <div className="flex items-center justify-between py-1.5">
@@ -100,7 +90,6 @@ export default function Dashboard({ me }: { me: Me | null }) {
             <div className="mt-2"><Alert tone="red"><span className="font-mono">{bsl.error}</span></Alert></div>
           )}
         </CardBody></Card>
-        )}
       </div>
 
       <ApiAccess />
