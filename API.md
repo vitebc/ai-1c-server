@@ -92,6 +92,7 @@ curl -s -X POST http://localhost:9224/api/mcp-aggregated/mcp -H "$T" \
 ### Провайдеры моделей
 CRUD: `GET/POST /model-providers`, `GET/PUT/DELETE /model-providers/{id}` — `{name, base_url (http...), api_key?, models[] | "a, b", enabled?, is_default?}`. Ключ никогда не возвращается (`api_key_set: bool`; пустой ключ в PUT = оставить). Секция `models` (operator/viewer включены).
 - `POST /model-providers/{id}/probe` → `{ok, models[], error?}` — `GET {base_url}/models` со stored-ключом.
+- `POST /model-providers/probe` `{base_url, api_key?}` — тот же опрос для несохранённой формы (живой мультивыбор моделей).
 - `GET /model-providers/options` → `{providers: [{name, default_model, models, is_default}]}` для будущего пикера модели у агента (виден любой файловой подсекции).
 
 ### BSL Language Server
