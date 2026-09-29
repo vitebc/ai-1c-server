@@ -570,6 +570,19 @@ function SkillsTab({ ov, tools, toolsMode, onChanged }: { ov: AgentOverview; too
   );
 }
 
+const SKILL_BODY_EXAMPLE = `# Название сценария
+
+Сценарий «типичный вопрос пользователя» — одной строкой, что делает скилл.
+
+1. Первый шаг: какой тул вызвать, как искать, на что обратить внимание.
+2. Второй шаг: какой тул, фильтры, сортировка, лимиты под вопрос.
+3. Уточнения («оставь», «убери», «покажи детали») — работай со строками прошлого ответа из истории, новый широкий поиск не начинай. Не хватает поля — добери одним точечным вызовом.
+
+Пример:
+- Вопрос: «покажи пять последних ...»
+- Действия: \`тул1({...})\` → \`тул2\` с фильтром ..., сортировка ..., лимит 5.
+`;
+
 function SkillForm({ item, tools, toolsMode, error, onClose, onSaved, onError }: {
   item: SkillFileItem | null; tools: { name: string; description: string }[]; toolsMode: string | null;
   error: string; onClose: () => void; onSaved: () => void; onError: (e: string) => void;
@@ -578,6 +591,12 @@ function SkillForm({ item, tools, toolsMode, error, onClose, onSaved, onError }:
   const [description, setDescription] = useState(item?.description || '');
   const [selTools, setSelTools] = useState<string[]>(item?.tools || []);
   const [body, setBody] = useState(item?.body || '');
+  const [hintOpen, setHintOpen] = useState(false);
+
+  function insertExample() {
+    if (body.trim() && !confirm('В теле уже есть текст. Заменить его примером?')) return;
+    setBody(SKILL_BODY_EXAMPLE);
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -600,6 +619,28 @@ function SkillForm({ item, tools, toolsMode, error, onClose, onSaved, onError }:
         <TextField label="Описание (автомэтчинг)" value={description} onChange={setDescription} />
       </div>
       <ToolsCheck all={tools} selected={selTools} onChange={setSelTools} mode={toolsMode} />
+      <div className="rounded-lg border border-slate-200 dark:border-slate-800">
+        <button type="button" onClick={() => setHintOpen(v => !v)}
+          className="w-full flex items-center justify-between px-3 py-2 text-[13px] font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50 rounded-lg cursor-pointer">
+          Как писать промпт скилла
+          <span className="text-slate-400">{hintOpen ? '▲' : '▼'}</span>
+        </button>
+        {hintOpen && (
+          <div className="px-3 pb-3 text-xs text-slate-600 dark:text-slate-300 space-y-2">
+            <ul className="list-disc pl-4 space-y-1">
+              <li>Один скилл = один сценарий, не свалка.</li>
+              <li>Каждый шаг — конкретный тул и параметры вызова.</li>
+              <li>Блок «Уточнения» обязателен, иначе на каждое «оставь» агент делает полный репоиск.</li>
+              <li>Пример «Вопрос → Действия» — по нему видно, правильно ли агент понял.</li>
+              <li>Описание выше — глаголы пользователя («покажи», «найди»): по нему идёт автомэтчинг.</li>
+            </ul>
+            <button type="button" onClick={insertExample}
+              className="px-3 py-1.5 text-xs text-blue-600 border border-blue-300 rounded-lg hover:bg-blue-50 dark:text-blue-400 dark:border-blue-900 dark:hover:bg-blue-950 cursor-pointer">
+              Вставить пример
+            </button>
+          </div>
+        )}
+      </div>
       <BodyField value={body} onChange={setBody} rows={12} />
     </FormModal>
   );
