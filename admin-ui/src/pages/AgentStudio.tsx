@@ -632,12 +632,11 @@ function SkillForm({ item, tools, toolsMode, error, onClose, onSaved, onError }:
   }
 
   return (
-    <FormModal title={item ? `Редактировать скилл ${item.name}` : t.studio.newSkill} onClose={onClose} onSubmit={submit} error={error} wide>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <TextField label="Имя (папка, ^[a-z0-9-]+$)" value={name} onChange={setName} mono />
-        <TextField label="Описание (автомэтчинг)" value={description} onChange={setDescription} />
-      </div>
-      <ToolsCheck all={tools} selected={selTools} onChange={setSelTools} mode={toolsMode} />
+    <FormModal title={item ? `Редактировать скилл ${item.name}` : t.studio.newSkill} onClose={onClose} onSubmit={submit} error={error} xwide>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="space-y-3 min-w-0">
+      <TextField label="Имя (папка, ^[a-z0-9-]+$)" value={name} onChange={setName} mono />
+      <TextField label="Описание (автомэтчинг)" value={description} onChange={setDescription} />
       <div className="rounded-lg border border-slate-200 dark:border-slate-800">
         <button type="button" onClick={() => setHintOpen(v => !v)}
           className="w-full flex items-center justify-between px-3 py-2 text-[13px] font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50 rounded-lg cursor-pointer">
@@ -660,7 +659,12 @@ function SkillForm({ item, tools, toolsMode, error, onClose, onSaved, onError }:
           </div>
         )}
       </div>
-      <BodyField value={body} onChange={setBody} rows={12} />
+      <BodyField value={body} onChange={setBody} rows={16} />
+        </div>
+        <div className="min-w-0">
+      <ToolsCheck all={tools} selected={selTools} onChange={setSelTools} mode={toolsMode} />
+        </div>
+      </div>
     </FormModal>
   );
 }
