@@ -182,7 +182,7 @@ export function Segmented<T extends string>({ options, value, onChange }: { opti
   return (
     <div className="flex gap-1 p-1 rounded-lg border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900">
       {options.map(o => (
-        <button key={o.key} onClick={() => onChange(o.key)}
+        <button key={o.key} type="button" onClick={() => onChange(o.key)}
           className={`px-3 py-1.5 text-[13px] rounded-md transition-colors cursor-pointer ${value === o.key ? 'bg-blue-600 text-white dark:bg-blue-500' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100'}`}>
           {o.label}
         </button>
