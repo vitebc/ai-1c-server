@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm';
 import { api, authFetch } from '../api/client';
 import type { Skill } from '../types';
 import { t } from '../i18n';
+import { errText } from '../errors';
 import { PageHeader, Card, CardBody, Btn, Field, TextInput, TextArea, Alert } from '../components/ui';
 
 export default function Skills() {
@@ -29,7 +30,7 @@ export default function Skills() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      setImportResult(`Ошибка экспорта: ${e instanceof Error ? e.message : 'неизвестная ошибка'}`);
+      setImportResult(`Ошибка экспорта: ${errText(e, 'неизвестная ошибка')}`);
     }
   }
 
@@ -51,11 +52,11 @@ export default function Skills() {
         body: JSON.stringify({ files: mdFiles }),
       });
       const data = await r.json();
-      const errs = data.errors?.length ? `\nОшибки: ${data.errors.join('; ')}` : '';
+      const errs = data.errors?.length ? `\nОшибки: ${data.errors.map((x: unknown) => errText(x)).join('; ')}` : '';
       setImportResult(`Импортировано: ${data.imported}, пропущено: ${data.skipped}${errs}`);
       load();
     } catch (e) {
-      setImportResult(`Ошибка: ${e instanceof Error ? e.message : 'неизвестная ошибка'}`);
+      setImportResult(`Ошибка: ${errText(e, 'неизвестная ошибка')}`);
     } finally {
       setImporting(false);
       if (folderRef.current) folderRef.current.value = '';

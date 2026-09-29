@@ -5,6 +5,7 @@ import { copyText } from '../clipboard';
 import FileBrowser from '../components/FileBrowser';
 import type { McpServer, ServerStatus } from '../types';
 import { t } from '../i18n';
+import { errText } from '../errors';
 import { PageHeader, Card, CardBody, Btn, IconBtn, Badge, StatusDot, TableShell, Th, Td, Row, Field, TextInput, TextArea, Select, Modal, Alert } from '../components/ui';
 
 const SERVER_TYPES = ['custom', 'local', 'remote', 'builtin'];
@@ -55,7 +56,7 @@ export default function McpServers() {
       const res = await api.reindexMcp(item.id);
       setReindexJob({ jobId: res.job_id, name: item.name });
     } catch (e) {
-      setOpMsg(e instanceof Error ? `Ошибка переиндексации: ${e.message}` : 'Ошибка переиндексации');
+      setOpMsg(errText(e, 'Ошибка переиндексации'));
     }
   }
 
@@ -67,7 +68,7 @@ export default function McpServers() {
       setCopied(format);
       setTimeout(() => setCopied(null), 1500);
     } catch (e) {
-      setCopyError(e instanceof Error ? e.message : 'Ошибка копирования');
+      setCopyError(errText(e, 'Ошибка копирования'));
     }
   }
 
@@ -202,7 +203,7 @@ function ServerForm({ item, onClose, onSaved }: { item?: McpServer | null; onClo
       onSaved();
       onClose();
     } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : 'Ошибка сохранения');
+      setSubmitError(errText(err, 'Ошибка сохранения'));
     }
   }
 
@@ -282,7 +283,7 @@ function JsonField({ label, value, onChange, placeholder, kind }: {
       if (kind === 'array' && !Array.isArray(parsed)) error = 'Должен быть JSON-массивом';
       if (kind === 'object' && (Array.isArray(parsed) || typeof parsed !== 'object' || parsed === null)) error = 'Должен быть JSON-объектом';
     } catch (e) {
-      error = e instanceof Error ? e.message : 'Некорректный JSON';
+      error = errText(e, 'Некорректный JSON');
     }
   }
 
@@ -324,7 +325,7 @@ function StatsModal({ item, onClose }: { item: McpServer; onClose: () => void })
   useEffect(() => {
     api.getMcpStats(item.id)
       .then(r => setText(r.text || '(пусто — индекс, возможно, ещё строится)'))
-      .catch(e => setError(e instanceof Error ? e.message : 'Не удалось загрузить статистику'));
+      .catch(e => setError(errText(e, 'Не удалось загрузить статистику')));
   }, [item.id]);
 
   return (
@@ -349,7 +350,7 @@ function ToolsModal({ item, onClose }: { item: McpServer; onClose: () => void })
   useEffect(() => {
     api.getMcpTools(item.id)
       .then(r => setTools(r.tools || []))
-      .catch(e => setError(e instanceof Error ? e.message : 'Не удалось загрузить инструменты'));
+      .catch(e => setError(errText(e, 'Не удалось загрузить инструменты')));
   }, [item.id]);
 
   const shown = (tools || []).filter(tl =>
@@ -398,7 +399,7 @@ function ReindexProgress({ jobId, name, onClose }: { jobId: string; name: string
         const j = await api.getReindexJob(jobId);
         if (alive) setJob(j);
       } catch (e) {
-        if (alive) setFetchError(e instanceof Error ? e.message : 'Ошибка опроса');
+        if (alive) setFetchError(errText(e, 'Ошибка опроса'));
       }
     };
     poll();

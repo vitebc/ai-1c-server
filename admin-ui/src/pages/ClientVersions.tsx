@@ -3,6 +3,7 @@ import { Plus, Pencil, Trash2 } from 'lucide-react';
 import { api } from '../api/client';
 import type { ClientVersion } from '../types';
 import { t } from '../i18n';
+import { errText } from '../errors';
 import { PageHeader, TableShell, Th, Td, Row, Badge, IconBtn, Btn, Modal, Field, TextInput, TextArea, Alert } from '../components/ui';
 
 export default function ClientVersions() {
@@ -67,7 +68,7 @@ function VersionForm({ item, onClose, onSaved }: { item?: ClientVersion | null; 
       onSaved();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ошибка сохранения');
+      setError(errText(err, 'Ошибка сохранения'));
     }
   }
 

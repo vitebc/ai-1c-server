@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import FileBrowser from '../components/FileBrowser';
 import type { AgentItem, SkillFileItem, PatternItem, AgentOverview, AgentBackendStatus, EnvEntry, Me, McpServer } from '../types';
 import { t } from '../i18n';
+import { errText } from '../errors';
 import { PageHeader, Card, CardBody, Btn, IconBtn, Badge, TableShell, Th, Td, Row, Field, TextInput, TextArea, Select, Modal as UiModal, Alert, Segmented } from '../components/ui';
 
 type Tab = 'agents' | 'skills' | 'patterns' | 'backend' | 'env';
@@ -38,7 +39,7 @@ export default function AgentStudio({ me }: { me: Me | null }) {
         setToolsMode(null);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Ошибка загрузки');
+      setError(errText(e, 'Ошибка загрузки'));
     }
   }, []);
 
@@ -51,7 +52,7 @@ export default function AgentStudio({ me }: { me: Me | null }) {
       await api.putSetting('agent_project_root', path);
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Не удалось сменить корень');
+      setError(errText(e, 'Не удалось сменить корень'));
     }
   }
   const allTabs: { key: Tab; label: string }[] = [
@@ -367,7 +368,7 @@ function AgentForm({ item, tools, toolsMode, skillNames, error, onClose, onSaved
       onSaved();
       onClose();
     } catch (err) {
-      onError(err instanceof Error ? err.message : 'Ошибка сохранения');
+      onError(errText(err, 'Ошибка сохранения'));
     }
   }
 
@@ -475,7 +476,7 @@ function SkillForm({ item, tools, toolsMode, error, onClose, onSaved, onError }:
       onSaved();
       onClose();
     } catch (err) {
-      onError(err instanceof Error ? err.message : 'Ошибка сохранения');
+      onError(errText(err, 'Ошибка сохранения'));
     }
   }
 
@@ -554,7 +555,7 @@ function PatternForm({ item, error, onClose, onSaved, onError }: {
       onSaved();
       onClose();
     } catch (err) {
-      onError(err instanceof Error ? err.message : 'Ошибка сохранения');
+      onError(errText(err, 'Ошибка сохранения'));
     }
   }
 
@@ -610,7 +611,7 @@ function BackendTab() {
       setOutput(r.output);
       await load();
     } catch (e) {
-      setOutput(e instanceof Error ? e.message : 'Ошибка');
+      setOutput(errText(e, 'Ошибка'));
     } finally {
       setBusy(false);
     }
@@ -621,7 +622,7 @@ function BackendTab() {
       const r = await api.getAgentBackendLogs(logService || undefined, logTail, logTs, logGrep || undefined);
       setLog(r.log);
     } catch (e) {
-      setLog(e instanceof Error ? e.message : 'Ошибка');
+      setLog(errText(e, 'Ошибка'));
     }
   }, [logService, logTail, logTs, logGrep]);
 
@@ -742,7 +743,7 @@ function EnvTab() {
     try {
       setEntries(await api.getAgentEnv());
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : 'Ошибка загрузки');
+      setMsg(errText(e, 'Ошибка загрузки'));
     }
   }, []);
 
@@ -759,7 +760,7 @@ function EnvTab() {
       setRevealed(prev => ({ ...prev, [key]: false }));
       await load();
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : 'Ошибка сохранения');
+      setMsg(errText(e, 'Ошибка сохранения'));
     }
   }
 

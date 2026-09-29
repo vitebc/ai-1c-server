@@ -1,4 +1,4 @@
-import { Inbox } from 'lucide-react';
+import { Inbox, CircleAlert, CircleCheck, Info, TriangleAlert } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 // Единые примитивы плотной dev-консоли: светлая/тёмная через dark: вариант Tailwind.
@@ -160,12 +160,18 @@ export function Modal({ title, onClose, children, wide }: { title: string; onClo
 
 export function Alert({ tone, children }: { tone: 'red' | 'green' | 'blue' | 'amber'; children: ReactNode }) {
   const map = {
-    red: 'bg-red-50 border-red-200 text-red-700 dark:bg-red-950 dark:border-red-900 dark:text-red-300',
-    green: 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-950 dark:border-emerald-900 dark:text-emerald-300',
-    blue: 'bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-950 dark:border-blue-900 dark:text-blue-300',
-    amber: 'bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-950 dark:border-amber-900 dark:text-amber-300',
+    red: 'bg-red-50 border-red-200 text-red-700 dark:bg-red-950/60 dark:border-red-900 dark:text-red-300',
+    green: 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-950/60 dark:border-emerald-900 dark:text-emerald-300',
+    blue: 'bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-950/60 dark:border-blue-900 dark:text-blue-300',
+    amber: 'bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-950/60 dark:border-amber-900 dark:text-amber-300',
   };
-  return <div className={`text-xs border rounded-lg px-3 py-2 ${map[tone]}`}>{children}</div>;
+  const Icon = tone === 'red' ? CircleAlert : tone === 'green' ? CircleCheck : tone === 'amber' ? TriangleAlert : Info;
+  return (
+    <div className={`flex items-start gap-2 text-[13px] leading-snug border rounded-xl px-3 py-2.5 ${map[tone]}`}>
+      <Icon size={15} className="shrink-0 mt-px opacity-80" />
+      <div className="min-w-0 break-words">{children}</div>
+    </div>
+  );
 }
 
 export function Skeleton({ className = '' }: { className?: string }) {

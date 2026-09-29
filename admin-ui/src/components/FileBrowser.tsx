@@ -3,6 +3,7 @@ import { Folder, File, ChevronUp, Eye, EyeOff } from 'lucide-react';
 import { api } from '../api/client';
 import type { FsBrowseResult } from '../types';
 import { t } from '../i18n';
+import { errText } from '../errors';
 import { Btn, IconBtn, Alert } from '../components/ui';
 
 export default function FileBrowser({ initialPath, onPick, onClose, dirsOnly, title }: {
@@ -21,7 +22,7 @@ export default function FileBrowser({ initialPath, onPick, onClose, dirsOnly, ti
   function load(path?: string, hidden = showHidden) {
     setError('');
     setSelected(null);
-    api.browseFs(path, hidden).then(setData).catch(e => setError(e instanceof Error ? e.message : 'Не удалось получить список'));
+    api.browseFs(path, hidden).then(setData).catch(e => setError(errText(e, 'Не удалось получить список')));
   }
 
   useEffect(() => { load(initialPath, true); }, [initialPath]);

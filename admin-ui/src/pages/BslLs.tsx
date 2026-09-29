@@ -3,6 +3,7 @@ import { Play, Square, RefreshCw, Terminal, AlertCircle, Download, CheckCircle, 
 import { api, authFetch } from '../api/client';
 import type { BslLsState } from '../types';
 import { t } from '../i18n';
+import { errText } from '../errors';
 import { PageHeader, Card, CardBody, CardTitle, Btn, Field, TextInput, Alert, Badge } from '../components/ui';
 
 interface VersionInfo {
@@ -16,9 +17,9 @@ export default function BslLs() {
   const [ver, setVer] = useState<VersionInfo | null>(null);
   const [loadingVer, setLoadingVer] = useState(false);
   const [downloading, setDownloading] = useState(false);
-  const [dlResult, setDlResult] = useState<string | null>(null);
+  const [dlResult, setDlResult] = useState<{ ok: boolean; text: string } | null>(null);
   const [installingJava, setInstallingJava] = useState(false);
-  const [javaInstallResult, setJavaInstallResult] = useState<string | null>(null);
+  const [javaInstallResult, setJavaInstallResult] = useState<{ ok: boolean; text: string } | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const logsRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -71,8 +72,8 @@ export default function BslLs() {
       const r = await authFetch('/bsl-ls/versions');
       const data = await r.json();
       setVer(data);
-    } catch (e: any) {
-      setDlResult(`Error: ${e.message}`);
+    } catch (e) {
+      setDlResult({ ok: false, text: errText(e, 'Не удалось проверить версии') });
     } finally {
       setLoadingVer(false);
     }
@@ -85,13 +86,13 @@ export default function BslLs() {
       const r = await authFetch('/bsl-ls/download/latest', { method: 'POST' });
       const data = await r.json();
       if (data.error) {
-        setDlResult(`Error: ${data.error}`);
+        setDlResult({ ok: false, text: errText(data.error, 'Не удалось скачать') });
       } else {
-        setDlResult(`Downloaded v${data.version} → ${data.path}`);
+        setDlResult({ ok: true, text: `Скачано v${data.version} → ${data.path}` });
         load();
       }
-    } catch (e: any) {
-      setDlResult(`Error: ${e.message}`);
+    } catch (e) {
+      setDlResult({ ok: false, text: errText(e, 'Не удалось скачать') });
     } finally {
       setDownloading(false);
     }
@@ -129,14 +130,14 @@ export default function BslLs() {
       const r = await authFetch('/bsl-ls/install-java', { method: 'POST' });
       const data = await r.json();
       if (data.ok) {
-        setJavaInstallResult(`Java ${data.version} installed → ${data.java_path}`);
+        setJavaInstallResult({ ok: true, text: `Java ${data.version} установлена → ${data.java_path}` });
         load();
         checkVersions();
       } else {
-        setJavaInstallResult(`Error: ${data.error}`);
+        setJavaInstallResult({ ok: false, text: errText(data.error, 'Не удалось установить Java') });
       }
-    } catch (e: any) {
-      setJavaInstallResult(`Error: ${e.message}`);
+    } catch (e) {
+      setJavaInstallResult({ ok: false, text: errText(e, 'Не удалось установить Java') });
     } finally {
       setInstallingJava(false);
     }
@@ -194,12 +195,7 @@ export default function BslLs() {
 
       {dlResult && (
         <div className="mb-4">
-          <Alert tone={dlResult.startsWith('Error') ? 'red' : 'green'}>
-            <span className="flex items-start gap-2">
-              {dlResult.startsWith('Error') ? <XCircle size={16} className="shrink-0 mt-px" /> : <CheckCircle size={16} className="shrink-0 mt-px" />}
-              <span>{dlResult}</span>
-            </span>
-          </Alert>
+          <Alert tone={dlResult.ok ? 'green' : 'red'}>{dlResult.text}</Alert>
         </div>
       )}
 
@@ -311,9 +307,9 @@ export default function BslLs() {
               </Btn>
             </div>
             {javaInstallResult && (
-              <p className={`mt-2 text-xs ${javaInstallResult.startsWith('Error') ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                {javaInstallResult.startsWith('Error') ? <XCircle size={12} className="inline mr-1" /> : <CheckCircle size={12} className="inline mr-1" />}
-                {javaInstallResult}
+              <p className={`mt-2 text-xs flex items-start gap-1.5 ${javaInstallResult.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                {javaInstallResult.ok ? <CheckCircle size={13} className="shrink-0 mt-px" /> : <XCircle size={13} className="shrink-0 mt-px" />}
+                <span>{javaInstallResult.text}</span>
               </p>
             )}
           </div>

@@ -33,10 +33,25 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   }
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(text || `API error: ${res.status}`);
+    throw new Error(extractError(text) || `API error: ${res.status}`);
   }
   const text = await res.text();
   return (text ? JSON.parse(text) : undefined) as T;
+}
+
+/** Вытаскивает читаемый текст из тела ошибки {"error": "..."}.
+ *  Возвращает null, если распарсить не удалось — тогда caller подставит fallback. */
+export function extractError(text: string): string | null {
+  const t = text.trim();
+  if (!t) return null;
+  if (t.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(t);
+      if (typeof parsed?.error === 'string' && parsed.error.trim()) return parsed.error.trim();
+      if (typeof parsed?.message === 'string' && parsed.message.trim()) return parsed.message.trim();
+    } catch { /* не JSON */ }
+  }
+  return t.length <= 300 ? t : null;
 }
 
 /** Raw fetch with the stored Bearer token attached (for blobs/uploads).

@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import FileBrowser from '../components/FileBrowser';
 import type { ConfigProfile } from '../types';
 import { t } from '../i18n';
+import { errText } from '../errors';
 import {
   PageHeader, Card, CardBody, CardTitle, Btn, IconBtn, Badge,
   TableShell, Th, Td, Row, Field, TextInput, Select, Modal, Alert,
@@ -89,7 +90,7 @@ function ConfigForm({ item, mains, onClose, onSaved }: { item?: ConfigProfile | 
       onSaved();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ошибка сохранения');
+      setError(errText(err, 'Ошибка сохранения'));
     }
   }
 

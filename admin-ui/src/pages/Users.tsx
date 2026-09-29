@@ -3,6 +3,7 @@ import { Plus, Pencil, Trash2, KeyRound, Check } from 'lucide-react';
 import { api } from '../api/client';
 import type { UserDto } from '../types';
 import { t } from '../i18n';
+import { errText } from '../errors';
 import { PageHeader, TableShell, Th, Td, Row, Badge, IconBtn, Btn, Modal, Field, TextInput, Select, Alert } from '../components/ui';
 
 const ROLES = ['admin', 'operator', 'viewer'];
@@ -61,7 +62,7 @@ export default function Users() {
     try {
       setItems(await api.getUsers());
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Load failed');
+      setError(errText(e, 'Ошибка загрузки'));
     }
   }, []);
 
@@ -74,7 +75,7 @@ export default function Users() {
       await api.deleteUser(u.id);
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Delete failed');
+      setError(errText(e, 'Ошибка удаления'));
     }
   }
 
@@ -84,7 +85,7 @@ export default function Users() {
       const r = await api.resetUserPassword(u.id);
       setNewPw(r);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Reset failed');
+      setError(errText(e, 'Ошибка сброса пароля'));
     }
   }
 
@@ -95,7 +96,7 @@ export default function Users() {
       await api.updateUser(u.id, { enabled: !u.enabled });
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Update failed');
+      setError(errText(e, 'Ошибка сохранения'));
     }
   }
 
@@ -105,7 +106,7 @@ export default function Users() {
       await api.updateUser(u.id, { role });
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Update failed');
+      setError(errText(e, 'Ошибка сохранения'));
     }
   }
 
@@ -187,7 +188,7 @@ function NewUserForm({ onClose, onSaved, onError }: { onClose: () => void; onSav
       onSaved();
       onClose();
     } catch (err) {
-      onError(err instanceof Error ? err.message : 'Create failed');
+      onError(errText(err, 'Ошибка создания'));
     }
   }
 
@@ -228,7 +229,7 @@ function SetPasswordForm({ user, onClose, onSaved, onError }: {
       setDone(true);
       setTimeout(() => { onSaved(); onClose(); }, 800);
     } catch (err) {
-      onError(err instanceof Error ? err.message : 'Save failed');
+      onError(errText(err, 'Ошибка сохранения'));
       onClose();
     }
   }
@@ -272,7 +273,7 @@ function SectionsEditor({ user, onClose, onSaved, onError }: { user: UserDto; on
       setSaved(true);
       setTimeout(() => { onSaved(); onClose(); }, 800);
     } catch (err) {
-      onError(err instanceof Error ? err.message : 'Save failed');
+      onError(errText(err, 'Ошибка сохранения'));
     }
   }
 

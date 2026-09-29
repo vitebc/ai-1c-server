@@ -6,6 +6,7 @@ import {
 import { getToken, setToken, api } from './api/client';
 import type { Me } from './types';
 import { t } from './i18n';
+import { errText } from './errors';
 import { ThemeProvider, useTheme } from './theme';
 import Dashboard from './pages/Dashboard';
 const McpServers = lazy(() => import('./pages/McpServers'));
@@ -197,7 +198,7 @@ function PasswordModal({ onClose }: { onClose: () => void }) {
       setDone(true);
       setTimeout(onClose, 1200);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ошибка');
+      setError(errText(err, 'Ошибка'));
     }
   }
 
@@ -232,7 +233,7 @@ function Login({ onDone }: { onDone: () => void }) {
       setToken(r.token);
       onDone();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ошибка входа');
+      setError(errText(err, 'Ошибка входа'));
     }
   }
 
