@@ -10,7 +10,10 @@ const ROLES = ['admin', 'operator', 'viewer'];
 
 const SECTION_GROUPS: { title: string; items: { key: string; label: string }[] }[] = [
   { title: 'Общее', items: [{ key: 'dashboard', label: 'dashboard — main page' }] },
-  { title: 'MCP', items: [{ key: 'mcp-servers', label: 'mcp-servers — MCP servers' }] },
+  { title: 'MCP', items: [
+      { key: 'mcp-servers', label: 'mcp-servers — MCP servers' },
+      { key: 'models', label: 'models — провайдеры моделей' },
+    ] },
   {
     title: 'AI Agent Studio', items: [
       { key: 'agent-studio', label: 'agent-studio — legacy umbrella (all tabs)' },
@@ -45,8 +48,8 @@ const ALL_SECTIONS = SECTION_GROUPS.flatMap(g => g.items.map(i => i.key));
 
 const ROLE_BASE: Record<string, string[]> = {
   admin: ALL_SECTIONS,
-  operator: ['dashboard', 'mcp-servers', 'agent-studio', 'agent-agents', 'agent-skills', 'agent-patterns', 'agent-backend', 'skills', 'bsl-ls', 'configs', 'client-versions', 'clients', 'logs', 'settings', 'fs', 'env'],
-  viewer: ['dashboard', 'mcp-servers', 'agent-agents', 'agent-skills', 'agent-patterns', 'skills', 'bsl-ls', 'configs', 'client-versions', 'clients', 'logs'],
+  operator: ['dashboard', 'mcp-servers', 'models', 'agent-studio', 'agent-agents', 'agent-skills', 'agent-patterns', 'agent-backend', 'skills', 'bsl-ls', 'configs', 'client-versions', 'clients', 'logs', 'settings', 'fs', 'env'],
+  viewer: ['dashboard', 'mcp-servers', 'models', 'agent-agents', 'agent-skills', 'agent-patterns', 'skills', 'bsl-ls', 'configs', 'client-versions', 'clients', 'logs'],
 };
 
 export default function Users() {

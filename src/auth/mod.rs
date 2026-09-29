@@ -141,6 +141,7 @@ pub const ROLE_VIEWER: &str = "viewer";
 pub const SECTIONS: &[&str] = &[
     "dashboard",
     "mcp-servers",
+    "models",
     "agent-studio",
     "agent-agents",
     "agent-skills",
@@ -174,6 +175,7 @@ fn base_sections(role: &str) -> Vec<String> {
         ROLE_OPERATOR => [
             "dashboard",
             "mcp-servers",
+            "models",
             "agent-studio",
             "agent-agents",
             "agent-skills",
@@ -195,6 +197,7 @@ fn base_sections(role: &str) -> Vec<String> {
         _ => [
             "dashboard",
             "mcp-servers",
+            "models",
             "agent-agents",
             "agent-skills",
             "agent-patterns",
@@ -463,6 +466,10 @@ fn section_for(path: &str) -> Option<&'static str> {
     };
     Some(if rest.starts_with("mcp-servers") {
         "mcp-servers"
+    } else if rest == "model-providers/options" {
+        "__agent_files_any"
+    } else if rest.starts_with("model-providers") {
+        "models"
     } else if rest.starts_with("agent-files/tools")
         || rest == "agent-files/mcp-options"
         || rest == "agent-files" {

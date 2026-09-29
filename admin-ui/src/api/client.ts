@@ -1,4 +1,4 @@
-import type { BslLsState, Client, ClientVersion, ConfigProfile, FsBrowseResult, LogEntry, McpServer, ServerStatus, Skill } from '../types';
+import type { BslLsState, Client, ClientVersion, ConfigProfile, FsBrowseResult, LogEntry, McpServer, ModelProvider, ServerStatus, Skill } from '../types';
 import type {
   AgentItem, SkillFileItem, PatternItem, AgentOverview,
   AgentBackendStatus, EnvEntry, LiveAgents, LiveSkills, LiveTools,
@@ -105,6 +105,18 @@ export const api = {
   updateSkill: (id: string, data: Partial<Skill>) =>
     request<Skill>(`/skills/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteSkill: (id: string) => request<void>(`/skills/${id}`, { method: 'DELETE' }),
+
+  getModelProviders: () => request<ModelProvider[]>('/model-providers'),
+  getModelProvider: (id: string) => request<ModelProvider>(`/model-providers/${id}`),
+  createModelProvider: (data: { name: string; base_url: string; api_key?: string; models?: string[]; enabled?: boolean; is_default?: boolean }) =>
+    request<ModelProvider>('/model-providers', { method: 'POST', body: JSON.stringify(data) }),
+  updateModelProvider: (id: string, data: { name?: string; base_url?: string; api_key?: string; models?: string[]; enabled?: boolean; is_default?: boolean }) =>
+    request<ModelProvider>(`/model-providers/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteModelProvider: (id: string) => request<void>(`/model-providers/${id}`, { method: 'DELETE' }),
+  probeModelProvider: (id: string) =>
+    request<{ ok: boolean; models: string[]; error?: string }>(`/model-providers/${id}/probe`, { method: 'POST' }),
+  getModelProviderOptions: () =>
+    request<{ providers: { name: string; default_model: string | null; models: string[]; is_default: boolean }[] }>('/model-providers/options'),
 
   getConfigProfiles: () => request<ConfigProfile[]>('/config-profiles'),
   getConfigProfile: (id: string) => request<ConfigProfile>(`/config-profiles/${id}`),

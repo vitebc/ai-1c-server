@@ -19,6 +19,7 @@ mod clients;
 mod configs;
 mod fs;
 mod mcp_servers;
+mod model_providers;
 pub(crate) mod search_sync;
 mod settings;
 pub mod skills;
@@ -177,6 +178,10 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/logs/targets", get(log_targets))
         .route("/logs/clear", post(clear_logs))
         .route("/fs/browse", get(fs::browse))
+        .route("/model-providers", get(model_providers::list).post(model_providers::create))
+        .route("/model-providers/options", get(model_providers::options))
+        .route("/model-providers/{id}", get(model_providers::get_by_id).put(model_providers::update).delete(model_providers::delete))
+        .route("/model-providers/{id}/probe", post(model_providers::probe))
         .route("/auth/rotate", post(crate::auth::rotate_handler))
         .route("/auth/token", get(crate::auth::token_handler))
         .route("/auth/login", post(crate::auth::login_handler))

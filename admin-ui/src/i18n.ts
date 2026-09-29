@@ -2,7 +2,7 @@
 export const t = {
   app: { title: 'AI 1C', subtitle: 'Enterprise Server', admin: 'AI 1C — Панель' },
   nav: {
-    dashboard: 'Дашборд', mcp: 'MCP-серверы', studio: 'AI Agent Studio',
+    dashboard: 'Дашборд', mcp: 'MCP-серверы', models: 'Модели', studio: 'AI Agent Studio',
     skills: 'Скиллы', bsl: 'BSL LS', configs: 'Конфигурации',
     versions: 'Версии клиента', clients: 'Клиенты', logs: 'Логи', users: 'Пользователи',
   },
@@ -75,6 +75,17 @@ export const t = {
     created: 'Создана', noVersions: 'Версий нет', deleteConfirm: 'Удалить?',
   },
   clients: { title: 'Клиенты', id: 'ID', name: 'Имя', version: 'Версия', lastSeen: 'Последняя активность', noClients: 'Клиенты не зарегистрированы' },
+  models: {
+    title: 'Провайдеры моделей', add: 'Добавить провайдера', editTitle: 'Редактировать провайдера',
+    newTitle: 'Новый провайдер', name: 'Имя', baseUrl: 'Base URL (OpenAI-совместимый)',
+    apiKey: 'API-ключ', apiKeyKeep: 'API-ключ (пусто = оставить текущий)',
+    models: 'Модели (через запятую)', enabled: 'Включён', isDefault: 'По умолчанию',
+    defaultBadge: 'default', noProviders: 'Провайдеры не настроены',
+    deleteConfirm: 'Удалить этот провайдер?',
+    probe: 'Проверить', probeHint: 'GET {base_url}/models и подставить список',
+    probeOk: (n: number) => `Найдено моделей: ${n} — список подставлен в форму, сохраните.`,
+    probeFail: (e: string) => `Проверка не удалась: ${e}`,
+  },
   logs: {
     title: 'Логи', server: 'Сервер', live: 'Вживую', paused: 'Пауза', clear: 'Очистить',
     clearConfirm: 'Очистить логи?', allLevels: 'Все уровни', allModules: 'Все модули',

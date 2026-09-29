@@ -1,7 +1,7 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
 import { Route, Routes, NavLink } from 'react-router-dom';
 import {
-  LayoutDashboard, Server, Brain, FileJson, Package, Users as UsersIcon, ScrollText, Code, KeyRound, LogOut, Bot, UserCog, Sun, Moon,
+  LayoutDashboard, Server, Brain, FileJson, Package, Users as UsersIcon, ScrollText, Code, KeyRound, LogOut, Bot, UserCog, Sun, Moon, Cpu,
 } from 'lucide-react';
 import { getToken, setToken, api } from './api/client';
 import type { Me } from './types';
@@ -10,6 +10,7 @@ import { errText } from './errors';
 import { ThemeProvider, useTheme } from './theme';
 import Dashboard from './pages/Dashboard';
 const McpServers = lazy(() => import('./pages/McpServers'));
+const ModelProviders = lazy(() => import('./pages/ModelProviders'));
 const Skills = lazy(() => import('./pages/Skills'));
 const Configs = lazy(() => import('./pages/Configs'));
 const ClientVersions = lazy(() => import('./pages/ClientVersions'));
@@ -32,6 +33,7 @@ function canSee(me: Me | null, section: string): boolean {
 const nav = [
   { to: '/', label: t.nav.dashboard, icon: LayoutDashboard, section: 'dashboard' },
   { to: '/mcp-servers', label: t.nav.mcp, icon: Server, section: 'mcp-servers' },
+  { to: '/models', label: t.nav.models, icon: Cpu, section: 'models' },
   { to: '/agent-studio', label: t.nav.studio, icon: Bot, section: 'agent-studio' },
   { to: '/skills', label: t.nav.skills, icon: Brain, section: 'skills' },
   { to: '/bsl-ls', label: t.nav.bsl, icon: Code, section: 'bsl-ls' },
@@ -146,6 +148,7 @@ function Shell() {
           <Routes>
             <Route path="/" element={<Guard me={me} section="dashboard"><Dashboard /></Guard>} />
             <Route path="/mcp-servers" element={<Guard me={me} section="mcp-servers"><McpServers /></Guard>} />
+            <Route path="/models" element={<Guard me={me} section="models"><ModelProviders /></Guard>} />
             <Route path="/skills" element={<Guard me={me} section="skills"><Skills /></Guard>} />
             <Route path="/configs" element={<Guard me={me} section="configs"><Configs /></Guard>} />
             <Route path="/client-versions" element={<Guard me={me} section="client-versions"><ClientVersions /></Guard>} />

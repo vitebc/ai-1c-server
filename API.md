@@ -89,6 +89,11 @@ curl -s -X POST http://localhost:9224/api/mcp-aggregated/mcp -H "$T" \
 | CRUD | `/client-versions`, `/client-versions/{id}`; GET `/clients` | версии и подключённые клиенты |
 | POST | `/reindex` | заглушка |
 
+### Провайдеры моделей
+CRUD: `GET/POST /model-providers`, `GET/PUT/DELETE /model-providers/{id}` — `{name, base_url (http...), api_key?, models[] | "a, b", enabled?, is_default?}`. Ключ никогда не возвращается (`api_key_set: bool`; пустой ключ в PUT = оставить). Секция `models` (operator/viewer включены).
+- `POST /model-providers/{id}/probe` → `{ok, models[], error?}` — `GET {base_url}/models` со stored-ключом.
+- `GET /model-providers/options` → `{providers: [{name, default_model, models, is_default}]}` для будущего пикера модели у агента (виден любой файловой подсекции).
+
 ### BSL Language Server
 `GET /bsl-ls` (статус), `POST /bsl-ls/config|/restart|/stop|/install-java`, `GET /bsl-ls/logs`, `POST /bsl-ls/logs/clear`, `GET /bsl-ls/versions`, `POST /bsl-ls/download/{version}`.
 

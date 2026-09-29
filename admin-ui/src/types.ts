@@ -14,6 +14,18 @@ export interface McpServer {
   updated_at: string;
 }
 
+export interface ModelProvider {
+  id: string;
+  name: string;
+  base_url: string;
+  api_key_set: boolean;
+  models: string[];
+  enabled: boolean;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Skill {
   id: string;
   name: string;
