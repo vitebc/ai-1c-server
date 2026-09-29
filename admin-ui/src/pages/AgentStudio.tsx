@@ -296,15 +296,15 @@ function McpSelect({ selected, onChange }: { selected: string[]; onChange: (v: s
   );
 }
 
-function FormModal({ title, onClose, onSubmit, error, children, wide, xwide }: {
-  title: string; onClose: () => void; onSubmit: (e: React.FormEvent) => void; error: string; children: React.ReactNode; wide?: boolean; xwide?: boolean;
+function FormModal({ title, onClose, onSubmit, error, children, wide, xwide, fill }: {
+  title: string; onClose: () => void; onSubmit: (e: React.FormEvent) => void; error: string; children: React.ReactNode; wide?: boolean; xwide?: boolean; fill?: boolean;
 }) {
   return (
-    <UiModal title={title} onClose={onClose} wide={wide} xwide={xwide}>
-      <form onSubmit={onSubmit} className="space-y-3">
+    <UiModal title={title} onClose={onClose} wide={wide} xwide={xwide} fill={fill}>
+      <form onSubmit={onSubmit} className={`space-y-3 ${fill ? 'flex-1 min-h-0 flex flex-col' : ''}`}>
         {children}
         {error && <Alert tone="red">{error}</Alert>}
-        <div className="flex justify-end gap-2 pt-1">
+        <div className={`flex justify-end gap-2 pt-1 ${fill ? 'shrink-0' : ''}`}>
           <Btn variant="ghost" type="button" onClick={onClose}>{t.common.cancel}</Btn>
           <Btn variant="primary" type="submit">{t.common.save}</Btn>
         </div>
@@ -634,9 +634,9 @@ function SkillForm({ item, tools, toolsMode, error, onClose, onSaved, onError }:
   }
 
   return (
-    <FormModal title={item ? `Редактировать скилл ${item.name}` : t.studio.newSkill} onClose={onClose} onSubmit={submit} error={error} xwide>
-      <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4 lg:min-h-[68vh]">
-        <div className="space-y-3 min-w-0 flex flex-col">
+    <FormModal title={item ? `Редактировать скилл ${item.name}` : t.studio.newSkill} onClose={onClose} onSubmit={submit} error={error} xwide fill>
+      <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4 flex-1 min-h-0 overflow-y-auto lg:overflow-hidden">
+        <div className="space-y-3 min-w-0 flex flex-col min-h-0">
           <TextField label="Имя (папка, ^[a-z0-9-]+$)" value={name} onChange={setName} mono />
           <TextField label="Описание (автомэтчинг)" value={description} onChange={setDescription} />
           <div className="rounded-lg border border-slate-200 dark:border-slate-800">
@@ -668,7 +668,7 @@ function SkillForm({ item, tools, toolsMode, error, onClose, onSaved, onError }:
           </div>
           <p className="text-[11px] text-slate-400">Сохраняется в backend/skills/&lt;имя&gt;/SKILL.md. Переименование = перемещение папки. Бэкенд подхватывает без рестарта.</p>
         </div>
-        <div className="min-w-0 flex flex-col">
+        <div className="min-w-0 flex flex-col min-h-0">
           <ToolsCheck all={tools} selected={selTools} onChange={setSelTools} mode={toolsMode} cols={1} fill />
         </div>
       </div>
