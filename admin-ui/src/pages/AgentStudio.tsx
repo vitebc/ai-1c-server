@@ -414,6 +414,7 @@ function AgentForm({ item, tools, toolsMode, skills, error, onClose, onSaved, on
         { key: 'tools', label: `${t.studio.tabTools} (${selTools.length})` },
         { key: 'skills', label: `${t.studio.tabSkills} (${allSkills ? '*' : selSkills.length})` },
       ]} />
+      <div className="min-h-[480px]">
       {ftab === 'main' && (
       <div className="space-y-3 mt-3">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -484,6 +485,7 @@ function AgentForm({ item, tools, toolsMode, skills, error, onClose, onSaved, on
             <option key={m} value={m} />
           ))}
         </datalist>
+      </div>
       </div>
       </div>
       )}
