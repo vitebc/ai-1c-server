@@ -529,6 +529,17 @@ function SkillsTab({ ov, tools, toolsMode, onChanged }: { ov: AgentOverview; too
   const [edit, setEdit] = useState<SkillFileItem | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [formError, setFormError] = useState('');
+  // Live names from the backend (refreshed with every overview reload,
+  // i.e. right after save/delete).
+  const [liveNames, setLiveNames] = useState<string[] | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    api.getLiveSkills()
+      .then(r => { if (alive) setLiveNames(r.reachable && r.data ? r.data.skills.map(s => s.name) : null); })
+      .catch(() => { if (alive) setLiveNames(null); });
+    return () => { alive = false; };
+  }, [ov]);
 
   async function remove(s: SkillFileItem) {
     if (!confirm(`Удалить скилл «${s.name}»? Папка backend/skills/${s.name}/ будет удалена.`)) return;
@@ -555,7 +566,15 @@ function SkillsTab({ ov, tools, toolsMode, onChanged }: { ov: AgentOverview; too
       >
         {ov.skills.map(s => (
           <Row key={s.name}>
-            <Td><span className="font-mono text-xs font-medium text-slate-800 dark:text-slate-100">{s.name}</span><Err text={s.error} /></Td>
+            <Td>
+              <span className="font-mono text-xs font-medium text-slate-800 dark:text-slate-100">{s.name}</span>
+              {liveNames !== null && (
+                liveNames.includes(s.name)
+                  ? <span className="ml-1.5 inline-block w-2 h-2 rounded-full bg-emerald-500 align-middle" title="Бэкенд видит скилл (live)" />
+                  : <span className="ml-1.5 inline-block w-2 h-2 rounded-full bg-amber-500 align-middle" title="Бэкенда доступен, но скилла в live-списке нет" />
+              )}
+              <Err text={s.error} />
+            </Td>
             <Td><span className="text-xs text-slate-500 max-w-[320px] truncate block" title={s.description}>{s.description || '—'}</span></Td>
             <Td><span className="font-mono text-[11px] text-slate-500 max-w-[220px] truncate block" title={s.tools.join(', ')}>{s.tools.join(', ') || '—'}</span></Td>
             <Td className="text-right whitespace-nowrap">
