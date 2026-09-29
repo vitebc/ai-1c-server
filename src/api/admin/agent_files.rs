@@ -146,7 +146,7 @@ fn render_list(items: &[String]) -> String {
     format!("[{}]", items.join(", "))
 }
 
-/// Canonical AGENT.md field order: name, title, description, tools, skills, mcp, model.
+/// Canonical AGENT.md field order: name, title, description, tools, skills, mcp, model, provider.
 fn render_agent_file(
     name: &str,
     title: &str,
@@ -155,6 +155,7 @@ fn render_agent_file(
     skills: &[String],
     mcp: &[String],
     model: &str,
+    provider: &str,
     body: &str,
 ) -> String {
     let mut out = String::from("---\n");
@@ -165,6 +166,7 @@ fn render_agent_file(
     out.push_str(&format!("skills: {}\n", render_list(skills)));
     out.push_str(&format!("mcp: {}\n", render_list(mcp)));
     out.push_str(&format!("model: {model}\n"));
+    out.push_str(&format!("provider: {provider}\n"));
     out.push_str("---\n");
     if body.trim().is_empty() {
         out.push('\n');
@@ -219,6 +221,7 @@ pub struct AgentItem {
     pub skills: Vec<String>,
     pub mcp: Vec<String>,
     pub model: String,
+    pub provider: String,
     pub body: String,
     pub error: Option<String>,
 }
@@ -263,6 +266,9 @@ pub struct AgentBody {
     #[serde(default, deserialize_with = "de_mcp")]
     pub mcp: Vec<String>,
     pub model: Option<String>,
+    /// Model provider name (our model_providers table). The agent backend
+    /// ignores unknown keys, so this is forward-compatible storage.
+    pub provider: Option<String>,
     #[serde(default)]
     pub body: String,
 }
@@ -291,6 +297,15 @@ fn split_mcp(s: &str) -> Vec<String> {
         .map(|p| p.trim().to_string())
         .filter(|p| !p.is_empty())
         .collect()
+}
+
+/// Provider name: single line, 0..64 chars (empty = backend default).
+fn normalize_provider(raw: Option<String>) -> Result<String, String> {
+    let p = raw.unwrap_or_default().trim().to_string();
+    if p.contains('\n') || p.len() > 64 {
+        return Err("invalid provider: single line, max 64 chars".into());
+    }
+    Ok(p)
 }
 
 /// Backend rule (`agents/loader.py`): each entry `^[a-z0-9]+(-[a-z0-9]+)*$`.
@@ -349,6 +364,7 @@ fn read_agent(dir: &Path) -> AgentItem {
         skills: Vec::new(),
         mcp: Vec::new(),
         model: String::new(),
+        provider: String::new(),
         body: String::new(),
         error: None,
     };
@@ -377,6 +393,7 @@ fn read_agent(dir: &Path) -> AgentItem {
         skills: meta_list(&meta, "skills"),
         mcp: meta_list(&meta, "mcp"),
         model: meta_str(&meta, "model"),
+        provider: meta_str(&meta, "provider"),
         body,
         error: None,
         ..blank
@@ -611,6 +628,7 @@ pub async fn create_agent(
         return Err(super::BadRequest(format!("agent {name:?} already exists")).into_response());
     }
     let mcp = normalize_mcp(body.mcp).map_err(|e| super::BadRequest(e).into_response())?;
+    let provider = normalize_provider(body.provider).map_err(|e| super::BadRequest(e).into_response())?;
     let content = render_agent_file(
         &name,
         &body.title.unwrap_or_default(),
@@ -619,6 +637,7 @@ pub async fn create_agent(
         &body.skills,
         &mcp,
         &body.model.unwrap_or_default(),
+        &provider,
         &body.body,
     );
     write_file(&dir.join("AGENT.md"), &content)
@@ -663,6 +682,7 @@ pub async fn update_agent(
         dir
     };
     let mcp = normalize_mcp(body.mcp).map_err(|e| super::BadRequest(e).into_response())?;
+    let provider = normalize_provider(body.provider).map_err(|e| super::BadRequest(e).into_response())?;
     let content = render_agent_file(
         &new_name,
         &body.title.unwrap_or_default(),
@@ -671,6 +691,7 @@ pub async fn update_agent(
         &body.skills,
         &mcp,
         &body.model.unwrap_or_default(),
+        &provider,
         &body.body,
     );
     write_file(&final_dir.join("AGENT.md"), &content)

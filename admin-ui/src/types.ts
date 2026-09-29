@@ -144,6 +144,7 @@ export interface AgentItem {
   skills: string[];
   mcp: string[];
   model: string;
+  provider: string;
   body: string;
   error: string | null;
 }

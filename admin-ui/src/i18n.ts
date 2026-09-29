@@ -125,6 +125,8 @@ export const t = {
     noAgents: 'Агентов нет', noSkills: 'Скиллов нет', noPatterns: 'Паттернов нет',
     toolsLabel: 'Инструменты (подмножество ToolRegistry)',
     live: 'live', offline: 'офлайн', mcpServers: 'MCP-серверы',
+    provider: 'Провайдер', providerAuto: '— по умолчанию (конфиг бэкенда) —',
+    modelLabel: 'Модель (пусто = из конфига)',
     backendTitle: 'Compose-сервисы', noCompose: 'docker compose недоступен',
     start: 'Запустить', stopAll: 'Остановить всё', restartBackend: 'Перезапустить бэкенд',
   },

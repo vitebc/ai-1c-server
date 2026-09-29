@@ -321,6 +321,7 @@ function AgentsTab({ ov, tools, toolsMode, skillNames, onChanged }: { ov: AgentO
               <span className="font-medium text-[13px] text-slate-800 dark:text-slate-100">{a.title || '—'}</span>
               {a.description && <span className="block truncate text-xs text-slate-500" title={a.description}>{a.description}</span>}
               {a.model && <span className="block font-mono text-[11px] text-slate-400">model: {a.model}</span>}
+              {a.provider && <span className="block font-mono text-[11px] text-slate-400">provider: {a.provider}</span>}
             </Td>
             <Td><span className="font-mono text-[11px] text-slate-500 max-w-[220px] truncate block" title={a.tools.join(', ')}>{a.tools.join(', ') || '—'}</span></Td>
             <Td><span className="font-mono text-[11px] text-slate-500 max-w-[160px] truncate block" title={a.skills.join(', ')}>{a.skills.join(', ') || '—'}</span></Td>
@@ -352,7 +353,30 @@ function AgentForm({ item, tools, toolsMode, skillNames, error, onClose, onSaved
     return ['default'];
   });
   const [model, setModel] = useState(item?.model || '');
+  const [provider, setProvider] = useState(item?.provider || '');
   const [body, setBody] = useState(item?.body || '');
+  const [providers, setProviders] = useState<{ name: string; default_model: string | null; models: string[]; is_default: boolean }[]>([]);
+
+  useEffect(() => {
+    api.getModelProviderOptions().then(r => setProviders(r.providers)).catch(() => {});
+  }, []);
+
+  function pickProvider(name: string) {
+    const prev = providers.find(p => p.name === provider);
+    const next = providers.find(p => p.name === name);
+    setProvider(name);
+    // Autofill the model only when the field is empty or still holds the
+    // previous provider's default — never clobber a custom value.
+    if (next?.default_model && (model === '' || (prev && model === (prev.default_model || '')))) {
+      setModel(next.default_model);
+    }
+    if (!name) {
+      const d = providers.find(p => p.is_default);
+      if (model === '' || (prev && model === (prev.default_model || ''))) {
+        setModel(d?.default_model || '');
+      }
+    }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -360,7 +384,7 @@ function AgentForm({ item, tools, toolsMode, skillNames, error, onClose, onSaved
     const payload = {
       name: name.trim(), title, description,
       tools: selTools, skills: allSkills ? ['*'] : selSkills,
-      mcp: selMcp, model, body,
+      mcp: selMcp, model, provider, body,
     };
     try {
       if (item) await api.updateAgent(item.name, payload);
@@ -402,7 +426,29 @@ function AgentForm({ item, tools, toolsMode, skillNames, error, onClose, onSaved
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <McpSelect selected={selMcp} onChange={setSelMcp} />
-        <TextField label="Переопределение модели (пусто = из конфига)" value={model} onChange={setModel} mono />
+        <div>
+          <label className="block text-[13px] font-medium text-slate-700 dark:text-slate-300 mb-1">{t.studio.provider}</label>
+          <select value={providers.some(p => p.name === provider) ? provider : ''} onChange={e => pickProvider(e.target.value)}
+            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100">
+            <option value="">{t.studio.providerAuto}</option>
+            {providers.map(p => (
+              <option key={p.name} value={p.name}>{p.name}{p.is_default ? ' (default)' : ''}</option>
+            ))}
+            {provider && !providers.some(p => p.name === provider) && (
+              <option value={provider}>{provider}</option>
+            )}
+          </select>
+        </div>
+      </div>
+      <div>
+        <label className="block text-[13px] font-medium text-slate-700 dark:text-slate-300 mb-1">{t.studio.modelLabel}</label>
+        <input value={model} onChange={e => setModel(e.target.value)} list="agent-model-list" spellCheck={false}
+          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white text-slate-800 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" />
+        <datalist id="agent-model-list">
+          {(providers.find(p => p.name === provider)?.models || []).map(m => (
+            <option key={m} value={m} />
+          ))}
+        </datalist>
       </div>
       <BodyField value={body} onChange={setBody} rows={12} />
       <p className="text-[11px] text-slate-400">Сохраняется в backend/agents/&lt;имя&gt;/AGENT.md. Переименование = перемещение папки. Бэкенд подхватывает без рестарта.</p>
