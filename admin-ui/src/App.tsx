@@ -146,7 +146,7 @@ function Shell() {
         <div className="max-w-[1200px] mx-auto p-6">
           <Suspense fallback={<p className="text-sm text-slate-500">{t.common.loading}</p>}>
           <Routes>
-            <Route path="/" element={<Guard me={me} section="dashboard"><Dashboard /></Guard>} />
+            <Route path="/" element={<Guard me={me} section="dashboard"><Dashboard me={me} /></Guard>} />
             <Route path="/mcp-servers" element={<Guard me={me} section="mcp-servers"><McpServers /></Guard>} />
             <Route path="/models" element={<Guard me={me} section="models"><ModelProviders /></Guard>} />
             <Route path="/skills" element={<Guard me={me} section="skills"><Skills /></Guard>} />
