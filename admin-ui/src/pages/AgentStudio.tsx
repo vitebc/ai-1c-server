@@ -241,22 +241,22 @@ function McpSelect({ selected, onChange }: { selected: string[]; onChange: (v: s
         <label className="block text-[13px] font-medium text-slate-700 dark:text-slate-300">{t.studio.mcpServers}</label>
         <Badge tone="neutral">{selected.length || 'default'}</Badge>
       </div>
-      <div className="border border-slate-300 dark:border-slate-700 rounded-lg p-2 max-h-40 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1 bg-slate-50 dark:bg-slate-950">
+      <div className="border border-slate-300 dark:border-slate-700 rounded-lg p-2 max-h-40 overflow-y-auto grid grid-cols-1 gap-1 bg-slate-50 dark:bg-slate-950">
         <label className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 px-1 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer" title="Default бэкенда">
           <input type="checkbox" checked={selected.includes('default')} onChange={() => toggle('default')} className="rounded accent-blue-600" />
           <span className="font-mono">default</span>
         </label>
         {sorted.map(s => (
-          <label key={s.name} className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 px-1 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer" title={transports[s.name] || (s.running ? 'running' : 'stopped')}>
-            <input type="checkbox" checked={selected.includes(s.name)} onChange={() => toggle(s.name)} className="rounded accent-blue-600" />
-            <span className="font-mono truncate">{s.name}</span>
-            {s.running && <span className="text-[10px] text-emerald-500">●</span>}
+          <label key={s.name} className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 px-1 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer" title={`${s.name}${transports[s.name] ? ` (${transports[s.name]})` : ''}`}>
+            <input type="checkbox" checked={selected.includes(s.name)} onChange={() => toggle(s.name)} className="rounded accent-blue-600 shrink-0" />
+            <span className="font-mono break-all">{s.name}</span>
+            {s.running && <span className="text-[10px] text-emerald-500 shrink-0">●</span>}
           </label>
         ))}
         {extra.map(name => (
           <label key={name} className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 px-1 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer" title="Сохранённое значение, такой строки нет">
-            <input type="checkbox" checked={selected.includes(name)} onChange={() => toggle(name)} className="rounded accent-blue-600" />
-            <span className="font-mono truncate">{name}</span>
+            <input type="checkbox" checked={selected.includes(name)} onChange={() => toggle(name)} className="rounded accent-blue-600 shrink-0" />
+            <span className="font-mono break-all">{name}</span>
           </label>
         ))}
       </div>
