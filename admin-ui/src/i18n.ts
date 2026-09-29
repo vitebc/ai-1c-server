@@ -117,6 +117,7 @@ export const t = {
     setPwConfirm: (u: string) => `Установить новый пароль для «${u}»? Старый сразу перестанет работать.`,
     newPwTitle: 'Новый пароль', shownOnce: 'Показан один раз — скопируйте сейчас.',
     enable: 'Включить', disable: 'Выключить',
+    selfLock: 'Свою учётку менять нельзя — попросите другого админа',
   },
   studio: {
     title: 'AI Agent Studio', agents: 'Агенты', agentSkills: 'Скиллы агентов',

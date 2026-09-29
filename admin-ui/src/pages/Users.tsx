@@ -59,11 +59,13 @@ export default function Users() {
   const [editSections, setEditSections] = useState<UserDto | null>(null);
   const [newPw, setNewPw] = useState<{ username: string; password: string } | null>(null);
   const [setPwFor, setSetPwFor] = useState<UserDto | null>(null);
+  const [selfName, setSelfName] = useState('');
 
   const load = useCallback(async () => {
     setError('');
     try {
       setItems(await api.getUsers());
+      api.getMe().then(m => setSelfName(m.username)).catch(() => {});
     } catch (e) {
       setError(errText(e, 'Ошибка загрузки'));
     }
@@ -147,7 +149,7 @@ export default function Users() {
           <Row key={u.id}>
             <Td><span className="font-mono text-xs font-medium text-slate-800 dark:text-slate-100">{u.username}</span></Td>
             <Td>
-              <Select value={u.role} onChange={e => changeRole(u, e.target.value)} className="!w-auto text-xs !py-1 !px-2">
+              <Select value={u.role} onChange={e => changeRole(u, e.target.value)} disabled={u.username === selfName} title={u.username === selfName ? t.users.selfLock : undefined} className="!w-auto text-xs !py-1 !px-2">
                 {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
               </Select>
             </Td>
@@ -157,10 +159,10 @@ export default function Users() {
                   ? Object.entries(u.sections).map(([k, v]) => `${v ? '+' : '−'}${k}`).join(' ')
                   : <span className="text-slate-400 dark:text-slate-500">role defaults ({ROLE_BASE[u.role]?.length || 0})</span>}
               </span>
-              <button onClick={() => setEditSections(u)} className="ml-2 text-blue-600 hover:underline dark:text-blue-400 cursor-pointer">{t.common.edit}</button>
+              <button onClick={() => setEditSections(u)} disabled={u.username === selfName} title={u.username === selfName ? t.users.selfLock : undefined} className="ml-2 text-blue-600 hover:underline dark:text-blue-400 cursor-pointer disabled:opacity-40 disabled:no-underline disabled:cursor-not-allowed">{t.common.edit}</button>
             </Td>
             <Td>
-              <button onClick={() => toggleEnabled(u)} className="cursor-pointer">
+              <button onClick={() => toggleEnabled(u)} disabled={u.username === selfName} title={u.username === selfName ? t.users.selfLock : undefined} className="cursor-pointer disabled:cursor-not-allowed">
                 <Badge tone={u.enabled ? 'green' : 'neutral'}>
                   {u.enabled ? t.common.enabled : t.common.disabled}
                 </Badge>
