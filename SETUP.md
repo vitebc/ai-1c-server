@@ -161,24 +161,22 @@ curl -s "http://<vps-ip>:9224/api/admin/mcp-servers/export?format=opencode"
 
 API-токен генерируется при первом старте (см. лог `server.log`:
 `Generated new API token`) и хранится в `server_settings`.
-По умолчанию авторизация **включена**: без логина API отдает 401,
+По умолчанию авторизация **включена**: без логина MCP-шлюз отдаёт 401,
 админка показывает экран входа. Выключать (`Auth OFF` /
 `auth_required=0`) — только для полностью изолированного контура.
 Включить: Dashboard → API Access → Auth ON (или
-`PUT /api/admin/settings {"key":"auth_required","value":"1"}`) —
-после этого все `/api/*` (кроме `/health`) требуют
-`Authorization: Bearer <jwt|api-token>`.
+`PUT /api/admin/settings {"key":"auth_required","value":"1"}`).
+
+Тумблер влияет **только** на MCP-шлюз (`/api/mcp*`,
+`/api/mcp-aggregated/*`, `/api/mcp-skills/*`). Админка (`/api/admin/*`)
+всегда требует логин/пароль; legacy machine-токен там → 401.
 
 Вход людей — по логину/паролю (`POST /api/admin/auth/login` → JWT на
 12ч, с `remember: true` — 7 дней). Машинный API-токен — только для
 MCP-клиентов (заголовок `Authorization`), в админке входа по нему нет.
 При первом старте создаётся `admin` со случайным паролем
-(лог `server.log`, один раз). Роли:
-`admin` (всё + Users), `operator` (все рабочие разделы),
-`viewer` (только чтение; Users, токен, `.env` скрыты). Точечные
-исключения по разделам — на странице Users. Машинные MCP-клиенты
-продолжают ходить по legacy API-токену (полный доступ).
-Защита от перебора: >5 неверных login с IP за 10 мин → 429 на 5 мин.
+(лог `server.log`, один раз). Защита от перебора: >5 неверных login
+с IP за 10 мин → 429 на 5 мин.
 
 Для **Claude Code**: `claude mcp add --transport http ai-1c-all http://<vps-ip>:9224/api/mcp-aggregated/mcp`
 Для **Cursor** (`mcp.json`): `{ "mcpServers": { "ai-1c-all": { "url": "http://<vps-ip>:9224/api/mcp-aggregated/mcp" } } }`
@@ -187,12 +185,64 @@ Per-server URL: `http://<vps-ip>:9224/api/mcp/<id|name>/mcp`
 (GET — SSE для legacy-клиентов, POST — Streamable HTTP).
 Кнопки копирования всех форматов — в Admin UI на странице MCP Servers.
 
+Инвентарь тулзов для скриптов (зона шлюза, достаточно API-токена):
+
+```bash
+curl -s http://<vps-ip>:9224/api/mcp-aggregated/tools -H "$T" | \
+  python3 -c "import json,sys; [print(t['full_name']) for t in json.load(sys.stdin)['tools']]"
+```
+
 Hot-reload: добавление/изменение/удаление сервера через API или Admin UI
 сразу (пере)запускает сессию — ребут сервера не нужен. Вручную:
 `POST /api/admin/mcp-servers/{id}/restart`.
-```
 
-## 7. Импорт скилов
+Транспорты MCP-сервера: `stdio` (свой subprocess, JSON-RPC через stdin/stdout) и
+`http`/`sse` (входящий Streamable HTTP-клиент к удалённому серверу; поле `env`
+используется как HTTP-заголовки). Оба управляются одинаково.
+
+## 6.1. Пользователи и роли
+
+Страница **Users** (секция `users`, admin-only для изменений):
+
+| Роль | Секции | Право записи |
+|---|---|---|
+| `admin` | все 19 | везде; не настраивается |
+| `operator` | все, кроме `users`, `auth-manage` | в рамках своих секций |
+| `prompter` | как `viewer` | только агенты/скиллы/паттерны (файлы промптов) |
+| `viewer` | 12 read-only секций | только свой пароль |
+
+- **Матрица ролей** (только admin): сетка «роль × раздел» меняет дефолты ролей
+  целиком; хранится в `server_settings.role_sections`.
+- **Per-user** чекбоксы — только ВЫЧИТАНИЕ секций у конкретного юзера; выдать
+  раздел вне роли можно лишь через матрицу ролей.
+- Ограничения: свою роль и `enabled` менять нельзя; свои секции — нельзя никому,
+  кроме admin; нельзя удалить себя, отключить/понизить последнего admin.
+- Админ-аккаунты скрыты от не-админов (в списке и по 404) — чтобы имена
+  админов не утекали.
+
+## 6.2. AI Agent Studio и backend 1c-ai-agent
+
+Страница **Agent Studio** (секции `agent-studio` + подсекции
+`agent-agents|agent-skills|agent-patterns|agent-backend|env`):
+
+- **Агенты/Скиллы/Паттерны** — CRUD файлов проекта 1c-ai-agent
+  (`backend/agents/<имя>/AGENT.md`, `backend/skills/<имя>/SKILL.md`,
+  `backend/patterns/<имя>.md`). Корень — настройка `agent_project_root`.
+  Бэкенд перечитывает файлы на каждый запрос, рестарт не нужен; у скилла
+  зелёная точка = бэкенд видит скилл в live-списке, жёлтая = нет.
+- **Провайдеры моделей** (отдельная страница **Models**, секция `models`):
+  `name`, `base_url`, `api_key` (не возвращается), список моделей.
+  Кнопка probe делает живой `GET {base_url}/models` — модели подставляются
+  чекбоксами, модель можно ввести вручную.
+- **Backend** — управление docker-compose сервисами проекта
+  (`postgres`, `backend`, `tei`, `mcp-proxy`; профили `rag`, `onec`),
+  просмотр логов с фильтром `grep` и переключателем таймстемпов, редактор
+  `.env` по allowlist (секреты маскируются), live-состояние бэкенда.
+- В форме агента: вкладки (Основное / Инструменты / Скиллы и модель),
+  Tools и MCP в две колонки с групповым выбором по `server__tool`,
+  поиск по имени/описанию, мультивыбор MCP из живого реестра.
+
+## 7. Импорт скилов (серверных)
 
 ```bash
 # Импорт из .opencode/skills/ (если есть локально)
@@ -226,9 +276,25 @@ tmux kill-session -t build
 ```bash
 cd ~/project/ai-1c-server
 
-git pull
-./scripts/build-linux.sh
-./scripts/restart.sh
+# Всё сразу: pull + build + stop/start
+./scripts/update.sh
+
+# Если сервер запущен как systemd-служба — после update.sh:
+sudo systemctl restart ai-1c-server
+```
+
+Порядок сборки важен: `build-linux.sh` сначала собирает `admin-ui`
+(`npm install && npm run build`), затем `cargo build --release --target
+x86_64-unknown-linux-gnu`. Бандл админки вшивается в бинарник через
+`rust-embed`, поэтому без `npm run build` UI будет старой версии.
+
+> ⚠️ `npm run build` не падает на ошибках TypeScript. Если в выводе есть
+> `error TS...` — правку не коммитить: в прод уедет сломанный бандл.
+
+Проверка, что новая версия реально отдаётся:
+
+```bash
+curl -s http://localhost:9224/ | grep -o 'index-[^"]*\.js'   # хеш бандла изменился?
 ```
 
 ## 10. Полезные ссылки
@@ -237,43 +303,77 @@ git pull
 |--------|-------|
 | **Admin Dashboard** | `http://<vps-ip>:9224/` |
 | **Health Check** | `http://<vps-ip>:9224/health` |
+| **Агрегированный MCP** | `http://<vps-ip>:9224/api/mcp-aggregated/mcp` |
+| **Инвентарь тулзов (JSON)** | `http://<vps-ip>:9224/api/mcp-aggregated/tools` |
 | **MCP Skills API** | `http://<vps-ip>:9224/api/mcp-skills/rpc` |
 | **Skills Export** | `http://<vps-ip>:9224/api/admin/skills/export` |
 | **GitHub** | `https://github.com/vitebc/ai-1c-server` |
+
+Полный справочник по эндпоинтам — в `API.md`.
 
 ## 11. Структура проекта
 
 ```
 ai-1c-server/
-├── src/               # Rust бэкенд
-│   ├── main.rs        # Точка входа, CLI
-│   ├── api/           # Axum route handlers
-│   ├── db/            # SQLite (rusqlite)
-│   ├── mcp/           # MCP Gateway + BSL LS
-│   └── auth/          # JWT аутентификация
-├── admin-ui/          # React SPA
-├── scripts/           # bash-скрипты
-│   ├── start.sh       # Запуск сервера
-│   ├── stop.sh        # Остановка
-│   ├── restart.sh     # Перезапуск
-│   ├── status.sh      # Проверка статуса
-│   └── update.sh      # Обновление с GitHub
-├── migrations/        # SQL миграции
-├── data/              # Runtime (.gitignore)
-│   ├── db.sqlite      # База данных
-│   ├── skills/        # Скилы на диске
-│   └── bsl-ls/        # BSL LS JAR
-└── AGENTS.md          # Инструкция для OpenCode
+├── src/                    # Rust бэкенд
+│   ├── main.rs             # Точка входа, CLI (clap)
+│   ├── api/                # Axum route handlers
+│   │   ├── admin/          # CRUD, RBAC-секции, agent-files, agent_backend
+│   │   ├── mcp_http.rs     # MCP HTTP/SSE шлюз (агрегатор + per-server)
+│   │   └── mcp_skills.rs   # Серверные скиллы как MCP
+│   ├── db/                 # SQLite (rusqlite) + миграции
+│   ├── mcp/                # MCP Gateway (stdio|http сессии), BSL LS, скиллы
+│   ├── auth/               # argon2 + JWT + RBAC
+│   ├── log_buffer.rs       # Кольцевой буфер логов
+│   ├── watcher/            # Заглушка (fsnotify-реиндекс)
+│   ├── updater/            # Заглушка (клиентские сборки)
+│   └── web/                # Embedded admin-ui/dist
+├── admin-ui/               # React 19 + Vite + Tailwind v4 SPA
+│   └── src/
+│       ├── pages/          # Dashboard, McpServers, ModelProviders, AgentStudio,
+│       │                   # Skills, BslLs, Configs, ClientVersions, Clients,
+│       │                   # Logs, Users
+│       ├── components/     # ui.tsx (Modal/Table/Field/Segmented…), FileBrowser
+│       ├── api/client.ts   # Типизированный API-клиент
+│       ├── i18n.ts         # Русские строки
+│       └── types.ts
+├── scripts/                # bash-скрипты
+│   ├── start.sh            # Запуск сервера (с pre-flight проверками)
+│   ├── stop.sh             # Остановка
+│   ├── restart.sh          # Перезапуск
+│   ├── status.sh           # Проверка статуса
+│   ├── update.sh           # pull + build + stop/start
+│   ├── build-linux.sh      # admin-ui → cargo
+│   ├── build-windows.ps1   # То же под Windows
+│   └── install-service.sh  # systemd (+ systemd/ai-1c-server.service)
+├── migrations/             # SQL миграции 001…005
+├── data/                   # Runtime (.gitignore)
+│   ├── db.sqlite           # База данных
+│   ├── skills/             # Серверные скиллы на диске
+│   └── bsl-language-server.jar
+├── API.md                  # Справочник HTTP API
+├── SETUP.md                # Этот файл
+└── AGENTS.md               # Состояние проекта и правила для агента
 ```
 
-## 12. Переменные окружения
+## 12. Переменные окружения и флаги
 
 | Переменная | Назначение | По умолчанию |
 |-----------|-----------|-------------|
-| `DATA_DIR` | Путь к runtime данным | `./data` |
-| `PORT` | HTTP порт сервера | `9224` |
+| `DATA_DIR` | Путь к runtime данным (передаётся как `--data-dir`) | `$REPO/data` |
+| `PORT` | HTTP порт (передаётся как `--http-port`) | `9224` |
+
+Флаги бинарника: `--data-dir` (`/data/mini-ai-1c`), `--http-port` (`9224`),
+`--admin-dir` (каталог со статикой админки, если не вшит в бинарник),
+подкоманда `migrate` (применить миграции и выйти; `start.sh` зовёт её
+автоматически перед запуском).
 
 ```bash
 # Пример запуска с кастомными параметрами
 DATA_DIR=/mnt/data PORT=8080 ./scripts/start.sh
 ```
+
+Ключевые настройки в БД (`server_settings`, меняются через админку
+или `PUT /api/admin/settings {"key":"...","value":"..."}`):
+`auth_required` (гейт MCP-шлюза), `api_token` (legacy machine-токен),
+`jwt_secret`, `agent_project_root`, `role_sections`, `search_binary`.
