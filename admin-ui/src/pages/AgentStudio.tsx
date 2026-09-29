@@ -89,7 +89,7 @@ export default function AgentStudio({ me }: { me: Me | null }) {
         <Segmented value={tab} onChange={setTab} options={tabs} />
       </div>
 
-      {tab === 'agents' && ov && <AgentsTab ov={ov} tools={tools} toolsMode={toolsMode} skillNames={ov.skills.map(s => s.name)} onChanged={load} />}
+      {tab === 'agents' && ov && <AgentsTab ov={ov} tools={tools} toolsMode={toolsMode} skills={ov.skills.map(s => ({ name: s.name, description: s.description }))} onChanged={load} />}
       {tab === 'skills' && ov && <SkillsTab ov={ov} tools={tools} toolsMode={toolsMode} onChanged={load} />}
       {tab === 'patterns' && ov && <PatternsTab ov={ov} onChanged={load} />}
       {tab === 'backend' && <BackendTab />}
@@ -134,6 +134,7 @@ function ToolsCheck({ all, selected, onChange, mode, mcpFilter }: {
 }) {
   const toggle = (x: string) =>
     onChange(selected.includes(x) ? selected.filter(v => v !== x) : [...selected, x]);
+  const [q, setQ] = useState('');
   const extra = selected.filter(s => !all.some(x => x.name === s)).map(name => ({ name, description: '(нет в live-реестре)' }));
   const list = [...all, ...extra];
   const visible = (name: string) => {
@@ -142,7 +143,9 @@ function ToolsCheck({ all, selected, onChange, mode, mcpFilter }: {
     if (srv === null) return true;
     return mcpFilter.some(s => s === srv || toolPrefix(s) === srv);
   };
-  const shown = list.filter(x => visible(x.name));
+  const query = q.trim().toLowerCase();
+  const shown = list.filter(x => visible(x.name)
+    && (!query || x.name.toLowerCase().includes(query) || (x.description || '').toLowerCase().includes(query)));
   const hiddenSelected = selected.filter(s => !shown.some(x => x.name === s));
   return (
     <div>
@@ -158,6 +161,8 @@ function ToolsCheck({ all, selected, onChange, mode, mcpFilter }: {
           )}
         </p>
       )}
+      <input value={q} onChange={e => setQ(e.target.value)} placeholder={`${t.common.search} — имя или описание`}
+        className="w-full mb-1 px-2 py-1 text-xs border border-slate-300 rounded-lg bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200" />
       <div className="border border-slate-300 dark:border-slate-700 rounded-lg p-2 max-h-40 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1 bg-slate-50 dark:bg-slate-950">
         {shown.map(x => {
           const srv = toolServer(x.name);
@@ -169,7 +174,7 @@ function ToolsCheck({ all, selected, onChange, mode, mcpFilter }: {
             </label>
           );
         })}
-        {shown.length === 0 && <span className="text-xs text-slate-400">Нет инструментов для выбранных MCP-серверов</span>}
+        {shown.length === 0 && <span className="text-xs text-slate-400">{query ? 'Ничего не найдено' : 'Нет инструментов для выбранных MCP-серверов'}</span>}
       </div>
     </div>
   );
@@ -278,7 +283,7 @@ function FormModal({ title, onClose, onSubmit, error, children, wide }: {
 
 // ─── Agents tab ───
 
-function AgentsTab({ ov, tools, toolsMode, skillNames, onChanged }: { ov: AgentOverview; tools: { name: string; description: string }[]; toolsMode: string | null; skillNames: string[]; onChanged: () => void }) {
+function AgentsTab({ ov, tools, toolsMode, skills, onChanged }: { ov: AgentOverview; tools: { name: string; description: string }[]; toolsMode: string | null; skills: { name: string; description: string }[]; onChanged: () => void }) {
   const [edit, setEdit] = useState<AgentItem | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [formError, setFormError] = useState('');
@@ -302,7 +307,7 @@ function AgentsTab({ ov, tools, toolsMode, skillNames, onChanged }: { ov: AgentO
           item={edit}
           tools={tools}
           toolsMode={toolsMode}
-          skillNames={skillNames}
+          skills={skills}
           error={formError}
           onClose={() => { setShowNew(false); setEdit(null); }}
           onSaved={onChanged}
@@ -336,8 +341,8 @@ function AgentsTab({ ov, tools, toolsMode, skillNames, onChanged }: { ov: AgentO
   );
 }
 
-function AgentForm({ item, tools, toolsMode, skillNames, error, onClose, onSaved, onError }: {
-  item: AgentItem | null; tools: { name: string; description: string }[]; toolsMode: string | null; skillNames: string[];
+function AgentForm({ item, tools, toolsMode, skills, error, onClose, onSaved, onError }: {
+  item: AgentItem | null; tools: { name: string; description: string }[]; toolsMode: string | null; skills: { name: string; description: string }[];
   error: string; onClose: () => void; onSaved: () => void; onError: (e: string) => void;
 }) {
   const [name, setName] = useState(item?.name || '');
@@ -345,6 +350,11 @@ function AgentForm({ item, tools, toolsMode, skillNames, error, onClose, onSaved
   const [description, setDescription] = useState(item?.description || '');
   const [selTools, setSelTools] = useState<string[]>(item?.tools || []);
   const [selSkills, setSelSkills] = useState<string[]>(item?.skills || []);
+  const [skillQ, setSkillQ] = useState('');
+  const skillQuery = skillQ.trim().toLowerCase();
+  // Selected-but-removed skills stay visible so they aren't lost on save.
+  const visibleSkills = [...skills, ...selSkills.filter(s => !skills.some(x => x.name === s)).map(name => ({ name, description: '' }))]
+    .filter(s => !skillQuery || s.name.toLowerCase().includes(skillQuery) || (s.description || '').toLowerCase().includes(skillQuery));
   const [allSkills, setAllSkills] = useState(item ? item.skills.includes('*') : false);
   const [selMcp, setSelMcp] = useState<string[]>(() => {
     const v: unknown = item?.mcp;
@@ -411,17 +421,24 @@ function AgentForm({ item, tools, toolsMode, skillNames, error, onClose, onSaved
           Все скиллы (*)
         </label>
         {!allSkills && (
-          <div className="border border-slate-300 dark:border-slate-700 rounded-lg p-2 max-h-28 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1 bg-slate-50 dark:bg-slate-950">
-            {skillNames.map(s => (
-              <label key={s} className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 px-1 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer">
-                <input type="checkbox" checked={selSkills.includes(s)}
-                  onChange={() => setSelSkills(selSkills.includes(s) ? selSkills.filter(x => x !== s) : [...selSkills, s])}
-                  className="rounded accent-blue-600" />
-                <span className="font-mono">{s}</span>
-              </label>
-            ))}
-            {skillNames.length === 0 && <span className="text-xs text-slate-400">Скиллов пока нет</span>}
-          </div>
+          <>
+            <input value={skillQ} onChange={e => setSkillQ(e.target.value)} placeholder={`${t.common.search} — имя или описание`}
+              className="w-full mb-1 px-2 py-1 text-xs border border-slate-300 rounded-lg bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200" />
+            <div className="border border-slate-300 dark:border-slate-700 rounded-lg p-2 max-h-28 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1 bg-slate-50 dark:bg-slate-950">
+              {visibleSkills.map(s => (
+                <label key={s.name} title={s.description} className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 px-1 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer">
+                  <input type="checkbox" checked={selSkills.includes(s.name)}
+                    onChange={() => setSelSkills(selSkills.includes(s.name) ? selSkills.filter(x => x !== s.name) : [...selSkills, s.name])}
+                    className="rounded accent-blue-600" />
+                  <span className="min-w-0">
+                    <span className="font-mono block truncate">{s.name}</span>
+                    {s.description && <span className="block truncate text-[11px] text-slate-400">{s.description}</span>}
+                  </span>
+                </label>
+              ))}
+              {visibleSkills.length === 0 && <span className="text-xs text-slate-400">{skillQ.trim() ? 'Ничего не найдено' : 'Скиллов пока нет'}</span>}
+            </div>
+          </>
         )}
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
