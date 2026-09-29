@@ -320,9 +320,9 @@ export default function BslLs() {
         </CardBody>
       </Card>
 
-      <div className="rounded-xl border border-slate-800 bg-slate-950 overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-2 border-b border-slate-800">
-          <div className="flex items-center gap-2 text-slate-400">
+      <div className="rounded-xl border border-slate-200 bg-slate-100 overflow-hidden dark:border-slate-800 dark:bg-slate-950">
+        <div className="flex items-center justify-between px-4 py-2 border-b border-slate-200 dark:border-slate-800">
+          <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
             <Terminal size={14} />
             <span className="text-xs">{t.bsl.logsTitle}</span>
           </div>
@@ -331,20 +331,20 @@ export default function BslLs() {
               <input type="checkbox" checked={autoScroll} onChange={e => setAutoScroll(e.target.checked)} className="rounded accent-blue-600" />
               {t.bsl.autoscroll}
             </label>
-            <button onClick={clearLogs} className="text-xs text-slate-500 hover:text-slate-300 transition-colors cursor-pointer">{t.logs.clear}</button>
+            <button onClick={clearLogs} className="text-xs text-slate-500 hover:text-slate-700 transition-colors cursor-pointer dark:hover:text-slate-300">{t.logs.clear}</button>
           </div>
         </div>
         <div ref={logsRef} className="h-64 overflow-y-auto p-4 font-mono text-xs leading-relaxed">
           {logs.length === 0 ? (
-            <p className="text-slate-600 italic">{t.bsl.noLogs}</p>
+            <p className="text-slate-400 dark:text-slate-600 italic">{t.bsl.noLogs}</p>
           ) : (
             logs.map((line, i) => (
               <div key={i} className={
                 line.includes('ERROR') || line.includes('Error') || line.includes('Exception')
-                  ? 'text-red-400'
+                  ? 'text-red-600 dark:text-red-400'
                   : line.includes('WARN') || line.includes('WARNING')
-                  ? 'text-amber-400'
-                  : 'text-emerald-400'
+                  ? 'text-amber-600 dark:text-amber-400'
+                  : 'text-emerald-700 dark:text-emerald-400'
               }>
                 {line}
               </div>

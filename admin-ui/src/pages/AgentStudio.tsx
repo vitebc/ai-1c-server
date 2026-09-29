@@ -675,7 +675,7 @@ function BackendTab() {
             <RotateCcw size={13} /> {t.studio.restartBackend}
           </Btn>
         </div>
-        {output && <pre className="mt-3 text-[11px] font-mono text-emerald-300 bg-slate-950 rounded-lg p-3 max-h-48 overflow-y-auto whitespace-pre-wrap">{output}</pre>}
+        {output && <pre className="mt-3 text-[11px] font-mono text-emerald-700 bg-slate-100 border border-slate-200 rounded-lg p-3 max-h-48 overflow-y-auto whitespace-pre-wrap dark:text-emerald-300 dark:bg-slate-950 dark:border-slate-800">{output}</pre>}
       </CardBody></Card>
 
       <Card><CardBody>
@@ -722,7 +722,7 @@ function BackendTab() {
           </Btn>
         </div>
         <div className="relative">
-          <pre className="text-[11px] font-mono text-emerald-300 bg-slate-950 rounded-lg p-3 max-h-[60vh] overflow-y-auto whitespace-pre-wrap">{log || 'Логов нет'}</pre>
+          <pre className="text-[11px] font-mono text-emerald-700 bg-slate-100 border border-slate-200 rounded-lg p-3 max-h-[60vh] overflow-y-auto whitespace-pre-wrap dark:text-emerald-300 dark:bg-slate-950 dark:border-slate-800">{log || 'Логов нет'}</pre>
           <div ref={logEndRef} />
         </div>
       </CardBody></Card>

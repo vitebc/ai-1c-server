@@ -115,7 +115,7 @@ export default function Logs() {
         )}
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-slate-950 font-mono text-xs p-4 h-[60vh] overflow-y-auto dark:border-slate-800">
+      <div className="rounded-xl border border-slate-200 bg-slate-100 font-mono text-xs p-4 h-[60vh] overflow-y-auto dark:border-slate-800 dark:bg-slate-950">
         {tab === 'server' ? (
           entries.length === 0
             ? <p className="text-slate-500 italic">{t.logs.noEntries}</p>
@@ -124,13 +124,13 @@ export default function Logs() {
                 <span className="text-slate-500 shrink-0 tabular-nums">{e.ts.slice(11, 23)}</span>
                 <span className={`shrink-0 w-12 font-bold ${LEVEL_STYLE[e.level] || 'text-slate-400'}`}>{e.level}</span>
                 <span className="text-slate-500 shrink-0 max-w-[220px] truncate" title={e.target}>{e.target}</span>
-                <span className="text-slate-200">{e.msg}</span>
+                <span className="text-slate-700 dark:text-slate-200">{e.msg}</span>
               </div>
             ))
         ) : (
           bslLines.length === 0
             ? <p className="text-slate-500 italic">{t.logs.bslEmpty}</p>
-            : bslLines.map((l, i) => <div key={i} className="text-slate-200 py-px leading-relaxed break-all">{l}</div>)
+            : bslLines.map((l, i) => <div key={i} className="text-slate-700 dark:text-slate-200 py-px leading-relaxed break-all">{l}</div>)
         )}
         <div ref={bottomRef} />
       </div>
