@@ -310,7 +310,7 @@ function McpSelect({ selected, onChange, fill }: { selected: string[]; onChange:
         <label className="block text-[13px] font-medium text-slate-700 dark:text-slate-300">{t.studio.mcpServers}</label>
         <Badge tone="neutral">{selected.length || 'default'}</Badge>
       </div>
-      <div className={`border border-slate-300 dark:border-slate-700 rounded-lg p-2 overflow-y-auto grid grid-cols-1 gap-0 bg-slate-50 dark:bg-slate-950 ${fill ? 'flex-1 min-h-0' : 'max-h-40'}`}>
+      <div className={`border border-slate-300 dark:border-slate-700 rounded-lg p-2 overflow-y-auto flex flex-col gap-0 bg-slate-50 dark:bg-slate-950 ${fill ? 'flex-1 min-h-0' : 'max-h-40'}`}>
         <label className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 px-1 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer" title="Default бэкенда">
           <input type="checkbox" checked={selected.includes('default')} onChange={() => toggle('default')} className="rounded accent-blue-600" />
           <span className="font-mono">default</span>
