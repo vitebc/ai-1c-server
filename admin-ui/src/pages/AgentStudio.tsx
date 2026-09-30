@@ -22,14 +22,35 @@ export default function AgentStudio({ me }: { me: Me | null }) {
   const [ov, setOv] = useState<AgentOverview | null>(null);
   const [tools, setTools] = useState<{ name: string; description: string }[]>([]);
   const [toolsMode, setToolsMode] = useState<string | null>(null);
+  const [baseUrls, setBaseUrls] = useState<string[]>([]);
+  const [baseUrl, setBaseUrl] = useState('');
   const [error, setError] = useState('');
   const [browseRoot, setBrowseRoot] = useState(false);
   const [pendingRoot, setPendingRoot] = useState<string | null>(null);
 
+  // ONEC_BASES из env бэкенда: имя=адрес;... — список баз для live-реестра.
+  const loadBaseUrls = useCallback(async () => {
+    try {
+      const env = await api.getAgentEnv();
+      const raw = env.find(e => e.key === 'ONEC_BASES')?.value || '';
+      const list: string[] = [];
+      for (const part of raw.split(';')) {
+        const eq = part.indexOf('=');
+        if (eq > 0) {
+          const url = part.slice(eq + 1).trim();
+          if (url && !list.includes(url)) list.push(url);
+        }
+      }
+      setBaseUrls(list);
+      // по умолчанию — первая база, если текущая не в списке.
+      setBaseUrl(prev => (prev === '' || !list.includes(prev)) ? (list[0] || '') : prev);
+    } catch { /* env недоступен — без списка баз */ }
+  }, []);
+
   const load = useCallback(async () => {
     setError('');
     try {
-      const [o, live] = await Promise.all([api.getAgentOverview(), api.getLiveTools().catch(() => null)]);
+      const [o, live] = await Promise.all([api.getAgentOverview(), api.getLiveTools(baseUrl || undefined).catch(() => null)]);
       setOv(o);
       if (live?.reachable && live.data) {
         setTools(live.data.tools.map(x => ({ name: x.name, description: x.description || '' })));
@@ -42,8 +63,9 @@ export default function AgentStudio({ me }: { me: Me | null }) {
     } catch (e) {
       setError(errText(e, 'Ошибка загрузки'));
     }
-  }, []);
+  }, [baseUrl]);
 
+  useEffect(() => { loadBaseUrls(); }, [loadBaseUrls]);
   useEffect(() => { load(); }, [load]);
 
   async function doPickRoot(path: string) {
@@ -85,8 +107,17 @@ export default function AgentStudio({ me }: { me: Me | null }) {
 
       {error && <div className="mb-3"><Alert tone="red">{error}</Alert></div>}
 
-      <div className="mb-4">
+      <div className="mb-4 flex items-center gap-3">
         <Segmented value={tab} onChange={setTab} options={tabs} />
+        {baseUrls.length > 0 && (
+          <label className="ml-auto flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+            {t.studio.baseLabel}
+            <Select value={baseUrl} onChange={e => setBaseUrl(e.target.value)} className="max-w-[320px]">
+              <option value="">{t.studio.baseNone}</option>
+              {baseUrls.map(u => <option key={u} value={u}>{u}</option>)}
+            </Select>
+          </label>
+        )}
       </div>
 
       {tab === 'agents' && ov && <AgentsTab ov={ov} tools={tools} toolsMode={toolsMode} skills={ov.skills.map(s => ({ name: s.name, description: s.description }))} onChanged={load} />}

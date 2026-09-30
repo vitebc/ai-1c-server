@@ -135,6 +135,7 @@ export const t = {
     noAgents: 'Агентов нет', noSkills: 'Скиллов нет', noPatterns: 'Паттернов нет',
     toolsLabel: 'Инструменты (подмножество ToolRegistry)',
     live: 'live', offline: 'офлайн', mcpServers: 'MCP-серверы',
+    baseLabel: 'База (1С)', baseNone: '— без базы —',
     tabMain: 'Основное', tabTools: 'Инструменты', tabSkills: 'Скиллы и модель',
     builtIn: 'Встроенные',
     provider: 'Провайдер', providerAuto: '— по умолчанию —',

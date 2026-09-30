@@ -210,8 +210,8 @@ export const api = {
   getLiveAgents: () => request<LiveAgents>('/agent-backend/live/agents'),
   getLiveSkills: (agent?: string) =>
     request<LiveSkills>(`/agent-backend/live/skills${agent ? `?agent=${encodeURIComponent(agent)}` : ''}`),
-  getLiveTools: () =>
-    request<LiveTools>('/agent-backend/live/tools'),
+  getLiveTools: (baseUrl?: string) =>
+    request<LiveTools>(`/agent-backend/live/tools${baseUrl ? `?base_url=${encodeURIComponent(baseUrl)}` : ''}`),
 
   login: (username: string, password: string, remember?: boolean) =>
     request<{ token: string; username: string; role: string; sections: string[] }>(

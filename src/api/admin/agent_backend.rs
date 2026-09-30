@@ -522,14 +522,29 @@ pub async fn live_skills(    State(state): State<Arc<AppState>>,
 /// GET /agent-backend/live/tools — full live ToolRegistry from the backend
 /// (`GET /tools`: mock/live + local tools with descriptions).
 /// The source of truth for `AGENT.md`/`SKILL.md` `tools:` selectors.
-pub async fn live_tools(State(state): State<Arc<AppState>>) -> Json<Value> {
-    let url = {
+pub async fn live_tools(
+    State(state): State<Arc<AppState>>,
+    Query(qs): Query<HashMap<String, String>>,
+) -> Json<Value> {
+    let (url, base_url) = {
         let db = state.db.lock().await;
         let root = project_root(&db);
-        backend_url(&db, &root)
+        let mut u = format!("{}/tools", backend_url(&db, &root));
+        if let Some(b) = qs.get("base_url").filter(|b| !b.is_empty()) {
+            u.push_str(&format!("?base_url={}", urlencoding(b)));
+        }
+        (u, qs.get("base_url").cloned().filter(|b| !b.is_empty()))
     };
-    match proxy_get(&format!("{url}/tools")).await {
-        Ok(v) => Json(json!({ "reachable": true, "data": v })),
+    match proxy_get(&url).await {
+        Ok(mut v) => {
+            // base_url из запроса — источник истины для UI (бэкенд может не вернуть его).
+            if let Some(obj) = v.as_object_mut() {
+                if let Some(b) = base_url {
+                    obj.insert("base_url".into(), json!(b));
+                }
+            }
+            Json(json!({ "reachable": true, "data": v }))
+        }
         Err(e) => Json(json!({ "reachable": false, "error": e })),
     }
 }
