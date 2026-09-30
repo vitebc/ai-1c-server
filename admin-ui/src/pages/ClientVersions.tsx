@@ -4,12 +4,13 @@ import { api } from '../api/client';
 import type { ClientVersion } from '../types';
 import { t } from '../i18n';
 import { errText } from '../errors';
-import { PageHeader, TableShell, Th, Td, Row, Badge, IconBtn, Btn, Modal, Field, TextInput, TextArea, Alert } from '../components/ui';
+import { PageHeader, TableShell, Th, Td, Row, Badge, IconBtn, Btn, Modal, Field, TextInput, TextArea, Alert, Confirm } from '../components/ui';
 
 export default function ClientVersions() {
   const [items, setItems] = useState<ClientVersion[]>([]);
   const [edit, setEdit] = useState<ClientVersion | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [del, setDel] = useState<ClientVersion | null>(null);
 
   useEffect(() => { load(); }, []);
   function load() { api.getClientVersions().then(setItems).catch(() => {}); }
@@ -22,6 +23,11 @@ export default function ClientVersions() {
         right={<Btn variant="primary" onClick={() => { setEdit(null); setShowForm(true); }}><Plus size={15} /> {t.versions.add}</Btn>}
       />
       {showForm && <VersionForm item={edit} onClose={() => setShowForm(false)} onSaved={load} />}
+      {del && (
+        <Confirm title={t.versions.deleteConfirm} message={`Версия ${del.version} будет удалена.`} danger confirmLabel={t.common.deleteConfirmLabel}
+          onClose={() => setDel(null)}
+          onConfirm={() => { api.deleteClientVersion(del.id).then(load); setDel(null); }} />
+      )}
       <TableShell
         colSpan={5}
         empty={items.length === 0 ? { text: t.versions.noVersions } : null}
@@ -39,7 +45,7 @@ export default function ClientVersions() {
             <Td><span className="text-xs text-slate-500">{item.created_at}</span></Td>
             <Td className="text-right whitespace-nowrap">
               <IconBtn title={t.common.edit} onClick={() => { setEdit(item); setShowForm(true); }}><Pencil size={15} /></IconBtn>
-              <IconBtn title={t.common.delete} onClick={() => { if (confirm(t.versions.deleteConfirm)) api.deleteClientVersion(item.id).then(load); }} className="hover:!text-red-600"><Trash2 size={15} /></IconBtn>
+              <IconBtn title={t.common.delete} onClick={() => setDel(item)} className="hover:!text-red-600"><Trash2 size={15} /></IconBtn>
             </Td>
           </Row>
         ))}

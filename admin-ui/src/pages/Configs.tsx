@@ -7,13 +7,14 @@ import { t } from '../i18n';
 import { errText } from '../errors';
 import {
   PageHeader, Card, CardBody, CardTitle, Btn, IconBtn, Badge,
-  TableShell, Th, Td, Row, Field, TextInput, Select, Modal, Alert,
+  TableShell, Th, Td, Row, Field, TextInput, Select, Modal, Alert, Confirm,
 } from '../components/ui';
 
 export default function Configs() {
   const [items, setItems] = useState<ConfigProfile[]>([]);
   const [edit, setEdit] = useState<ConfigProfile | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [delItem, setDelItem] = useState<ConfigProfile | null>(null);
 
   useEffect(() => { load(); }, []);
   function load() { api.getConfigProfiles().then(setItems).catch(() => {}); }
@@ -29,6 +30,11 @@ export default function Configs() {
         right={<Btn variant="primary" onClick={() => { setEdit(null); setShowForm(true); }}><Plus size={15} /> {t.configs.add}</Btn>}
       />
       {showForm && <ConfigForm item={edit} mains={mains} onClose={() => setShowForm(false)} onSaved={load} />}
+      {delItem && (
+        <Confirm title={t.configs.deleteConfirm} message={`Профиль «${delItem.name}» будет удалён.`} danger confirmLabel={t.common.deleteConfirmLabel}
+          onClose={() => setDelItem(null)}
+          onConfirm={() => { api.deleteConfigProfile(delItem.id).then(load); setDelItem(null); }} />
+      )}
       <SearchSettings />
       <TableShell
         colSpan={6}
@@ -53,7 +59,7 @@ export default function Configs() {
             <Td><span className="text-xs text-slate-500 dark:text-slate-400">{item.last_indexed || '-'}</span></Td>
             <Td className="text-right whitespace-nowrap">
               <IconBtn title={t.common.edit} onClick={() => { setEdit(item); setShowForm(true); }}><Pencil size={15} /></IconBtn>
-              <IconBtn title={t.common.delete} onClick={() => { if (confirm(t.configs.deleteConfirm)) api.deleteConfigProfile(item.id).then(load); }} className="hover:!text-red-600"><Trash2 size={15} /></IconBtn>
+              <IconBtn title={t.common.delete} onClick={() => setDelItem(item)} className="hover:!text-red-600"><Trash2 size={15} /></IconBtn>
             </Td>
           </Row>
         ))}

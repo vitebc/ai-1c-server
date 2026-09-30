@@ -5,7 +5,7 @@ import FileBrowser from '../components/FileBrowser';
 import type { AgentItem, SkillFileItem, PatternItem, AgentOverview, AgentBackendStatus, EnvEntry, Me, McpServer } from '../types';
 import { t } from '../i18n';
 import { errText } from '../errors';
-import { PageHeader, Card, CardBody, Btn, IconBtn, Badge, TableShell, Th, Td, Row, Field, TextInput, TextArea, Select, Modal as UiModal, Alert, Segmented } from '../components/ui';
+import { PageHeader, Card, CardBody, Btn, IconBtn, Badge, TableShell, Th, Td, Row, Field, TextInput, TextArea, Select, Modal as UiModal, Alert, Segmented, Confirm } from '../components/ui';
 
 type Tab = 'agents' | 'skills' | 'patterns' | 'backend' | 'env';
 
@@ -24,6 +24,7 @@ export default function AgentStudio({ me }: { me: Me | null }) {
   const [toolsMode, setToolsMode] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [browseRoot, setBrowseRoot] = useState(false);
+  const [pendingRoot, setPendingRoot] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setError('');
@@ -45,8 +46,7 @@ export default function AgentStudio({ me }: { me: Me | null }) {
 
   useEffect(() => { load(); }, [load]);
 
-  async function pickRoot(path: string) {
-    if (!confirm(t.studio.rootConfirm(path))) return;
+  async function doPickRoot(path: string) {
     setBrowseRoot(false);
     try {
       await api.putSetting('agent_project_root', path);
@@ -99,9 +99,14 @@ export default function AgentStudio({ me }: { me: Me | null }) {
           dirsOnly
           title="Выберите корень агентского проекта (содержит backend/ + docker-compose.yml)"
           initialPath={ov?.root || undefined}
-          onPick={pickRoot}
+          onPick={setPendingRoot}
           onClose={() => setBrowseRoot(false)}
         />
+      )}
+      {pendingRoot && (
+        <Confirm title={t.studio.rootConfirm(pendingRoot)} confirmLabel={t.common.confirm}
+          onClose={() => setPendingRoot(null)}
+          onConfirm={() => { const p = pendingRoot; setPendingRoot(null); doPickRoot(p); }} />
       )}
     </div>
   );
@@ -319,10 +324,9 @@ function AgentsTab({ ov, tools, toolsMode, skills, onChanged }: { ov: AgentOverv
   const [edit, setEdit] = useState<AgentItem | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [formError, setFormError] = useState('');
+  const [delAgent, setDelAgent] = useState<AgentItem | null>(null);
 
-  async function remove(a: AgentItem) {
-    if (!confirm(`Удалить агента «${a.name}»? Папка backend/agents/${a.name}/ будет удалена.`)) return;
-    if (!confirm(`Подтвердите: точно удалить агента «${a.name}»?`)) return;
+  async function doRemove(a: AgentItem) {
     await api.deleteAgent(a.name);
     onChanged();
   }
@@ -346,6 +350,11 @@ function AgentsTab({ ov, tools, toolsMode, skills, onChanged }: { ov: AgentOverv
           onError={setFormError}
         />
       )}
+      {delAgent && (
+        <Confirm title={`Удалить агента «${delAgent.name}»?`} message={`Папка backend/agents/${delAgent.name}/ будет удалена.`} danger double confirmLabel={t.common.deleteConfirmLabel}
+          onClose={() => setDelAgent(null)}
+          onConfirm={() => { doRemove(delAgent); setDelAgent(null); }} />
+      )}
       <TableShell
         colSpan={5}
         empty={ov.agents.length === 0 ? { text: t.studio.noAgents } : null}
@@ -364,7 +373,7 @@ function AgentsTab({ ov, tools, toolsMode, skills, onChanged }: { ov: AgentOverv
             <Td><span className="font-mono text-[11px] text-slate-500 max-w-[160px] truncate block" title={a.skills.join(', ')}>{a.skills.join(', ') || '—'}</span></Td>
             <Td className="text-right whitespace-nowrap">
               <IconBtn title={t.common.edit} onClick={() => { setEdit(a); setFormError(''); setShowNew(false); }}><Pencil size={15} /></IconBtn>
-              <IconBtn title={t.common.delete} onClick={() => remove(a)} className="hover:!text-red-600"><Trash2 size={15} /></IconBtn>
+              <IconBtn title={t.common.delete} onClick={() => setDelAgent(a)} className="hover:!text-red-600"><Trash2 size={15} /></IconBtn>
             </Td>
           </Row>
         ))}
@@ -534,6 +543,7 @@ function SkillsTab({ ov, tools, toolsMode, onChanged }: { ov: AgentOverview; too
   // Live names from the backend (refreshed with every overview reload,
   // i.e. right after save/delete).
   const [liveNames, setLiveNames] = useState<string[] | null>(null);
+  const [delSkill, setDelSkill] = useState<SkillFileItem | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -543,9 +553,7 @@ function SkillsTab({ ov, tools, toolsMode, onChanged }: { ov: AgentOverview; too
     return () => { alive = false; };
   }, [ov]);
 
-  async function remove(s: SkillFileItem) {
-    if (!confirm(`Удалить скилл «${s.name}»? Папка backend/skills/${s.name}/ будет удалена.`)) return;
-    if (!confirm(`Подтвердите: точно удалить скилл «${s.name}»?`)) return;
+  async function doRemoveSkill(s: SkillFileItem) {
     await api.deleteAgentSkill(s.name);
     onChanged();
   }
@@ -560,6 +568,11 @@ function SkillsTab({ ov, tools, toolsMode, onChanged }: { ov: AgentOverview; too
       {(showNew || edit) && (
         <SkillForm item={edit} tools={tools} toolsMode={toolsMode} error={formError}
           onClose={() => { setShowNew(false); setEdit(null); }} onSaved={onChanged} onError={setFormError} />
+      )}
+      {delSkill && (
+        <Confirm title={`Удалить скилл «${delSkill.name}»?`} message={`Папка backend/skills/${delSkill.name}/ будет удалена.`} danger double confirmLabel={t.common.deleteConfirmLabel}
+          onClose={() => setDelSkill(null)}
+          onConfirm={() => { doRemoveSkill(delSkill); setDelSkill(null); }} />
       )}
       <TableShell
         colSpan={4}
@@ -581,7 +594,7 @@ function SkillsTab({ ov, tools, toolsMode, onChanged }: { ov: AgentOverview; too
             <Td><span className="font-mono text-[11px] text-slate-500 max-w-[220px] truncate block" title={s.tools.join(', ')}>{s.tools.join(', ') || '—'}</span></Td>
             <Td className="text-right whitespace-nowrap">
               <IconBtn title={t.common.edit} onClick={() => { setEdit(s); setFormError(''); setShowNew(false); }}><Pencil size={15} /></IconBtn>
-              <IconBtn title={t.common.delete} onClick={() => remove(s)} className="hover:!text-red-600"><Trash2 size={15} /></IconBtn>
+              <IconBtn title={t.common.delete} onClick={() => setDelSkill(s)} className="hover:!text-red-600"><Trash2 size={15} /></IconBtn>
             </Td>
           </Row>
         ))}
@@ -613,9 +626,10 @@ function SkillForm({ item, tools, toolsMode, error, onClose, onSaved, onError }:
   const [selTools, setSelTools] = useState<string[]>(item?.tools || []);
   const [body, setBody] = useState(item?.body || '');
   const [hintOpen, setHintOpen] = useState(false);
+  const [confirmExample, setConfirmExample] = useState(false);
 
   function insertExample() {
-    if (body.trim() && !confirm('В теле уже есть текст. Заменить его примером?')) return;
+    if (body.trim()) { setConfirmExample(true); return; }
     setBody(SKILL_BODY_EXAMPLE);
   }
 
@@ -672,6 +686,11 @@ function SkillForm({ item, tools, toolsMode, error, onClose, onSaved, onError }:
           <ToolsCheck all={tools} selected={selTools} onChange={setSelTools} mode={toolsMode} cols={1} fill />
         </div>
       </div>
+      {confirmExample && (
+        <Confirm title="В теле уже есть текст. Заменить его примером?" confirmLabel="Заменить"
+          onClose={() => setConfirmExample(false)}
+          onConfirm={() => { setBody(SKILL_BODY_EXAMPLE); setConfirmExample(false); }} />
+      )}
     </FormModal>
   );
 }
@@ -682,10 +701,9 @@ function PatternsTab({ ov, onChanged }: { ov: AgentOverview; onChanged: () => vo
   const [edit, setEdit] = useState<PatternItem | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [formError, setFormError] = useState('');
+  const [delPattern, setDelPattern] = useState<PatternItem | null>(null);
 
-  async function remove(p: PatternItem) {
-    if (!confirm(`Удалить паттерн «${p.name}»? Файл backend/patterns/${p.name}.md будет удалён.`)) return;
-    if (!confirm(`Подтвердите: точно удалить паттерн «${p.name}»?`)) return;
+  async function doRemovePattern(p: PatternItem) {
     await api.deletePattern(p.name);
     onChanged();
   }
@@ -701,6 +719,11 @@ function PatternsTab({ ov, onChanged }: { ov: AgentOverview; onChanged: () => vo
         <PatternForm item={edit} error={formError}
           onClose={() => { setShowNew(false); setEdit(null); }} onSaved={onChanged} onError={setFormError} />
       )}
+      {delPattern && (
+        <Confirm title={`Удалить паттерн «${delPattern.name}»?`} message={`Файл backend/patterns/${delPattern.name}.md будет удалён.`} danger double confirmLabel={t.common.deleteConfirmLabel}
+          onClose={() => setDelPattern(null)}
+          onConfirm={() => { doRemovePattern(delPattern); setDelPattern(null); }} />
+      )}
       <TableShell
         colSpan={3}
         empty={ov.patterns.length === 0 ? { text: t.studio.noPatterns } : null}
@@ -712,7 +735,7 @@ function PatternsTab({ ov, onChanged }: { ov: AgentOverview; onChanged: () => vo
             <Td><span className="text-xs text-slate-500 max-w-[420px] truncate block" title={p.description}>{p.description || '—'}</span></Td>
             <Td className="text-right whitespace-nowrap">
               <IconBtn title={t.common.edit} onClick={() => { setEdit(p); setFormError(''); setShowNew(false); }}><Pencil size={15} /></IconBtn>
-              <IconBtn title={t.common.delete} onClick={() => remove(p)} className="hover:!text-red-600"><Trash2 size={15} /></IconBtn>
+              <IconBtn title={t.common.delete} onClick={() => setDelPattern(p)} className="hover:!text-red-600"><Trash2 size={15} /></IconBtn>
             </Td>
           </Row>
         ))}
@@ -769,6 +792,7 @@ function BackendTab() {
   const [logGrep, setLogGrep] = useState('');
   const logEndRef = useRef<HTMLDivElement>(null);
   const [live, setLive] = useState<{ agents: string[]; skills: string[]; errors: string[]; reachable: boolean } | null>(null);
+  const [pendingBackendAction, setPendingBackendAction] = useState<{ fn: () => Promise<{ ok: boolean; output: string }>; msg: string } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -786,8 +810,7 @@ function BackendTab() {
 
   useEffect(() => { load(); }, [load]);
 
-  async function run(fn: () => Promise<{ ok: boolean; output: string }>, confirmMsg?: string) {
-    if (confirmMsg && !confirm(confirmMsg)) return;
+  async function run(fn: () => Promise<{ ok: boolean; output: string }>) {
     setBusy(true);
     setOutput('');
     try {
@@ -853,10 +876,10 @@ function BackendTab() {
           <Btn variant="primary" disabled={busy} onClick={() => run(() => api.agentBackendUp([], profiles))} className="!bg-emerald-600 hover:!bg-emerald-500 dark:!bg-emerald-600">
             <Play size={13} /> {t.studio.start}
           </Btn>
-          <Btn variant="outline" disabled={busy} onClick={() => run(() => api.agentBackendStop([]), 'Остановить все контейнеры агент-бэкенда? (данные сохранятся)')}>
+          <Btn variant="outline" disabled={busy} onClick={() => setPendingBackendAction({ fn: () => api.agentBackendStop([]), msg: 'Остановить все контейнеры агент-бэкенда? (данные сохранятся)' })}>
             <Square size={13} /> {t.studio.stopAll}
           </Btn>
-          <Btn variant="outline" disabled={busy} onClick={() => run(() => api.agentBackendRestart(['backend']), 'Перезапустить контейнер бэкенда? Текущие chat-запросы упадут.')}>
+          <Btn variant="outline" disabled={busy} onClick={() => setPendingBackendAction({ fn: () => api.agentBackendRestart(['backend']), msg: 'Перезапустить контейнер бэкенда? Текущие chat-запросы упадут.' })}>
             <RotateCcw size={13} /> {t.studio.restartBackend}
           </Btn>
         </div>
@@ -911,6 +934,11 @@ function BackendTab() {
           <div ref={logEndRef} />
         </div>
       </CardBody></Card>
+      {pendingBackendAction && (
+        <Confirm title={pendingBackendAction.msg} confirmLabel={t.common.confirm}
+          onClose={() => setPendingBackendAction(null)}
+          onConfirm={() => { const a = pendingBackendAction; setPendingBackendAction(null); run(a.fn); }} />
+      )}
     </div>
   );
 }
@@ -922,6 +950,7 @@ function EnvTab() {
   const [editing, setEditing] = useState<Record<string, string>>({});
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
   const [msg, setMsg] = useState('');
+  const [confirmSaveKey, setConfirmSaveKey] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -933,9 +962,8 @@ function EnvTab() {
 
   useEffect(() => { load(); }, [load]);
 
-  async function save(key: string) {
+  async function doSave(key: string) {
     const value = editing[key] ?? '';
-    if (!confirm(`Записать ${key} в .env проекта? Потребуется рестарт бэкенда.`)) return;
     setMsg('');
     try {
       await api.putAgentEnv(key, value);
@@ -984,7 +1012,7 @@ function EnvTab() {
               <Td className="text-right whitespace-nowrap">
                 {isEditing ? (
                   <>
-                    <Btn variant="primary" onClick={() => save(e.key)} className="!py-1 !text-xs mr-1">{t.common.save}</Btn>
+                    <Btn variant="primary" onClick={() => setConfirmSaveKey(e.key)} className="!py-1 !text-xs mr-1">{t.common.save}</Btn>
                     <Btn variant="ghost" onClick={() => setEditing(prev => { const n = { ...prev }; delete n[e.key]; return n; })} className="!py-1 !text-xs">{t.common.cancel}</Btn>
                   </>
                 ) : (
@@ -1000,6 +1028,11 @@ function EnvTab() {
           );
         })}
       </TableShell>
+      {confirmSaveKey && (
+        <Confirm title={`Записать ${confirmSaveKey} в .env проекта?`} message="Потребуется рестарт бэкенда." confirmLabel={t.common.confirm}
+          onClose={() => setConfirmSaveKey(null)}
+          onConfirm={() => { const k = confirmSaveKey; setConfirmSaveKey(null); doSave(k); }} />
+      )}
     </div>
   );
 }

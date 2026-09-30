@@ -6,7 +6,7 @@ import { api, authFetch } from '../api/client';
 import type { Skill } from '../types';
 import { t } from '../i18n';
 import { errText } from '../errors';
-import { PageHeader, Card, CardBody, Btn, Field, TextInput, TextArea, Alert } from '../components/ui';
+import { PageHeader, Card, CardBody, Btn, Field, TextInput, TextArea, Alert, Confirm } from '../components/ui';
 
 export default function Skills() {
   const [items, setItems] = useState<Skill[]>([]);
@@ -175,6 +175,7 @@ function SkillDetail({ skill, onSaved, onDeleted }: { skill: Skill; onSaved: () 
     metadata: skill.metadata || '',
   });
   const [saving, setSaving] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
 
   async function handleSave() {
     setSaving(true);
@@ -194,9 +195,7 @@ function SkillDetail({ skill, onSaved, onDeleted }: { skill: Skill; onSaved: () 
   }
 
   async function handleDelete() {
-    if (!confirm(t.skills.deleteConfirm)) return;
-    await api.deleteSkill(skill.id);
-    onDeleted();
+    setConfirmDel(true);
   }
 
   const set = (k: keyof typeof form) => (v: string) => setForm(f => ({ ...f, [k]: v }));
@@ -259,6 +258,11 @@ function SkillDetail({ skill, onSaved, onDeleted }: { skill: Skill; onSaved: () 
           </Btn>
         </div>
       </CardBody>
+      {confirmDel && (
+        <Confirm title={t.skills.deleteConfirm} message={`Скилл «${skill.name}» будет удалён.`} danger confirmLabel={t.common.deleteConfirmLabel}
+          onClose={() => setConfirmDel(false)}
+          onConfirm={async () => { await api.deleteSkill(skill.id); onDeleted(); }} />
+      )}
     </Card>
   );
 }

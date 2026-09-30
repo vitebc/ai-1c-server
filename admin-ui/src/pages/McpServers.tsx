@@ -6,7 +6,7 @@ import FileBrowser from '../components/FileBrowser';
 import type { McpServer, ServerStatus } from '../types';
 import { t } from '../i18n';
 import { errText } from '../errors';
-import { PageHeader, Card, CardBody, Btn, IconBtn, Badge, StatusDot, TableShell, Th, Td, Row, Field, TextInput, TextArea, Select, Modal, Alert } from '../components/ui';
+import { PageHeader, Card, CardBody, Btn, IconBtn, Badge, StatusDot, TableShell, Th, Td, Row, Field, TextInput, TextArea, Select, Modal, Alert, Confirm } from '../components/ui';
 
 const SERVER_TYPES = ['custom', 'local', 'remote', 'builtin'];
 const TRANSPORTS = ['stdio', 'sse', 'http'];
@@ -22,6 +22,8 @@ export default function McpServers() {
   const [toolsFor, setToolsFor] = useState<McpServer | null>(null);
   const [reindexJob, setReindexJob] = useState<{ jobId: string; name: string } | null>(null);
   const [opMsg, setOpMsg] = useState('');
+  const [delItem, setDelItem] = useState<McpServer | null>(null);
+  const [reindexItem, setReindexItem] = useState<McpServer | null>(null);
 
   useEffect(() => { load(); }, []);
 
@@ -39,7 +41,6 @@ export default function McpServers() {
   function openEdit(item: McpServer) { setEdit(item); setShowForm(true); }
 
   async function handleDelete(id: string) {
-    if (!confirm(t.mcp.deleteConfirm)) return;
     await api.deleteMcpServer(id);
     load();
   }
@@ -50,7 +51,6 @@ export default function McpServers() {
   }
 
   async function handleReindex(item: McpServer) {
-    if (!confirm(t.mcp.reindexConfirm(item.name))) return;
     setOpMsg('');
     try {
       const res = await api.reindexMcp(item.id);
@@ -104,6 +104,16 @@ export default function McpServers() {
           onClose={() => { setReindexJob(null); load(); }}
         />
       )}
+      {delItem && (
+        <Confirm title={t.mcp.deleteConfirm} message={`Сервер «${delItem.name}» будет удалён.`} danger confirmLabel={t.common.deleteConfirmLabel}
+          onClose={() => setDelItem(null)}
+          onConfirm={() => { handleDelete(delItem.id); setDelItem(null); }} />
+      )}
+      {reindexItem && (
+        <Confirm title={t.mcp.reindexConfirm(reindexItem.name)} confirmLabel={t.common.confirm}
+          onClose={() => setReindexItem(null)}
+          onConfirm={() => { handleReindex(reindexItem); setReindexItem(null); }} />
+      )}
       {opMsg && (
         <div className="mb-4">
           <Alert tone={/fail|ошиб/i.test(opMsg) ? 'red' : 'green'}>{opMsg}</Alert>
@@ -155,12 +165,12 @@ export default function McpServers() {
                 <IconBtn title={t.mcp.indexStats} onClick={() => setStatsFor(item)}><BarChart3 size={15} /></IconBtn>
               )}
               {item.server_type.startsWith('search') && (
-                <IconBtn title={t.mcp.reindex} onClick={() => handleReindex(item)}><DatabaseZap size={15} /></IconBtn>
+                <IconBtn title={t.mcp.reindex} onClick={() => setReindexItem(item)}><DatabaseZap size={15} /></IconBtn>
               )}
               <IconBtn title={t.mcp.liveTools} onClick={() => setToolsFor(item)}><Wrench size={15} /></IconBtn>
               <IconBtn title={t.mcp.restart} onClick={() => handleRestart(item.id)}><RotateCcw size={15} /></IconBtn>
               <IconBtn title={t.common.edit} onClick={() => openEdit(item)}><Pencil size={15} /></IconBtn>
-              <IconBtn title={t.common.delete} onClick={() => handleDelete(item.id)} className="hover:!text-red-600 dark:hover:!text-red-400"><Trash2 size={15} /></IconBtn>
+              <IconBtn title={t.common.delete} onClick={() => setDelItem(item)} className="hover:!text-red-600 dark:hover:!text-red-400"><Trash2 size={15} /></IconBtn>
             </Td>
           </Row>
         ))}

@@ -4,6 +4,17 @@
 Централизованное управление MCP-серверами, конфигурациями 1С
 и развёртывание клиентов в команде разработчиков.
 
+**ЭТО БОЕВОЙ СЕРВЕР.** Разработка ведётся прямо на нём:
+редактируешь код → собираешь → перезапускаешь демона (`scripts/stop.sh` +
+`start.sh`) → проверяешь в проде. Ничего не «откатится», если сломать —
+демон поднимется со старым бинарником, но БД и `data/` общие.
+
+**Правило безопасности:** после каждого изменения — локальный коммит
+(`git add -A && git commit`). Если файл в `.gitignore` (не коммитится:
+`data/`, `admin-ui/dist/`, `server.log`, `*.jar`) — сделать бэкап вручную
+(например, `cp data/db.sqlite /tmp/opencode/db.sqlite.bak-<ts>` перед
+опасной операцией). Не делать «большой» коммит в конце сессии.
+
 ## Состояние проекта
 
 Работающие блоки (все покрыты API + UI):
@@ -55,8 +66,20 @@ cd admin-ui && npm install && npm run build
 sudo ./scripts/install-service.sh   # + service-status.sh / service-logs.sh / uninstall-service.sh
 ```
 
-Бинарник: `ai-1c-server` (не `mini-ai-1c-server`); путь сборки для
-`start.sh`: `target/x86_64-unknown-linux-gnu/release/ai-1c-server`.
+### Запуск демона (локально, без systemd)
+
+```bash
+./scripts/start.sh     # build не делает: нужен бинарник из target/x86_64-unknown-linux-gnu/release/ai-1c-server
+./scripts/stop.sh      # + fallback на сироту, слушающего порт (ss/lsof/fuser)
+./scripts/status.sh    # ./scripts/restart.sh — stop+start
+```
+
+- `start.sh` сам гоняет `migrate`, ждёт `/health` ~15 c, пишет `server.log`
+  и `server.pid`; отказывается стартовать, если порт уже занят.
+- Переопределяются env: `PORT` (дефолт 9224), `DATA_DIR` (дефолт `<repo>/data`).
+- Дефолт `--data-dir` в бинарнике — `/data/mini-ai-1c` (VPS); локально всегда
+  передаётся явно, так что данные живут в `<repo>/data/`.
+- Бинарник: `ai-1c-server` (не `mini-ai-1c-server`).
 
 ### Обязательный цикл выката
 
@@ -139,4 +162,3 @@ client_versions, clients, server_settings, audit_log),
 
 - `API.md` — HTTP API (актуально, обновляется вместе с роутами).
 - `SETUP.md` — установка/развёртывание на VPS, systemd, MCP-клиенты.
-- `AGENTS.md` — этот файл: состояние, сборка, архитектура, RBAC.

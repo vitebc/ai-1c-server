@@ -4,7 +4,7 @@ import { api } from '../api/client';
 import type { UserDto } from '../types';
 import { t } from '../i18n';
 import { errText } from '../errors';
-import { PageHeader, TableShell, Th, Td, Row, Badge, IconBtn, Btn, Modal, Field, TextInput, Select, Alert } from '../components/ui';
+import { PageHeader, TableShell, Th, Td, Row, Badge, IconBtn, Btn, Modal, Field, TextInput, Select, Alert, Confirm } from '../components/ui';
 
 const ROLES = ['admin', 'operator', 'viewer', 'prompter'];
 
@@ -63,6 +63,7 @@ export default function Users() {
   const [selfName, setSelfName] = useState('');
   const [selfRole, setSelfRole] = useState('');
   const [roleBase, setRoleBase] = useState<Record<string, string[]>>(ROLE_BASE);
+  const [pendingAction, setPendingAction] = useState<{ kind: 'delete' | 'resetPw' | 'toggle' | 'role'; user: UserDto; role?: string } | null>(null);
 
   const load = useCallback(async () => {
     setError('');
@@ -77,9 +78,7 @@ export default function Users() {
 
   useEffect(() => { load(); }, [load]);
 
-  async function remove(u: UserDto) {
-    if (!confirm(t.users.deleteConfirm(u.username))) return;
-    if (!confirm(t.users.deleteConfirm2(u.username))) return;
+  async function doRemove(u: UserDto) {
     try {
       await api.deleteUser(u.id);
       await load();
@@ -88,8 +87,7 @@ export default function Users() {
     }
   }
 
-  async function resetPw(u: UserDto) {
-    if (!confirm(t.users.resetConfirm(u.username))) return;
+  async function doResetPw(u: UserDto) {
     try {
       const r = await api.resetUserPassword(u.id);
       setNewPw(r);
@@ -98,9 +96,7 @@ export default function Users() {
     }
   }
 
-  async function toggleEnabled(u: UserDto) {
-    const action = u.enabled ? 'disable' : 'enable';
-    if (!confirm(t.users.toggleConfirm(action, u.username))) return;
+  async function doToggleEnabled(u: UserDto) {
     try {
       await api.updateUser(u.id, { enabled: !u.enabled });
       await load();
@@ -109,8 +105,7 @@ export default function Users() {
     }
   }
 
-  async function changeRole(u: UserDto, role: string) {
-    if (!confirm(t.users.roleConfirm(u.username, role))) return;
+  async function doChangeRole(u: UserDto, role: string) {
     try {
       await api.updateUser(u.id, { role });
       await load();
@@ -129,6 +124,29 @@ export default function Users() {
 
       {error && <div className="mb-4"><Alert tone="red">{error}</Alert></div>}
 
+      {pendingAction && (
+        <Confirm
+          title={
+            pendingAction.kind === 'delete' ? t.users.deleteConfirm(pendingAction.user.username) :
+            pendingAction.kind === 'resetPw' ? t.users.resetConfirm(pendingAction.user.username) :
+            pendingAction.kind === 'toggle' ? t.users.toggleConfirm(pendingAction.user.enabled ? 'disable' : 'enable', pendingAction.user.username) :
+            t.users.roleConfirm(pendingAction.user.username, pendingAction.role || '')
+          }
+          message={pendingAction.kind === 'delete' ? t.users.deleteConfirm2(pendingAction.user.username) : undefined}
+          danger={pendingAction.kind === 'delete'}
+          double={pendingAction.kind === 'delete'}
+          confirmLabel={t.common.confirm}
+          onClose={() => setPendingAction(null)}
+          onConfirm={() => {
+            const a = pendingAction;
+            setPendingAction(null);
+            if (a.kind === 'delete') doRemove(a.user);
+            else if (a.kind === 'resetPw') doResetPw(a.user);
+            else if (a.kind === 'toggle') doToggleEnabled(a.user);
+            else if (a.kind === 'role' && a.role) doChangeRole(a.user, a.role);
+          }}
+        />
+      )}
       {showNew && <NewUserForm onClose={() => setShowNew(false)} onSaved={load} onError={setError} />}
       {selfRole === 'admin' && (
         <RolesMatrix roleBase={roleBase} canEdit={selfRole === 'admin'} onChanged={load} onError={setError} />
@@ -156,7 +174,7 @@ export default function Users() {
           <Row key={u.id}>
             <Td><span className="font-mono text-xs font-medium text-slate-800 dark:text-slate-100">{u.username}</span></Td>
             <Td>
-              <Select value={u.role} onChange={e => changeRole(u, e.target.value)} disabled={u.username === selfName} title={u.username === selfName ? t.users.selfLock : undefined} className="!w-auto text-xs !py-1 !px-2">
+              <Select value={u.role} onChange={e => setPendingAction({ kind: 'role', user: u, role: e.target.value })} disabled={u.username === selfName} title={u.username === selfName ? t.users.selfLock : undefined} className="!w-auto text-xs !py-1 !px-2">
                 {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
               </Select>
             </Td>
@@ -169,7 +187,7 @@ export default function Users() {
               <button onClick={() => setEditSections(u)} disabled={u.username === selfName && selfRole !== 'admin'} title={u.username === selfName && selfRole !== 'admin' ? t.users.selfLock : undefined} className="ml-2 text-blue-600 hover:underline dark:text-blue-400 cursor-pointer disabled:opacity-40 disabled:no-underline disabled:cursor-not-allowed">{t.common.edit}</button>
             </Td>
             <Td>
-              <button onClick={() => toggleEnabled(u)} disabled={u.username === selfName} title={u.username === selfName ? t.users.selfLock : undefined} className="cursor-pointer disabled:cursor-not-allowed">
+              <button onClick={() => setPendingAction({ kind: 'toggle', user: u })} disabled={u.username === selfName} title={u.username === selfName ? t.users.selfLock : undefined} className="cursor-pointer disabled:cursor-not-allowed">
                 <Badge tone={u.enabled ? 'green' : 'neutral'}>
                   {u.enabled ? t.common.enabled : t.common.disabled}
                 </Badge>
@@ -177,8 +195,8 @@ export default function Users() {
             </Td>
             <Td className="text-right whitespace-nowrap">
               <IconBtn title={t.users.setPwConfirm(u.username)} onClick={() => setSetPwFor(u)}><Pencil size={15} /></IconBtn>
-              <IconBtn title={t.users.resetConfirm(u.username)} onClick={() => resetPw(u)}><KeyRound size={15} /></IconBtn>
-              <IconBtn title={t.common.delete} onClick={() => remove(u)} className="hover:!text-red-600"><Trash2 size={15} /></IconBtn>
+              <IconBtn title={t.users.resetConfirm(u.username)} onClick={() => setPendingAction({ kind: 'resetPw', user: u })}><KeyRound size={15} /></IconBtn>
+              <IconBtn title={t.common.delete} onClick={() => setPendingAction({ kind: 'delete', user: u })} className="hover:!text-red-600"><Trash2 size={15} /></IconBtn>
             </Td>
           </Row>
         ))}
@@ -191,10 +209,9 @@ function NewUserForm({ onClose, onSaved, onError }: { onClose: () => void; onSav
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState('viewer');
+  const [confirmCreate, setConfirmCreate] = useState(false);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!confirm(t.users.createConfirm(username.trim(), role))) return;
+  async function doCreate() {
     try {
       await api.createUser({ username: username.trim(), password, role });
       onSaved();
@@ -202,6 +219,11 @@ function NewUserForm({ onClose, onSaved, onError }: { onClose: () => void; onSav
     } catch (err) {
       onError(errText(err, 'Ошибка создания'));
     }
+  }
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setConfirmCreate(true);
   }
 
   return (
@@ -223,6 +245,11 @@ function NewUserForm({ onClose, onSaved, onError }: { onClose: () => void; onSav
           <Btn variant="primary" type="submit">{t.common.create}</Btn>
         </div>
       </form>
+      {confirmCreate && (
+        <Confirm title={t.users.createConfirm(username.trim(), role)} confirmLabel={t.common.create}
+          onClose={() => setConfirmCreate(false)}
+          onConfirm={() => { doCreate(); }} />
+      )}
     </Modal>
   );
 }
@@ -232,10 +259,9 @@ function SetPasswordForm({ user, onClose, onSaved, onError }: {
 }) {
   const [password, setPassword] = useState('');
   const [done, setDone] = useState(false);
+  const [confirmSet, setConfirmSet] = useState(false);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!confirm(t.users.setPwConfirm(user.username))) return;
+  async function doSet() {
     try {
       await api.setUserPassword(user.id, password);
       setDone(true);
@@ -244,6 +270,11 @@ function SetPasswordForm({ user, onClose, onSaved, onError }: {
       onError(errText(err, 'Ошибка сохранения'));
       onClose();
     }
+  }
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setConfirmSet(true);
   }
 
   return (
@@ -257,6 +288,11 @@ function SetPasswordForm({ user, onClose, onSaved, onError }: {
           <Btn variant="primary" type="submit">{t.common.save}</Btn>
         </div>
       </form>
+      {confirmSet && (
+        <Confirm title={t.users.setPwConfirm(user.username)} confirmLabel={t.common.confirm}
+          onClose={() => setConfirmSet(false)}
+          onConfirm={() => { doSet(); }} />
+      )}
     </Modal>
   );
 }

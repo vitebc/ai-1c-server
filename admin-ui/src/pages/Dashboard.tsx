@@ -4,7 +4,7 @@ import { api } from '../api/client';
 import { copyText } from '../clipboard';
 import type { BslLsState, DashboardData, ServerStatus } from '../types';
 import { t } from '../i18n';
-import { PageHeader, Card, CardBody, CardTitle, Badge, StatusDot, Btn, Alert } from '../components/ui';
+import { PageHeader, Card, CardBody, CardTitle, Badge, StatusDot, Btn, Alert, Confirm } from '../components/ui';
 
 export default function Dashboard() {
   const [status, setStatus] = useState<ServerStatus[]>([]);
@@ -105,6 +105,7 @@ function ApiAccess() {
   const [copyError, setCopyError] = useState(false);
   const [busy, setBusy] = useState(false);
   const [visible, setVisible] = useState(false);
+  const [confirmRegen, setConfirmRegen] = useState(false);
 
   async function load() {
     try {
@@ -134,8 +135,7 @@ function ApiAccess() {
     }
   }
 
-  async function regenerate() {
-    if (!confirm(t.dash.confirmRegen)) return;
+  async function doRegenerate() {
     setBusy(true);
     try {
       const res = await api.rotateToken();
@@ -189,10 +189,15 @@ function ApiAccess() {
             {copied ? <Check size={15} className="text-emerald-500" /> : <Copy size={15} className={copyError ? 'text-red-500' : ''} />}
           </button>
         )}
-        <Btn variant="outline" onClick={regenerate} disabled={busy} className="!py-1.5 !text-xs">
+        <Btn variant="outline" onClick={() => setConfirmRegen(true)} disabled={busy} className="!py-1.5 !text-xs">
           <RefreshCw size={13} /> {token ? t.dash.regenerate : t.dash.generate}
         </Btn>
       </div>
+      {confirmRegen && (
+        <Confirm title={t.dash.confirmRegen} confirmLabel={t.common.confirm}
+          onClose={() => setConfirmRegen(false)}
+          onConfirm={() => { doRegenerate(); setConfirmRegen(false); }} />
+      )}
     </CardBody></Card>
   );
 }

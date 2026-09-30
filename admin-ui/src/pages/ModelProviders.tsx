@@ -4,12 +4,13 @@ import { api } from '../api/client';
 import type { ModelProvider } from '../types';
 import { t } from '../i18n';
 import { errText } from '../errors';
-import { PageHeader, TableShell, Th, Td, Row, Badge, IconBtn, Btn, Modal, Field, TextInput, Alert } from '../components/ui';
+import { PageHeader, TableShell, Th, Td, Row, Badge, IconBtn, Btn, Modal, Field, TextInput, Alert, Confirm } from '../components/ui';
 
 export default function ModelProviders() {
   const [items, setItems] = useState<ModelProvider[]>([]);
   const [edit, setEdit] = useState<ModelProvider | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [del, setDel] = useState<ModelProvider | null>(null);
 
   useEffect(() => { load(); }, []);
   function load() { api.getModelProviders().then(setItems).catch(() => {}); }
@@ -22,6 +23,11 @@ export default function ModelProviders() {
         right={<Btn variant="primary" onClick={() => { setEdit(null); setShowForm(true); }}><Plus size={15} /> {t.models.add}</Btn>}
       />
       {showForm && <ProviderForm item={edit} onClose={() => setShowForm(false)} onSaved={load} />}
+      {del && (
+        <Confirm title={t.models.deleteConfirm} message={`Провайдер «${del.name}» будет удалён.`} danger confirmLabel={t.common.deleteConfirmLabel}
+          onClose={() => setDel(null)}
+          onConfirm={() => { api.deleteModelProvider(del.id).then(load); setDel(null); }} />
+      )}
       <TableShell
         colSpan={5}
         empty={items.length === 0 ? { text: t.models.noProviders } : null}
@@ -42,7 +48,7 @@ export default function ModelProviders() {
             </Td>
             <Td className="text-right whitespace-nowrap">
               <IconBtn title={t.common.edit} onClick={() => { setEdit(item); setShowForm(true); }}><Pencil size={15} /></IconBtn>
-              <IconBtn title={t.common.delete} onClick={() => { if (confirm(t.models.deleteConfirm)) api.deleteModelProvider(item.id).then(load); }} className="hover:!text-red-600"><Trash2 size={15} /></IconBtn>
+              <IconBtn title={t.common.delete} onClick={() => setDel(item)} className="hover:!text-red-600"><Trash2 size={15} /></IconBtn>
             </Td>
           </Row>
         ))}

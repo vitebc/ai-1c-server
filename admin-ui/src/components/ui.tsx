@@ -1,4 +1,5 @@
 import { Inbox, CircleAlert, CircleCheck, Info, TriangleAlert } from 'lucide-react';
+import { useState } from 'react';
 import type { ReactNode } from 'react';
 
 // Единые примитивы плотной dev-консоли: светлая/тёмная через dark: вариант Tailwind.
@@ -152,6 +153,31 @@ export function Modal({ title, onClose, children, wide, xwide, fill }: { title: 
         <div className={`p-5 ${fill ? 'flex-1 min-h-0 flex flex-col' : ''}`}>
           <h3 className={`text-base font-semibold text-slate-900 dark:text-slate-100 ${fill ? 'shrink-0 mb-4' : 'mb-4'}`}>{title}</h3>
           {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Inline-подтверждение вместо нативного window.confirm(): одно и то же окно,
+// без системных диалогов. double=true — вторая кнопка «Точно?» (для необратимых).
+export function Confirm({ title, message, confirmLabel, cancelLabel, danger, double, onConfirm, onClose }: {
+  title: string; message?: ReactNode; confirmLabel?: string; cancelLabel?: string;
+  danger?: boolean; double?: boolean; onConfirm: () => void; onClose: () => void;
+}) {
+  const [armed, setArmed] = useState(false);
+  return (
+    <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-[2px] flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl w-full max-w-md p-5" onClick={e => e.stopPropagation()}>
+        <h3 className={`text-base font-semibold mb-1 ${danger ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-slate-100'}`}>{title}</h3>
+        {message && <div className="text-[13px] text-slate-500 dark:text-slate-400 mb-4 whitespace-pre-line">{message}</div>}
+        <div className="flex justify-end gap-2">
+          <Btn variant="ghost" onClick={onClose}>{cancelLabel ?? 'Отмена'}</Btn>
+          {double && !armed ? (
+            <Btn variant={danger ? 'danger-outline' : 'primary'} onClick={() => setArmed(true)}>{confirmLabel ?? 'Подтвердить'}</Btn>
+          ) : (
+            <Btn variant={danger ? 'danger-outline' : 'primary'} onClick={onConfirm}>{armed && double ? 'Точно, удалить' : confirmLabel ?? 'Подтвердить'}</Btn>
+          )}
         </div>
       </div>
     </div>

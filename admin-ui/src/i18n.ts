@@ -12,6 +12,7 @@ export const t = {
     reload: 'Перезагрузить', search: 'Поиск…', filter: 'Фильтр…', actions: 'Действия',
     loading: 'Загрузка…', empty: 'Пока пусто', show: 'Показать', hide: 'Скрыть',
     copy: 'Копировать', copied: 'Скопировано', yes: 'Да', no: 'Нет',
+    confirm: 'Подтвердить', deleteConfirmLabel: 'Удалить',
     enabled: 'Включён', disabled: 'Выключен', active: 'Активен', inactive: 'Неактивен',
     status: 'Статус',
     running: 'Работает', stopped: 'Остановлен', error: 'Ошибка', starting: 'Запуск…',

@@ -3,7 +3,7 @@ import { RefreshCw, Trash2, Pause, Play } from 'lucide-react';
 import { api } from '../api/client';
 import type { LogEntry } from '../types';
 import { t } from '../i18n';
-import { PageHeader, Btn, Select, TextInput, Segmented } from '../components/ui';
+import { PageHeader, Btn, Select, TextInput, Segmented, Confirm } from '../components/ui';
 
 const LEVELS = ['all', 'ERROR', 'WARN', 'INFO', 'DEBUG', 'TRACE'];
 
@@ -25,6 +25,7 @@ export default function Logs() {
   const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const [auto, setAuto] = useState(true);
+  const [confirmClear, setConfirmClear] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
@@ -68,8 +69,7 @@ export default function Logs() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [entries, bslLines]);
 
-  async function handleClear() {
-    if (!confirm(t.logs.clearConfirm)) return;
+  async function doClear() {
     if (tab === 'server') await api.clearLogs();
     else await api.clearBslLsLogs();
     load();
@@ -89,9 +89,15 @@ export default function Logs() {
             {auto ? <Pause size={15} /> : <Play size={15} />} {auto ? t.logs.live : t.logs.paused}
           </Btn>
           <Btn variant="outline" onClick={load}><RefreshCw size={15} /> {t.common.refresh}</Btn>
-          <Btn variant="outline" onClick={handleClear}><Trash2 size={15} /> {t.logs.clear}</Btn>
+          <Btn variant="outline" onClick={() => setConfirmClear(true)}><Trash2 size={15} /> {t.logs.clear}</Btn>
         </>}
       />
+
+      {confirmClear && (
+        <Confirm title={t.logs.clearConfirm} confirmLabel={t.common.deleteConfirmLabel} danger
+          onClose={() => setConfirmClear(false)}
+          onConfirm={() => { doClear(); setConfirmClear(false); }} />
+      )}
 
       <div className="flex gap-2 mb-3 flex-wrap items-center">
         <Segmented
