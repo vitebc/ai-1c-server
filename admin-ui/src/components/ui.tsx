@@ -1,6 +1,7 @@
-import { Inbox, CircleAlert, CircleCheck, Info, TriangleAlert } from 'lucide-react';
+import { Inbox, CircleAlert, CircleCheck, Info, TriangleAlert, X } from 'lucide-react';
 import { useState } from 'react';
 import type { ReactNode } from 'react';
+import { t } from '../i18n';
 
 // Единые примитивы плотной dev-консоли: светлая/тёмная через dark: вариант Tailwind.
 
@@ -151,7 +152,13 @@ export function Modal({ title, onClose, children, wide, xwide, fill }: { title: 
     <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-[2px] flex items-center justify-center z-50 p-4" onClick={onClose}>
       <div className={`bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl w-full ${xwide ? 'max-w-6xl' : wide ? 'max-w-3xl' : 'max-w-lg'} ${fill ? 'h-[90vh] max-h-[90vh] flex flex-col overflow-hidden' : 'max-h-[90vh] overflow-y-auto'}`} onClick={e => e.stopPropagation()}>
         <div className={`p-5 ${fill ? 'flex-1 min-h-0 flex flex-col' : ''}`}>
-          <h3 className={`text-base font-semibold text-slate-900 dark:text-slate-100 ${fill ? 'shrink-0 mb-4' : 'mb-4'}`}>{title}</h3>
+          <div className={`flex items-start justify-between gap-3 ${fill ? 'shrink-0 mb-4' : 'mb-4'}`}>
+            <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100 min-w-0">{title}</h3>
+            <button type="button" onClick={onClose} title={t.common.close}
+              className="p-1 -m-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-colors cursor-pointer shrink-0">
+              <X size={16} />
+            </button>
+          </div>
           {children}
         </div>
       </div>
