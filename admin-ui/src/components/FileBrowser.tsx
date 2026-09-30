@@ -43,10 +43,9 @@ export default function FileBrowser({ initialPath, onPick, onClose, dirsOnly, ti
   }
 
   return (
-    <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-[2px] flex items-center justify-center z-[60] p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-[2px] flex items-center justify-center z-[60] p-4">
       <div
         className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl w-full max-w-xl mx-4 max-h-[80vh] flex flex-col"
-        onClick={e => e.stopPropagation()}
       >
         <div className="p-4 border-b border-slate-200 dark:border-slate-800">
           <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-2">
