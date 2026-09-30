@@ -250,9 +250,10 @@ function ToolsCheck({ all, selected, onChange, mode, mcpFilter, cols = 2, fill =
 
 function BodyField({ value, onChange, rows }: { value: string; onChange: (v: string) => void; rows?: number }) {
   return (
-    <Field label="Тело (markdown, после второго ---)">
-      <TextArea value={value} onChange={e => onChange(e.target.value)} rows={rows || 10} spellCheck={false} mono />
-    </Field>
+    <div className="flex-1 min-h-0 flex flex-col">
+      <label className="block text-[13px] font-medium text-slate-700 dark:text-slate-300 mb-1 shrink-0">Тело (markdown, после второго ---)</label>
+      <TextArea value={value} onChange={e => onChange(e.target.value)} rows={rows || 10} spellCheck={false} mono className="flex-1 min-h-[200px] resize-none" />
+    </div>
   );
 }
 
@@ -502,18 +503,19 @@ function AgentForm({ item, tools, toolsMode, skills, error, onClose, onSaved, on
         { key: 'tools', label: `${t.studio.tabTools} (${selTools.length})` },
         { key: 'skills', label: `${t.studio.tabSkills} (${allSkills ? '*' : selSkills.length})` },
       ]} />
-      <div className="flex-1 min-h-0 overflow-y-auto">
+      <div className="flex-1 min-h-0 flex flex-col">
       {ftab === 'main' && (
-      <div className="space-y-3 mt-3">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className="flex-1 min-h-0 flex flex-col gap-3 mt-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 shrink-0">
         <TextField label="Имя (папка, ^[a-z0-9-]+$)" value={name} onChange={setName} mono />
         <TextField label="Заголовок (выпадашка в 1С)" value={title} onChange={setTitle} />
       </div>
       <TextField label={t.skills.description} value={description} onChange={setDescription} />
-      <Field label="Промпт (markdown, после второго ---)">
-        <TextArea value={body} onChange={e => setBody(e.target.value)} rows={16} spellCheck={false} mono />
-      </Field>
-      <p className="text-[11px] text-slate-400">Сохраняется в backend/agents/&lt;имя&gt;/AGENT.md. Переименование = перемещение папки. Бэкенд подхватывает без рестарта.</p>
+      <div className="flex-1 min-h-0 flex flex-col">
+        <label className="block text-[13px] font-medium text-slate-700 dark:text-slate-300 mb-1 shrink-0">Промпт (markdown, после второго ---)</label>
+        <TextArea value={body} onChange={e => setBody(e.target.value)} rows={16} spellCheck={false} mono className="flex-1 min-h-[200px] resize-none" />
+      </div>
+      <p className="text-[11px] text-slate-400 shrink-0">Сохраняется в backend/agents/&lt;имя&gt;/AGENT.md. Переименование = перемещение папки. Бэкенд подхватывает без рестарта.</p>
       </div>
       )}
       {ftab === 'tools' && (
@@ -815,11 +817,13 @@ function PatternForm({ item, error, onClose, onSaved, onError }: {
 
   return (
     <FormModal title={item ? `Редактировать паттерн ${item.name}` : t.studio.newPattern} onClose={onClose} onSubmit={submit} error={error} xwide fill editing={!!item}>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <TextField label="Имя (файл, ^[a-z0-9-]+$)" value={name} onChange={setName} mono />
-        <TextField label={t.skills.description} value={description} onChange={setDescription} />
+      <div className="flex-1 min-h-0 flex flex-col gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 shrink-0">
+          <TextField label="Имя (файл, ^[a-z0-9-]+$)" value={name} onChange={setName} mono />
+          <TextField label={t.skills.description} value={description} onChange={setDescription} />
+        </div>
+        <BodyField value={body} onChange={setBody} rows={14} />
       </div>
-      <BodyField value={body} onChange={setBody} rows={14} />
     </FormModal>
   );
 }
