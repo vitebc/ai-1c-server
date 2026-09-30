@@ -265,7 +265,7 @@ function TextField({ label, value, onChange, mono, placeholder }: { label: strin
   );
 }
 
-function McpSelect({ selected, onChange }: { selected: string[]; onChange: (v: string[]) => void }) {
+function McpSelect({ selected, onChange, fill }: { selected: string[]; onChange: (v: string[]) => void; fill?: boolean }) {
   // Names come from the lightweight options endpoint (any agent file-area
   // section); full rows (transports) only when mcp-servers is allowed.
   const [names, setNames] = useState<{ name: string; running: boolean }[] | null>(null);
@@ -305,12 +305,12 @@ function McpSelect({ selected, onChange }: { selected: string[]; onChange: (v: s
     || a.name.localeCompare(b.name));
   const extra = selected.filter(s => s !== 'default' && !sorted.some(r => r.name === s));
   return (
-    <div>
-      <div className="flex items-center justify-between mb-1">
+    <div className={fill ? 'flex flex-col h-full min-h-0' : ''}>
+      <div className="flex items-center justify-between mb-1 shrink-0">
         <label className="block text-[13px] font-medium text-slate-700 dark:text-slate-300">{t.studio.mcpServers}</label>
         <Badge tone="neutral">{selected.length || 'default'}</Badge>
       </div>
-      <div className="border border-slate-300 dark:border-slate-700 rounded-lg p-2 max-h-40 overflow-y-auto grid grid-cols-1 gap-1 bg-slate-50 dark:bg-slate-950">
+      <div className={`border border-slate-300 dark:border-slate-700 rounded-lg p-2 overflow-y-auto grid grid-cols-1 gap-1 bg-slate-50 dark:bg-slate-950 ${fill ? 'flex-1 min-h-0' : 'max-h-40'}`}>
         <label className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 px-1 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer" title="Default бэкенда">
           <input type="checkbox" checked={selected.includes('default')} onChange={() => toggle('default')} className="rounded accent-blue-600" />
           <span className="font-mono">default</span>
@@ -519,8 +519,8 @@ function AgentForm({ item, tools, toolsMode, skills, error, onClose, onSaved, on
       </div>
       )}
       {ftab === 'tools' && (
-      <div className="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-4 items-start h-full">
-      <McpSelect selected={selMcp} onChange={setSelMcp} />
+      <div className="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-4 h-full min-h-0">
+      <McpSelect selected={selMcp} onChange={setSelMcp} fill />
       <ToolsCheck all={tools} selected={selTools} onChange={setSelTools} mode={toolsMode} mcpFilter={selMcp} fill />
       </div>
       )}
