@@ -61,6 +61,7 @@ const ENV_ALLOWLIST: &[&str] = &[
     "MCP_ONEC_PASSWORD",
     "MCP_PROXY_PORT",
     "MCP_PROXY_IMAGE",
+    "ONEC_BASES",
 ];
 
 fn is_secret(key: &str) -> bool {
