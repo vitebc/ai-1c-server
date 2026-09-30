@@ -7,8 +7,9 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
-/* ── Тёмная тема: «стальной синий» ─────────────────────────────
-   Пользовательские акценты: основной #193549 · фон #122738 · фон элементов #1F4662.
+/* ── Тёмная тема: «стальной синий» (тёмный) ────────────────────
+   Эталон — скрин пользователя: левый блок (фон) почти чёрно-синий.
+   Слои снизу вверх: фон #0F2233 → поверхности #163245 → элементы #1F4662.
    Переопределяем slate-шкалу (и приглушённый blue) только в .dark — все классы
    dark:bg-slate-* / dark:text-slate-* подхватывают новые цвета, светлая тема не трогается. */
 .dark {
@@ -21,8 +22,8 @@
   --color-slate-600: #3A5871;
   --color-slate-700: #2C4B63; /* приглушённые границы/текст */
   --color-slate-800: #1F4662; /* фон элементов (карточки, input, hover) */
-  --color-slate-900: #153047; /* поверхности (сайдбар, модалки) */
-  --color-slate-950: #122738; /* основной фон страницы */
+  --color-slate-900: #163245; /* поверхности (сайдбар, модалки) */
+  --color-slate-950: #0F2233; /* основной фон страницы */
 
   --color-blue-500: #5B9BD5;  /* акцент: кнопки, ссылки — читаемый на тёмном */
   --color-blue-600: #4A8AC4;
@@ -66,7 +67,7 @@ body {
 .md-preview blockquote { border-left: 3px solid rgb(148 163 184 / 0.5); padding-left: 0.75rem; opacity: 0.85; margin: 0.5em 0; }
 
 .dark .md-preview code { background: rgb(255 255 255 / 0.08); }
-.dark .md-preview pre { background: #0E1F2C; }
+.dark .md-preview pre { background: #0B1A26; }
 :root .md-preview code { background: rgb(15 23 42 / 0.06); }
 :root .md-preview pre { background: #0f172a; color: #e2e8f0; }
 :root .md-preview pre code { color: inherit; }
