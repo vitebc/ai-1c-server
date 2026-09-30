@@ -56,8 +56,16 @@ pub async fn get_state(State(state): State<Arc<AppState>>) -> Json<BslLsState> {
 }
 
 pub async fn get_versions(State(state): State<Arc<AppState>>) -> Json<VersionsInfo> {
-    let java = crate::mcp::check_java_version().await.ok();
     let cfg = state.bsl_ls.get_config().await;
+    // Java: сначала из конфига (bsl_ls_java_path), потом PATH.
+    let java = if !cfg.java_path.is_empty() {
+        match crate::mcp::check_java_at_path(&cfg.java_path).await {
+            Ok(v) => Some(v),
+            Err(_) => crate::mcp::check_java_version().await.ok(),
+        }
+    } else {
+        crate::mcp::check_java_version().await.ok()
+    };
     let bsl_ls_current = {
         let data_dir = std::path::Path::new(&cfg.data_dir);
         crate::mcp::detect_installed_bsl_ls(data_dir).map(|(v, _)| v)
