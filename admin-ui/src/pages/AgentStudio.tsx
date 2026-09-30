@@ -496,13 +496,13 @@ function AgentForm({ item, tools, toolsMode, skills, error, onClose, onSaved, on
   }
 
   return (
-    <FormModal title={item ? `Редактировать агента ${item.name}` : t.studio.newAgent} onClose={onClose} onSubmit={submit} error={error} wide editing={!!item}>
+    <FormModal title={item ? `Редактировать агента ${item.name}` : t.studio.newAgent} onClose={onClose} onSubmit={submit} error={error} xwide fill editing={!!item}>
       <Segmented value={ftab} onChange={setFtab} options={[
         { key: 'main', label: t.studio.tabMain },
         { key: 'tools', label: `${t.studio.tabTools} (${selTools.length})` },
         { key: 'skills', label: `${t.studio.tabSkills} (${allSkills ? '*' : selSkills.length})` },
       ]} />
-      <div className="min-h-[480px]">
+      <div className="flex-1 min-h-0 overflow-y-auto">
       {ftab === 'main' && (
       <div className="space-y-3 mt-3">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -517,9 +517,9 @@ function AgentForm({ item, tools, toolsMode, skills, error, onClose, onSaved, on
       </div>
       )}
       {ftab === 'tools' && (
-      <div className="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+      <div className="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-4 items-start h-full">
       <McpSelect selected={selMcp} onChange={setSelMcp} />
-      <ToolsCheck all={tools} selected={selTools} onChange={setSelTools} mode={toolsMode} mcpFilter={selMcp} />
+      <ToolsCheck all={tools} selected={selTools} onChange={setSelTools} mode={toolsMode} mcpFilter={selMcp} fill />
       </div>
       )}
       {ftab === 'skills' && (
@@ -814,7 +814,7 @@ function PatternForm({ item, error, onClose, onSaved, onError }: {
   }
 
   return (
-    <FormModal title={item ? `Редактировать паттерн ${item.name}` : t.studio.newPattern} onClose={onClose} onSubmit={submit} error={error} wide editing={!!item}>
+    <FormModal title={item ? `Редактировать паттерн ${item.name}` : t.studio.newPattern} onClose={onClose} onSubmit={submit} error={error} xwide fill editing={!!item}>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <TextField label="Имя (файл, ^[a-z0-9-]+$)" value={name} onChange={setName} mono />
         <TextField label={t.skills.description} value={description} onChange={setDescription} />
