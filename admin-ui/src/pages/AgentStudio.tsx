@@ -301,17 +301,33 @@ function McpSelect({ selected, onChange }: { selected: string[]; onChange: (v: s
   );
 }
 
-function FormModal({ title, onClose, onSubmit, error, children, wide, xwide, fill }: {
-  title: string; onClose: () => void; onSubmit: (e: React.FormEvent) => void; error: string; children: React.ReactNode; wide?: boolean; xwide?: boolean; fill?: boolean;
+function FormModal({ title, onClose, onSubmit, error, children, wide, xwide, fill, editing }: {
+  title: string; onClose: () => void; onSubmit: (e: React.FormEvent) => void; error: string; children: React.ReactNode; wide?: boolean; xwide?: boolean; fill?: boolean; editing?: boolean;
 }) {
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await onSubmit(e);
+      // onSubmit закрыл окно (создание) — ничего не показываем.
+      if (!editing) return;
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+    } finally {
+      setSaving(false);
+    }
+  }
   return (
     <UiModal title={title} onClose={onClose} wide={wide} xwide={xwide} fill={fill}>
-      <form onSubmit={onSubmit} className={`space-y-3 ${fill ? 'flex-1 min-h-0 flex flex-col' : ''}`}>
+      <form onSubmit={handleSubmit} className={`space-y-3 ${fill ? 'flex-1 min-h-0 flex flex-col' : ''}`}>
         {children}
         {error && <Alert tone="red">{error}</Alert>}
-        <div className={`flex justify-end gap-2 pt-1 ${fill ? 'shrink-0' : ''}`}>
+        <div className={`flex items-center justify-end gap-2 pt-1 ${fill ? 'shrink-0' : ''}`}>
+          {saved && !error && <span className="text-xs text-emerald-600 dark:text-emerald-400 mr-auto">{t.common.saved}</span>}
           <Btn variant="ghost" type="button" onClick={onClose}>{t.common.cancel}</Btn>
-          <Btn variant="primary" type="submit">{t.common.save}</Btn>
+          <Btn variant="primary" type="submit" disabled={saving}>{saving ? t.common.saving : t.common.save}</Btn>
         </div>
       </form>
     </UiModal>
@@ -442,14 +458,14 @@ function AgentForm({ item, tools, toolsMode, skills, error, onClose, onSaved, on
       if (item) await api.updateAgent(item.name, payload);
       else await api.createAgent(payload);
       onSaved();
-      onClose();
+      if (!item) onClose(); // создание — закрываем; редактирование — окно остаётся
     } catch (err) {
       onError(errText(err, 'Ошибка сохранения'));
     }
   }
 
   return (
-    <FormModal title={item ? `Редактировать агента ${item.name}` : t.studio.newAgent} onClose={onClose} onSubmit={submit} error={error} wide>
+    <FormModal title={item ? `Редактировать агента ${item.name}` : t.studio.newAgent} onClose={onClose} onSubmit={submit} error={error} wide editing={!!item}>
       <Segmented value={ftab} onChange={setFtab} options={[
         { key: 'main', label: t.studio.tabMain },
         { key: 'tools', label: `${t.studio.tabTools} (${selTools.length})` },
@@ -641,14 +657,14 @@ function SkillForm({ item, tools, toolsMode, error, onClose, onSaved, onError }:
       if (item) await api.updateAgentSkill(item.name, payload);
       else await api.createAgentSkill(payload);
       onSaved();
-      onClose();
+      if (!item) onClose(); // создание — закрываем; редактирование — окно остаётся
     } catch (err) {
       onError(errText(err, 'Ошибка сохранения'));
     }
   }
 
   return (
-    <FormModal title={item ? `Редактировать скилл ${item.name}` : t.studio.newSkill} onClose={onClose} onSubmit={submit} error={error} xwide fill>
+    <FormModal title={item ? `Редактировать скилл ${item.name}` : t.studio.newSkill} onClose={onClose} onSubmit={submit} error={error} xwide fill editing={!!item}>
       <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4 flex-1 min-h-0 overflow-y-auto lg:overflow-hidden">
         <div className="space-y-3 min-w-0 flex flex-col min-h-0">
           <TextField label="Имя (папка, ^[a-z0-9-]+$)" value={name} onChange={setName} mono />
@@ -760,14 +776,14 @@ function PatternForm({ item, error, onClose, onSaved, onError }: {
       if (item) await api.updatePattern(item.name, payload);
       else await api.createPattern(payload);
       onSaved();
-      onClose();
+      if (!item) onClose(); // создание — закрываем; редактирование — окно остаётся
     } catch (err) {
       onError(errText(err, 'Ошибка сохранения'));
     }
   }
 
   return (
-    <FormModal title={item ? `Редактировать паттерн ${item.name}` : t.studio.newPattern} onClose={onClose} onSubmit={submit} error={error} wide>
+    <FormModal title={item ? `Редактировать паттерн ${item.name}` : t.studio.newPattern} onClose={onClose} onSubmit={submit} error={error} wide editing={!!item}>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <TextField label="Имя (файл, ^[a-z0-9-]+$)" value={name} onChange={setName} mono />
         <TextField label={t.skills.description} value={description} onChange={setDescription} />

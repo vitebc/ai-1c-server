@@ -16,7 +16,7 @@ export const t = {
     enabled: 'Включён', disabled: 'Выключен', active: 'Активен', inactive: 'Неактивен',
     status: 'Статус',
     running: 'Работает', stopped: 'Остановлен', error: 'Ошибка', starting: 'Запуск…',
-    saving: 'Сохранение…', on: 'ВКЛ', off: 'ВЫКЛ', all: 'Все',
+    saving: 'Сохранение…', saved: 'Сохранено', on: 'ВКЛ', off: 'ВЫКЛ', all: 'Все',
   },
   auth: {
     loginTitle: 'Вход в панель', username: 'Имя пользователя', password: 'Пароль',
