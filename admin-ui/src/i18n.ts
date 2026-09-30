@@ -29,6 +29,8 @@ export const t = {
     title: 'Дашборд', mcpServers: 'MCP-серверы', skills: 'Скиллы',
     configs: 'Профили конфигураций', clients: 'Клиенты',
     mcpStatus: 'Статус MCP-серверов', bsl: 'BSL Language Server',
+    agentBackend: 'AI Agent Studio — Backend API',
+    agentBackendHint: 'Состояние контейнеров и health-эндпоинта бэкенда агентов',
     noServers: 'Серверы не настроены', pid: 'PID',
     tokenTitle: 'Токен для MCP', tokenOn: 'Токен ВКЛ', tokenOff: 'Токен ВЫКЛ',
     tokenOnHint: 'Машинные MCP-клиенты должны слать Authorization: Bearer. Токен автоматически подставляется в пресеты экспорта. В панель всегда нужен логин/пароль.',

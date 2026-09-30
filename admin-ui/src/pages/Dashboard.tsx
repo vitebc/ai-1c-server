@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Server, Brain, FileJson, Users, Code, KeyRound, Copy, Check, RefreshCw, ShieldCheck, ShieldOff } from 'lucide-react';
+import { Server, Brain, FileJson, Users, Code, Bot, Container, HeartPulse, KeyRound, Copy, Check, RefreshCw, ShieldCheck, ShieldOff } from 'lucide-react';
 import { api } from '../api/client';
 import { copyText } from '../clipboard';
-import type { BslLsState, DashboardData, ServerStatus } from '../types';
+import type { AgentBackendStatus, BslLsState, DashboardData, ServerStatus } from '../types';
 import { t } from '../i18n';
 import { PageHeader, Card, CardBody, CardTitle, Badge, StatusDot, Btn, Alert, Confirm } from '../components/ui';
 
@@ -10,12 +10,14 @@ export default function Dashboard() {
   const [status, setStatus] = useState<ServerStatus[]>([]);
   const [counts, setCounts] = useState({ servers: 0, skills: 0, configs: 0, clients: 0 });
   const [bsl, setBsl] = useState<BslLsState | null>(null);
+  const [ab, setAb] = useState<AgentBackendStatus | null>(null);
 
   useEffect(() => {
     api.getDashboard().then((d: DashboardData) => {
       setCounts({ servers: d.servers, skills: d.skills, configs: d.configs, clients: d.clients });
       setStatus(d.mcp);
       setBsl(d.bsl);
+      setAb(d.agent_backend || null);
     }).catch(() => {});
   }, []);
 
@@ -54,6 +56,41 @@ export default function Dashboard() {
         </CardBody></Card>
       </div>
 
+      {/* AI Agent Studio — Backend API */}
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-5">
+        <Card><CardBody className="flex items-center gap-3">
+          <div className={`p-2.5 rounded-lg ${!ab ? 'bg-slate-100 text-slate-400 dark:bg-slate-800' : ab.backend_reachable ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-300'}`}>
+            <Bot size={20} />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xl font-bold text-slate-900 dark:text-slate-100">
+              {!ab ? '—' : ab.backend_reachable ? t.common.running : t.common.stopped}
+            </p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 truncate" title={t.dash.agentBackend}>Backend API</p>
+          </div>
+        </CardBody></Card>
+        <Card><CardBody className="flex items-center gap-3">
+          <div className={`p-2.5 rounded-lg ${!ab ? 'bg-slate-100 text-slate-400 dark:bg-slate-800' : ab.services.length > 0 ? 'bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-300' : 'bg-slate-100 text-slate-400 dark:bg-slate-800'}`}>
+            <Container size={20} />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xl font-bold tabular-nums text-slate-900 dark:text-slate-100">{ab ? ab.services.length : '—'}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Контейнеры</p>
+          </div>
+        </CardBody></Card>
+        <Card><CardBody className="flex items-center gap-3">
+          <div className={`p-2.5 rounded-lg ${!ab ? 'bg-slate-100 text-slate-400 dark:bg-slate-800' : ab.root_exists ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-300'}`}>
+            <HeartPulse size={20} />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xl font-bold text-slate-900 dark:text-slate-100">
+              {!ab ? '—' : ab.root_exists ? (ab.compose_available ? t.common.active : 'no compose') : 'нет проекта'}
+            </p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 truncate" title={ab?.root || ''}>Проект: {ab?.root || '—'}</p>
+          </div>
+        </CardBody></Card>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
         <Card><CardBody>
           <CardTitle>{t.dash.mcpStatus}</CardTitle>
@@ -88,6 +125,36 @@ export default function Dashboard() {
           )}
           {bsl?.error && (
             <div className="mt-2"><Alert tone="red"><span className="font-mono">{bsl.error}</span></Alert></div>
+          )}
+        </CardBody></Card>
+        <Card><CardBody>
+          <CardTitle>{t.dash.agentBackend}</CardTitle>
+          {!ab ? (
+            <p className="text-[13px] text-slate-400">{t.dash.noServers}</p>
+          ) : (
+            <>
+              <div className="flex items-center justify-between py-1.5">
+                <span className="text-[13px] text-slate-500">Backend API ({ab.backend_url})</span>
+                <Badge tone={ab.backend_reachable ? 'green' : 'red'}>
+                  <StatusDot status={ab.backend_reachable ? 'running' : 'stopped'} />{ab.backend_reachable ? t.common.running : t.common.stopped}
+                </Badge>
+              </div>
+              {ab.services.length > 0 && (
+                <div className="divide-y divide-slate-100 dark:divide-slate-800 mt-1">
+                  {ab.services.map(s => (
+                    <div key={s.name} className="flex items-center justify-between py-1.5 gap-3">
+                      <span className="text-[13px] text-slate-700 dark:text-slate-300 truncate font-mono">{s.name}</span>
+                      <Badge tone={s.state === 'running' ? (s.health && s.health !== 'healthy' ? 'amber' : 'green') : s.state === 'exited' ? 'neutral' : 'red'}>
+                        {s.state}{s.health ? ` · ${s.health}` : ''}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {!ab.root_exists && (
+                <div className="mt-2"><Alert tone="red">docker-compose.yml не найден: {ab.root}</Alert></div>
+              )}
+            </>
           )}
         </CardBody></Card>
       </div>

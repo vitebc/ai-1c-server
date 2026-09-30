@@ -164,6 +164,7 @@ async fn dashboard(State(state): State<Arc<AppState>>) -> Json<Value> {
     };
     let mcp = status(State(state.clone())).await.0;
     let bsl = bsl_ls::get_state(State(state.clone())).await.0;
+    let agent_backend = agent_backend::status(State(state.clone())).await.0;
     Json(json!({
         "servers": servers,
         "skills": skills,
@@ -171,6 +172,7 @@ async fn dashboard(State(state): State<Arc<AppState>>) -> Json<Value> {
         "clients": clients,
         "mcp": mcp,
         "bsl": bsl,
+        "agent_backend": agent_backend,
     }))
 }
 

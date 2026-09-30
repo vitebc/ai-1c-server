@@ -71,8 +71,21 @@ impl McpManager {
         }
     }
 
+    /// True if the session exists AND actually answers a JSON-RPC ping.
+    /// Stdio sessions are probed with `ping` (cheap, no side effects);
+    /// Http/SSE sessions were already round-tripped at start (`initialize`),
+    /// so presence in the map is enough — probing them would add latency to
+    /// every dashboard refresh.
     pub async fn is_running(&self, id: &str) -> bool {
-        self.sessions.read().await.contains_key(id)
+        let sessions = self.sessions.read().await;
+        match sessions.get(id) {
+            Some(ManagedSession::Stdio(s)) => s
+                .call(JsonRpcRequest::new("ping", serde_json::json!({})))
+                .await
+                .is_ok(),
+            Some(ManagedSession::Http(_)) => true,
+            None => false,
+        }
     }
 
     /// Ask a running session for its tool list (used by the aggregated gateway).

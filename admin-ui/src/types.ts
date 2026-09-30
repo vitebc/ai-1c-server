@@ -85,6 +85,7 @@ export interface DashboardData {
   clients: number;
   mcp: ServerStatus[];
   bsl: BslLsState;
+  agent_backend: AgentBackendStatus;
 }
 
 export interface LogEntry {
