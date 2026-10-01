@@ -5,6 +5,7 @@ export const t = {
     dashboard: 'Дашборд', mcp: 'MCP-серверы', models: 'Модели', studio: 'AI Agent Studio',
     skills: 'Скиллы', bsl: 'BSL LS', configs: 'Конфигурации',
     versions: 'Версии клиента', clients: 'Клиенты', logs: 'Логи', users: 'Пользователи',
+    stats: 'Статистика',
   },
   common: {
     save: 'Сохранить', cancel: 'Отмена', create: 'Создать', add: 'Добавить',
@@ -142,6 +143,19 @@ export const t = {
     modelLabel: 'Модель (пусто = из конфига)',
     backendTitle: 'Compose-сервисы', noCompose: 'docker compose недоступен',
     start: 'Запустить', stopAll: 'Остановить всё', restartBackend: 'Перезапустить бэкенд',
+  },
+  stats: {
+    title: 'Статистика обращений',
+    filterUser: 'Пользователь', filterBase: 'База', filterAgent: 'Агент',
+    filterFrom: 'С', filterTo: 'По', apply: 'Применить', reset: 'Сбросить',
+    totalRequests: 'Всего запросов', activeUsers: 'Пользователей',
+    avgElapsed: 'Среднее время', totalTokens: 'Всего токенов',
+    byUser: 'По пользователям', byBase: 'По базам', byAgent: 'По агентам',
+    requestsTable: 'Запросы', time: 'Время', user: 'Пользователь', base: 'База',
+    agent: 'Агент', model: 'Модель', question: 'Вопрос', status: 'Статус',
+    tokens: 'Токены', elapsed: 'Время, с', tools: 'Тулзы',
+    prevPage: 'Назад', nextPage: 'Вперёд',
+    noData: 'Нет данных за выбранный период',
   },
   theme: { light: 'Светлая тема', dark: 'Тёмная тема' },
 };

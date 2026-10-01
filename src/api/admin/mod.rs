@@ -255,4 +255,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/agent-backend/live/agents", get(agent_backend::live_agents))
         .route("/agent-backend/live/skills", get(agent_backend::live_skills))
         .route("/agent-backend/live/tools", get(agent_backend::live_tools))
+        .route("/agent-backend/stats/requests", get(agent_backend::stats_requests))
+        .route("/agent-backend/stats/summary", get(agent_backend::stats_summary))
+        .route("/agent-backend/stats/distinct", get(agent_backend::stats_distinct))
 }

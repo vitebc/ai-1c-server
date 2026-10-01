@@ -1,4 +1,4 @@
-import type { BslLsState, Client, ClientVersion, ConfigProfile, DashboardData, FsBrowseResult, LogEntry, McpServer, ModelProvider, ServerStatus, Skill } from '../types';
+import type { BslLsState, Client, ClientVersion, ConfigProfile, DashboardData, FsBrowseResult, LogEntry, McpServer, ModelProvider, ServerStatus, Skill, StatsRequest, StatsSummary } from '../types';
 import type {
   AgentItem, SkillFileItem, PatternItem, AgentOverview,
   AgentBackendStatus, EnvEntry, LiveAgents, LiveSkills, LiveTools,
@@ -212,6 +212,16 @@ export const api = {
     request<LiveSkills>(`/agent-backend/live/skills${agent ? `?agent=${encodeURIComponent(agent)}` : ''}`),
   getLiveTools: (baseUrl?: string) =>
     request<LiveTools>(`/agent-backend/live/tools${baseUrl ? `?base_url=${encodeURIComponent(baseUrl)}` : ''}`),
+  getStatsRequests: (params: Record<string, string>) => {
+    const qs = Object.entries(params).filter(([, v]) => v).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+    return request<{ ok: boolean; data?: { total: number; items: StatsRequest[] }; error?: string }>(`/agent-backend/stats/requests${qs ? `?${qs}` : ''}`);
+  },
+  getStatsSummary: (params: Record<string, string>) => {
+    const qs = Object.entries(params).filter(([, v]) => v).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+    return request<{ ok: boolean; data?: StatsSummary; error?: string }>(`/agent-backend/stats/summary${qs ? `?${qs}` : ''}`);
+  },
+  getStatsDistinct: () =>
+    request<{ ok: boolean; data?: { user_ids: string[]; base_names: string[]; agents: string[] }; error?: string }>('/agent-backend/stats/distinct'),
 
   login: (username: string, password: string, remember?: boolean) =>
     request<{ token: string; username: string; role: string; sections: string[] }>(

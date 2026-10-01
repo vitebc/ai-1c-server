@@ -535,6 +535,8 @@ fn section_for(path: &str) -> Option<&'static str> {
         "agent-skills"
     } else if rest.starts_with("agent-files/patterns") {
         "agent-patterns"
+    } else if rest.starts_with("agent-backend/stats") {
+        "dashboard"
     } else if rest.starts_with("agent-backend/env") {
         "env"
     } else if rest.starts_with("agent-backend") {

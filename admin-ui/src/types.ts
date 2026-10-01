@@ -237,3 +237,36 @@ export interface LiveTools {
     tools: LiveToolItem[];
   };
 }
+
+export interface StatsRequest {
+  id: number;
+  user_id: string;
+  session_id: number | null;
+  base_name: string | null;
+  base_url: string | null;
+  agent: string | null;
+  skill: string | null;
+  model: string | null;
+  question: string;
+  answer: string | null;
+  status: 'ok' | 'error';
+  error: string | null;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  rounds: number;
+  tool_calls: string[] | null;
+  elapsed_s: number;
+  created_at: string | null;
+}
+
+export interface StatsSummary {
+  from: string;
+  to: string;
+  total_requests: number;
+  total_tokens: number;
+  avg_elapsed_s: number;
+  by_user: { user_id: string; count: number; tokens: number }[];
+  by_base: { base_name: string; count: number }[];
+  by_agent: { agent: string; count: number }[];
+}

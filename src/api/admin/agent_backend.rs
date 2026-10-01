@@ -561,3 +561,62 @@ fn urlencoding(s: &str) -> String {
     }
     out
 }
+
+// ─── stats (прокси к бэкенду /stats/*) ───
+
+fn build_stats_url(base: &str, path: &str, qs: &HashMap<String, String>) -> String {
+    let mut url = format!("{base}/stats/{path}");
+    let params: Vec<String> = qs
+        .iter()
+        .filter(|(_, v)| !v.is_empty())
+        .map(|(k, v)| format!("{}={}", urlencoding(k), urlencoding(v)))
+        .collect();
+    if !params.is_empty() {
+        url.push_str(&format!("?{}", params.join("&")));
+    }
+    url
+}
+
+pub async fn stats_requests(
+    State(state): State<Arc<AppState>>,
+    Query(qs): Query<HashMap<String, String>>,
+) -> Json<Value> {
+    let url = {
+        let db = state.db.lock().await;
+        let root = project_root(&db);
+        build_stats_url(&backend_url(&db, &root), "requests", &qs)
+    };
+    match proxy_get(&url).await {
+        Ok(v) => Json(json!({ "ok": true, "data": v })),
+        Err(e) => Json(json!({ "ok": false, "error": e })),
+    }
+}
+
+pub async fn stats_summary(
+    State(state): State<Arc<AppState>>,
+    Query(qs): Query<HashMap<String, String>>,
+) -> Json<Value> {
+    let url = {
+        let db = state.db.lock().await;
+        let root = project_root(&db);
+        build_stats_url(&backend_url(&db, &root), "summary", &qs)
+    };
+    match proxy_get(&url).await {
+        Ok(v) => Json(json!({ "ok": true, "data": v })),
+        Err(e) => Json(json!({ "ok": false, "error": e })),
+    }
+}
+
+pub async fn stats_distinct(
+    State(state): State<Arc<AppState>>,
+) -> Json<Value> {
+    let url = {
+        let db = state.db.lock().await;
+        let root = project_root(&db);
+        format!("{}/stats/distinct", backend_url(&db, &root))
+    };
+    match proxy_get(&url).await {
+        Ok(v) => Json(json!({ "ok": true, "data": v })),
+        Err(e) => Json(json!({ "ok": false, "error": e })),
+    }
+}
