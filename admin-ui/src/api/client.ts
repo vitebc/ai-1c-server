@@ -213,8 +213,8 @@ export const api = {
   getLiveTools: (baseUrl?: string) =>
     request<LiveTools>(`/agent-backend/live/tools${baseUrl ? `?base_url=${encodeURIComponent(baseUrl)}` : ''}`),
   getAgentBases: () => request<{ source: string; bases: { name: string; url: string }[] }>('/agent-backend/bases'),
-  putAgentBase: (name: string, url: string) =>
-    request<{ ok: boolean; name: string; url: string }>('/agent-backend/bases', { method: 'PUT', body: JSON.stringify({ name, url }) }),
+  putAgentBase: (name: string, url: string, oldName?: string) =>
+    request<{ ok: boolean; name: string; url: string }>(oldName ? `/agent-backend/bases/${encodeURIComponent(oldName)}` : '/agent-backend/bases', { method: 'PUT', body: JSON.stringify({ name, url }) }),
   deleteAgentBase: (name: string) =>
     request<{ ok: boolean; name: string }>(`/agent-backend/bases/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   getStatsRequests: (params: Record<string, string>) => {

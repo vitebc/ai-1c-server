@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Plus, Pencil, Trash2, Play, Pause, Square, RotateCcw, RefreshCw, Server, AlertTriangle, FolderOpen, Database, Power } from 'lucide-react';
+import { Plus, Pencil, Trash2, Play, Pause, Square, RotateCcw, RefreshCw, Server, AlertTriangle, FolderOpen, Database, Power, Check, X } from 'lucide-react';
 import { api } from '../api/client';
 import FileBrowser from '../components/FileBrowser';
 import type { AgentItem, SkillFileItem, PatternItem, AgentOverview, AgentBackendStatus, EnvEntry, Me, McpServer } from '../types';
@@ -1007,6 +1007,7 @@ function BasesTab({ onChanged }: { onChanged: () => void }) {
   const [newName, setNewName] = useState('');
   const [newUrl, setNewUrl] = useState('');
   const [delBase, setDelBase] = useState<string | null>(null);
+  const [editing, setEditing] = useState<{ name: string; url: string } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -1028,6 +1029,23 @@ function BasesTab({ onChanged }: { onChanged: () => void }) {
     try {
       await api.putAgentBase(name, url);
       setNewName(''); setNewUrl('');
+      setMsg(`База ${name} сохранена — бэкенд подхватит в течение 2 с.`);
+      await load();
+      onChanged();
+    } catch (e) {
+      setErr(errText(e, 'Ошибка сохранения'));
+    }
+  }
+
+  async function doSaveEdit() {
+    if (!editing) return;
+    setMsg(''); setErr('');
+    const name = editing.name.trim().toLowerCase();
+    const url = editing.url.trim();
+    if (!name || !url) { setErr('Заполните имя и URL'); return; }
+    try {
+      await api.putAgentBase(name, url);
+      setEditing(null);
       setMsg(`База ${name} сохранена — бэкенд подхватит в течение 2 с.`);
       await load();
       onChanged();
@@ -1066,18 +1084,35 @@ function BasesTab({ onChanged }: { onChanged: () => void }) {
         head={<><Th>{t.studio.baseName}</Th><Th>{t.studio.baseUrl}</Th><Th>Статус</Th><Th right>{t.common.actions}</Th></>}
       >
         {bases.map(b => (
-          <Row key={b.name}>
-            <Td><span className="font-mono text-xs font-medium text-slate-800 dark:text-slate-100">{b.name}</span></Td>
-            <Td><span className="font-mono text-[11px] text-slate-500 break-all">{b.url}</span></Td>
-            <Td><Badge tone="green"><Database size={11} className="mr-1 inline" />{t.studio.baseEnabled}</Badge></Td>
-            <Td className="text-right whitespace-nowrap">
-              {editable && (
-                <IconBtn title="Выключить базу" onClick={() => setDelBase(b.name)} className="hover:!text-red-600">
-                  <Power size={15} />
-                </IconBtn>
-              )}
-            </Td>
-          </Row>
+          editing && editing.name === b.name ? (
+            <Row key={b.name}>
+              <Td><TextInput value={editing.name} onChange={e => setEditing({ ...editing, name: e.target.value })} mono className="text-xs" /></Td>
+              <Td><TextInput value={editing.url} onChange={e => setEditing({ ...editing, url: e.target.value })} mono className="text-[11px]" /></Td>
+              <Td><Badge tone="blue">редактирование</Badge></Td>
+              <Td className="text-right whitespace-nowrap">
+                <IconBtn title="Сохранить" onClick={doSaveEdit}><Check size={15} /></IconBtn>
+                <IconBtn title="Отмена" onClick={() => setEditing(null)}><X size={15} /></IconBtn>
+              </Td>
+            </Row>
+          ) : (
+            <Row key={b.name}>
+              <Td><span className="font-mono text-xs font-medium text-slate-800 dark:text-slate-100">{b.name}</span></Td>
+              <Td><span className="font-mono text-[11px] text-slate-500 break-all">{b.url}</span></Td>
+              <Td><Badge tone="green"><Database size={11} className="mr-1 inline" />{t.studio.baseEnabled}</Badge></Td>
+              <Td className="text-right whitespace-nowrap">
+                {editable && (
+                  <>
+                    <IconBtn title="Редактировать" onClick={() => setEditing({ name: b.name, url: b.url })}>
+                      <Pencil size={14} />
+                    </IconBtn>
+                    <IconBtn title="Выключить базу" onClick={() => setDelBase(b.name)} className="hover:!text-red-600">
+                      <Power size={15} />
+                    </IconBtn>
+                  </>
+                )}
+              </Td>
+            </Row>
+          )
         ))}
       </TableShell>
 
