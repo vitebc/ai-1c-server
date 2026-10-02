@@ -82,7 +82,11 @@ export default function Stats() {
 
   return (
     <div>
-      <PageHeader title={t.stats.title} />
+      <PageHeader title={t.stats.title} right={
+        <Btn variant="outline" onClick={() => { loadDistinct(); load(); }} disabled={loading}>
+          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> {t.common.refresh}
+        </Btn>
+      } />
 
       {/* Фильтры */}
       <Card className="mb-4">
