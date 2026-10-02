@@ -82,11 +82,7 @@ export default function Stats() {
 
   return (
     <div>
-      <PageHeader title={t.stats.title} right={
-        <Btn variant="outline" onClick={() => { loadDistinct(); load(); }} disabled={loading}>
-          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> {t.common.refresh}
-        </Btn>
-      } />
+      <PageHeader title={t.stats.title} />
 
       {/* Фильтры */}
       <Card className="mb-4">
@@ -126,8 +122,11 @@ export default function Stats() {
           </div>
           <div className="flex items-center justify-end gap-2 mt-3 pt-3 border-t border-slate-200 dark:border-slate-800">
             <Btn variant="ghost" onClick={resetFilters} className="!text-xs">{t.stats.reset}</Btn>
+            <Btn variant="outline" onClick={() => { loadDistinct(); load(); }} disabled={loading}>
+              <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> {t.common.refresh}
+            </Btn>
             <Btn variant="primary" onClick={load} disabled={loading}>
-              <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> {t.stats.apply}
+              {t.stats.apply}
             </Btn>
           </div>
         </CardBody>
