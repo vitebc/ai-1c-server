@@ -148,8 +148,8 @@ export default function Stats() {
       {summary && (summary.by_user.length > 0 || summary.by_base.length > 0 || summary.by_agent.length > 0) && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-4">
           <Card>
-            <CardTitle>{t.stats.byUser}</CardTitle>
             <CardBody>
+              <CardTitle>{t.stats.byUser}</CardTitle>
               <table className="w-full text-[12px]">
                 <thead><tr className="text-left text-slate-400 dark:text-slate-500">
                   <th className="pb-1">{t.stats.user}</th><th className="pb-1 text-right">Запросов</th><th className="pb-1 text-right">Токенов</th>
@@ -167,8 +167,8 @@ export default function Stats() {
             </CardBody>
           </Card>
           <Card>
-            <CardTitle>{t.stats.byBase}</CardTitle>
             <CardBody>
+              <CardTitle>{t.stats.byBase}</CardTitle>
               <table className="w-full text-[12px]">
                 <thead><tr className="text-left text-slate-400 dark:text-slate-500">
                   <th className="pb-1">{t.stats.base}</th><th className="pb-1 text-right">Запросов</th>
@@ -185,8 +185,8 @@ export default function Stats() {
             </CardBody>
           </Card>
           <Card>
-            <CardTitle>{t.stats.byAgent}</CardTitle>
             <CardBody>
+              <CardTitle>{t.stats.byAgent}</CardTitle>
               <table className="w-full text-[12px]">
                 <thead><tr className="text-left text-slate-400 dark:text-slate-500">
                   <th className="pb-1">{t.stats.agent}</th><th className="pb-1 text-right">Запросов</th>
@@ -207,8 +207,9 @@ export default function Stats() {
 
       {/* Таблица запросов */}
       <Card>
-        <CardTitle>{t.stats.requestsTable} ({total})</CardTitle>
-        <CardBody className="p-0 overflow-x-auto">
+        <CardBody className="overflow-x-auto">
+          <CardTitle>{t.stats.requestsTable} ({total})</CardTitle>
+          <div className="overflow-x-auto -mx-4 px-4">
           {requests.length === 0 ? (
             <p className="text-[13px] text-slate-400 dark:text-slate-500 p-4">{t.stats.noData}</p>
           ) : (
@@ -247,6 +248,7 @@ export default function Stats() {
               </tbody>
             </table>
           )}
+          </div>
         </CardBody>
       </Card>
 
