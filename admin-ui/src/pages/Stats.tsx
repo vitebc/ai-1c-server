@@ -87,7 +87,7 @@ export default function Stats() {
       {/* Фильтры */}
       <Card className="mb-4">
         <CardBody>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 items-end">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             <div>
               <label className="block text-[12px] font-medium text-slate-500 dark:text-slate-400 mb-1">{t.stats.filterUser}</label>
               <Select value={fUser} onChange={e => { setFUser(e.target.value); setPage(0); }}>
@@ -119,12 +119,12 @@ export default function Stats() {
               <input type="date" value={fTo} onChange={e => { setFTo(e.target.value); setPage(0); }}
                 className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-[13px] text-slate-700 dark:text-slate-200" />
             </div>
-            <div className="flex gap-2">
-              <Btn variant="ghost" onClick={resetFilters} className="!text-xs">{t.stats.reset}</Btn>
-              <Btn variant="outline" onClick={load} disabled={loading}>
-                <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> {t.stats.apply}
-              </Btn>
-            </div>
+          </div>
+          <div className="flex items-center justify-end gap-2 mt-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+            <Btn variant="ghost" onClick={resetFilters} className="!text-xs">{t.stats.reset}</Btn>
+            <Btn variant="primary" onClick={load} disabled={loading}>
+              <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> {t.stats.apply}
+            </Btn>
           </div>
         </CardBody>
       </Card>
