@@ -212,6 +212,11 @@ export const api = {
     request<LiveSkills>(`/agent-backend/live/skills${agent ? `?agent=${encodeURIComponent(agent)}` : ''}`),
   getLiveTools: (baseUrl?: string) =>
     request<LiveTools>(`/agent-backend/live/tools${baseUrl ? `?base_url=${encodeURIComponent(baseUrl)}` : ''}`),
+  getAgentBases: () => request<{ source: string; bases: { name: string; url: string }[] }>('/agent-backend/bases'),
+  putAgentBase: (name: string, url: string) =>
+    request<{ ok: boolean; name: string; url: string }>('/agent-backend/bases', { method: 'PUT', body: JSON.stringify({ name, url }) }),
+  deleteAgentBase: (name: string) =>
+    request<{ ok: boolean; name: string }>(`/agent-backend/bases/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   getStatsRequests: (params: Record<string, string>) => {
     const qs = Object.entries(params).filter(([, v]) => v).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
     return request<{ ok: boolean; data?: { total: number; items: StatsRequest[] }; error?: string }>(`/agent-backend/stats/requests${qs ? `?${qs}` : ''}`);

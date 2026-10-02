@@ -562,6 +562,141 @@ fn urlencoding(s: &str) -> String {
     out
 }
 
+// ─── bases.conf (мапа баз 1С, hot-reload бэкендом по mtime) ───
+
+fn bases_conf_path(root: &std::path::Path) -> PathBuf {
+    root.join("backend").join("bases.conf")
+}
+
+/// Разобрать "имя=url;..." из строки/файла (формат ONEC_BASES, см. parse_bases_map в бэкенде).
+fn parse_bases_lines(raw: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for chunk in raw.split(';') {
+        let chunk = chunk.trim();
+        if chunk.is_empty() {
+            continue;
+        }
+        if let Some((name, url)) = chunk.split_once('=') {
+            let name = name.trim().to_lowercase();
+            let url = url.trim();
+            if !name.is_empty() && !url.is_empty() {
+                out.push((name, url.to_string()));
+            }
+        }
+    }
+    out
+}
+
+fn serialize_bases(entries: &[(String, String)]) -> String {
+    entries
+        .iter()
+        .map(|(n, u)| format!("{n}={u}"))
+        .collect::<Vec<_>>()
+        .join(";")
+}
+
+const BASES_CONF_HEADER: &str = "# Мапа баз ONEC_BASES — hot-reload (перечитывается бэкендом по mtime, TTL 2с).\n\
+# Формат: \"имя=url;...\". Имя — НРег. Побеждает присланный формой base_url.\n\
+# Кривая запись не роняет бэкенд (warning в лог + fallback на предыдущее значение).\n";
+
+#[derive(Debug, Serialize)]
+pub struct BaseEntry {
+    pub name: String,
+    pub url: String,
+}
+
+/// GET /agent-backend/bases — активные базы из bases.conf (fallback: ONEC_BASES из .env).
+pub async fn bases_list(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let root = {
+        let db = state.db.lock().await;
+        project_root(&db)
+    };
+    let path = bases_conf_path(&root);
+    if path.is_file() {
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        let entries = parse_bases_lines(&text);
+        return Json(json!({ "source": "bases.conf", "bases": entries }));
+    }
+
+    // Fallback: ONEC_BASES из .env (стартовое значение бэкенда).
+    let parsed = parse_dotenv(&root.join(".env"));
+    let map: std::collections::HashMap<_, _> = parsed.into_iter().collect();
+    let raw = map.get("ONEC_BASES").cloned().unwrap_or_default();
+    Json(json!({ "source": "env", "bases": parse_bases_lines(&raw) }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BasePut {
+    pub name: String,
+    pub url: String,
+}
+
+/// PUT /agent-backend/bases — добавить/обновить базу (hot-reload ≤2с, без рестарта).
+pub async fn bases_put(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<BasePut>,
+) -> Result<Json<Value>, axum::response::Response> {
+    use axum::response::IntoResponse;
+    let name = body.name.trim().to_lowercase();
+    let url = body.url.trim().to_string();
+    if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return Err(super::BadRequest("некорректное имя базы (латиница, цифры, _)".into()).into_response());
+    }
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err(super::BadRequest("URL должен начинаться с http:// или https://".into()).into_response());
+    }
+    let root = {
+        let db = state.db.lock().await;
+        project_root(&db)
+    };
+    let path = bases_conf_path(&root);
+    if !path.is_file() {
+        return Err(super::BadRequest("backend/bases.conf не найден — создайте его из bases.conf.example".into()).into_response());
+    }
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    // Разбираем только строки "имя=url" (комментарии/пустые игнорируются парсером бэкенда).
+    let mut entries = parse_bases_lines(&text);
+    if let Some(e) = entries.iter_mut().find(|e| e.0 == name) {
+        e.1 = url.clone();
+    } else {
+        entries.push((name.clone(), url.clone()));
+    }
+    if let Err(e) = std::fs::write(&path, format!("{BASES_CONF_HEADER}\n{serialized}\n", serialized = serialize_bases(&entries))) {
+        return Err(super::AppError::msg(format!("write bases.conf: {e}")).into_response());
+    }
+    tracing::info!("agent-backend: bases.conf обновлён — база {name} (hot-reload ≤2с)");
+    Ok(Json(json!({ "ok": true, "name": name, "url": url })))
+}
+
+/// DELETE /agent-backend/bases/{name} — отключить базу (hot-reload ≤2с).
+pub async fn bases_delete(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+) -> Result<Json<Value>, axum::response::Response> {
+    use axum::response::IntoResponse;
+    let name = name.to_lowercase();
+    let root = {
+        let db = state.db.lock().await;
+        project_root(&db)
+    };
+    let path = bases_conf_path(&root);
+    if !path.is_file() {
+        return Err(super::BadRequest("backend/bases.conf не найден".into()).into_response());
+    }
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    let mut entries = parse_bases_lines(&text);
+    let before = entries.len();
+    entries.retain(|e| e.0 != name);
+    if entries.len() == before {
+        return Err(super::BadRequest(format!("база {name:?} не найдена в bases.conf")).into_response());
+    }
+    if let Err(e) = std::fs::write(&path, format!("{BASES_CONF_HEADER}\n{serialized}\n", serialized = serialize_bases(&entries))) {
+        return Err(super::AppError::msg(format!("write bases.conf: {e}")).into_response());
+    }
+    tracing::info!("agent-backend: база {name} отключена в bases.conf (hot-reload ≤2с)");
+    Ok(Json(json!({ "ok": true, "name": name })))
+}
+
 // ─── stats (прокси к бэкенду /stats/*) ───
 
 fn build_stats_url(base: &str, path: &str, qs: &HashMap<String, String>) -> String {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Plus, Pencil, Trash2, Play, Pause, Square, RotateCcw, RefreshCw, Server, AlertTriangle, FolderOpen } from 'lucide-react';
+import { Plus, Pencil, Trash2, Play, Pause, Square, RotateCcw, RefreshCw, Server, AlertTriangle, FolderOpen, Database, Power } from 'lucide-react';
 import { api } from '../api/client';
 import FileBrowser from '../components/FileBrowser';
 import type { AgentItem, SkillFileItem, PatternItem, AgentOverview, AgentBackendStatus, EnvEntry, Me, McpServer } from '../types';
@@ -7,13 +7,14 @@ import { t } from '../i18n';
 import { errText } from '../errors';
 import { PageHeader, Card, CardBody, Btn, IconBtn, Badge, TableShell, Th, Td, Row, Field, TextInput, TextArea, Select, Modal as UiModal, Alert, Segmented, Confirm } from '../components/ui';
 
-type Tab = 'agents' | 'skills' | 'patterns' | 'backend' | 'env';
+type Tab = 'agents' | 'skills' | 'patterns' | 'backend' | 'bases' | 'env';
 
 const TAB_SECTION: Record<Tab, string> = {
   agents: 'agent-agents',
   skills: 'agent-skills',
   patterns: 'agent-patterns',
   backend: 'agent-backend',
+  bases: 'env',
   env: 'env',
 };
 
@@ -82,13 +83,14 @@ export default function AgentStudio({ me }: { me: Me | null }) {
     { key: 'skills', label: t.studio.agentSkills },
     { key: 'patterns', label: t.studio.patterns },
     { key: 'backend', label: t.studio.backend },
+    { key: 'bases', label: t.studio.basesTab },
     { key: 'env', label: t.studio.env },
   ];
   const tabs = allTabs.filter(x => !me || me.sections.includes(TAB_SECTION[x.key]));
 
   useEffect(() => {
     if (me && !me.sections.includes(TAB_SECTION[tab])) {
-      const first = (['agents', 'skills', 'patterns', 'backend', 'env'] as Tab[])
+      const first = (['agents', 'skills', 'patterns', 'backend', 'bases', 'env'] as Tab[])
         .find(x => me.sections.includes(TAB_SECTION[x]));
       if (first) setTab(first);
     }
@@ -124,6 +126,7 @@ export default function AgentStudio({ me }: { me: Me | null }) {
       {tab === 'skills' && ov && <SkillsTab ov={ov} tools={tools} toolsMode={toolsMode} onChanged={load} />}
       {tab === 'patterns' && ov && <PatternsTab ov={ov} onChanged={load} />}
       {tab === 'backend' && <BackendTab />}
+      {tab === 'bases' && <BasesTab onChanged={loadBaseUrls} />}
       {tab === 'env' && <EnvTab />}
       {browseRoot && (
         <FileBrowser
@@ -989,6 +992,110 @@ function BackendTab() {
         <Confirm title={pendingBackendAction.msg} confirmLabel={t.common.confirm}
           onClose={() => setPendingBackendAction(null)}
           onConfirm={() => { const a = pendingBackendAction; setPendingBackendAction(null); run(a.fn); }} />
+      )}
+    </div>
+  );
+}
+
+// ─── Bases tab (backend/bases.conf, hot-reload) ───
+
+function BasesTab({ onChanged }: { onChanged: () => void }) {
+  const [bases, setBases] = useState<{ name: string; url: string }[]>([]);
+  const [source, setSource] = useState<'bases.conf' | 'env'>('bases.conf');
+  const [msg, setMsg] = useState('');
+  const [err, setErr] = useState('');
+  const [newName, setNewName] = useState('');
+  const [newUrl, setNewUrl] = useState('');
+  const [delBase, setDelBase] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const r = await api.getAgentBases();
+      setBases(r.bases || []);
+      setSource(r.source === 'env' ? 'env' : 'bases.conf');
+    } catch (e) {
+      setErr(errText(e, 'Ошибка загрузки'));
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function doAdd() {
+    setMsg(''); setErr('');
+    const name = newName.trim().toLowerCase();
+    const url = newUrl.trim();
+    if (!name || !url) { setErr('Заполните имя и URL'); return; }
+    try {
+      await api.putAgentBase(name, url);
+      setNewName(''); setNewUrl('');
+      setMsg(`База ${name} сохранена — бэкенд подхватит в течение 2 с.`);
+      await load();
+      onChanged();
+    } catch (e) {
+      setErr(errText(e, 'Ошибка сохранения'));
+    }
+  }
+
+  async function doDelete(name: string) {
+    setMsg(''); setErr('');
+    try {
+      await api.deleteAgentBase(name);
+      setDelBase(null);
+      setMsg(`База ${name} выключена — бэкенд подхватит в течение 2 с.`);
+      await load();
+      onChanged();
+    } catch (e) {
+      setErr(errText(e, 'Ошибка'));
+    }
+  }
+
+  const editable = source === 'bases.conf';
+
+  return (
+    <div>
+      <p className="text-xs text-slate-500 mb-3">{t.studio.basesHint}</p>
+      {source === 'env' && (
+        <div className="mb-3"><Alert tone="amber">{t.studio.baseSourceEnv}</Alert></div>
+      )}
+      {msg && <div className="mb-3"><Alert tone="blue">{msg}</Alert></div>}
+      {err && <div className="mb-3"><Alert tone="red">{err}</Alert></div>}
+
+      <TableShell
+        colSpan={4}
+        empty={bases.length === 0 ? { text: 'Баз нет' } : null}
+        head={<><Th>{t.studio.baseName}</Th><Th>{t.studio.baseUrl}</Th><Th>Статус</Th><Th right>{t.common.actions}</Th></>}
+      >
+        {bases.map(b => (
+          <Row key={b.name}>
+            <Td><span className="font-mono text-xs font-medium text-slate-800 dark:text-slate-100">{b.name}</span></Td>
+            <Td><span className="font-mono text-[11px] text-slate-500 break-all">{b.url}</span></Td>
+            <Td><Badge tone="green"><Database size={11} className="mr-1 inline" />{t.studio.baseEnabled}</Badge></Td>
+            <Td className="text-right whitespace-nowrap">
+              {editable && (
+                <IconBtn title="Выключить базу" onClick={() => setDelBase(b.name)} className="hover:!text-red-600">
+                  <Power size={15} />
+                </IconBtn>
+              )}
+            </Td>
+          </Row>
+        ))}
+      </TableShell>
+
+      {editable && (
+        <div className="mt-4 border-t border-slate-200 dark:border-slate-800 pt-3">
+          <p className="text-xs font-medium text-slate-600 dark:text-slate-300 mb-2">{t.studio.addBase}</p>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <TextInput value={newName} onChange={e => setNewName(e.target.value)} placeholder="имя (НРег)" mono className="sm:max-w-[200px]" />
+            <TextInput value={newUrl} onChange={e => setNewUrl(e.target.value)} placeholder="http://host/base" mono className="flex-1" />
+            <Btn variant="primary" onClick={doAdd}><Plus size={14} /> {t.common.add}</Btn>
+          </div>
+        </div>
+      )}
+
+      {delBase && (
+        <Confirm title={t.studio.baseDeleteConfirm(delBase)} confirmLabel="Выключить" danger
+          onClose={() => setDelBase(null)}
+          onConfirm={() => doDelete(delBase)} />
       )}
     </div>
   );

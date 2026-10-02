@@ -143,6 +143,12 @@ export const t = {
     modelLabel: 'Модель (пусто = из конфига)',
     backendTitle: 'Compose-сервисы', noCompose: 'docker compose недоступен',
     start: 'Запустить', stopAll: 'Остановить всё', restartBackend: 'Перезапустить бэкенд',
+    basesTab: 'Базы 1С',
+    basesHint: 'Мапа баз backend/bases.conf — hot-reload (бэкенд перечитывает по mtime, ≤2 с). Включённые базы доступны агентам; выключенную можно вернуть без рестарта.',
+    baseName: 'Имя (НРег)', baseUrl: 'URL публикации', addBase: 'Добавить базу',
+    baseEnabled: 'включена', baseDisabled: 'выключена',
+    baseDeleteConfirm: (n: string) => `Выключить базу ${n}?\nОна исчезнет из мапы баз — агенты не смогут в неё ходить, пока база не будет добавлена обратно.`,
+    baseSourceEnv: 'Файл backend/bases.conf не найден — показаны базы из .env (ONEC_BASES). Создайте bases.conf из bases.conf.example, чтобы управлять базами здесь.',
   },
   stats: {
     title: 'Статистика обращений',
