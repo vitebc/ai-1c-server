@@ -573,17 +573,25 @@ fn bases_conf_path(root: &std::path::Path) -> PathBuf {
 /// (прерванные правки, переносы строк) отбрасываются, а не ломают таблицу.
 fn parse_bases_lines(raw: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
-    for chunk in raw.split(';') {
-        let chunk = chunk.trim().trim_matches('\r').trim_matches('\n');
-        if chunk.is_empty() || chunk.starts_with('#') {
-            continue;
-        }
-        if let Some((name, url)) = chunk.split_once('=') {
-            let name = name.trim().to_lowercase();
-            let url = url.trim();
-            let name_ok = !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
-            if name_ok && (url.starts_with("http://") || url.starts_with("https://")) {
-                out.push((name, url.to_string()));
+    // Сначала убираем комментарии (строки, начинающиеся с #), чтобы `;` внутри
+    // комментария не разрезал данные.
+    let no_comments: Vec<&str> = raw
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .collect();
+    for line in &no_comments {
+        for chunk_raw in line.split(';') {
+            let chunk = chunk_raw.trim();
+            if chunk.is_empty() {
+                continue;
+            }
+            if let Some((name, url)) = chunk.split_once('=') {
+                let name = name.trim().to_lowercase();
+                let url = url.trim();
+                let name_ok = !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+                if name_ok && (url.starts_with("http://") || url.starts_with("https://")) {
+                    out.push((name, url.to_string()));
+                }
             }
         }
     }
