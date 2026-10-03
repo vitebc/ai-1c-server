@@ -625,7 +625,10 @@ pub async fn bases_list(State(state): State<Arc<AppState>>) -> Json<Value> {
     let path = bases_conf_path(&root);
     if path.is_file() {
         let text = std::fs::read_to_string(&path).unwrap_or_default();
-        let entries = parse_bases_lines(&text);
+        let entries: Vec<BaseEntry> = parse_bases_lines(&text)
+            .into_iter()
+            .map(|(name, url)| BaseEntry { name, url })
+            .collect();
         return Json(json!({ "source": "bases.conf", "bases": entries }));
     }
 
@@ -633,7 +636,11 @@ pub async fn bases_list(State(state): State<Arc<AppState>>) -> Json<Value> {
     let parsed = parse_dotenv(&root.join(".env"));
     let map: std::collections::HashMap<_, _> = parsed.into_iter().collect();
     let raw = map.get("ONEC_BASES").cloned().unwrap_or_default();
-    Json(json!({ "source": "env", "bases": parse_bases_lines(&raw) }))
+    let entries: Vec<BaseEntry> = parse_bases_lines(&raw)
+        .into_iter()
+        .map(|(name, url)| BaseEntry { name, url })
+        .collect();
+    Json(json!({ "source": "env", "bases": entries }))
 }
 
 #[derive(Debug, Deserialize)]
