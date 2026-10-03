@@ -81,10 +81,21 @@ fn project_root(db: &crate::db::Database) -> PathBuf {
 }
 
 fn backend_url(_db: &crate::db::Database, root: &std::path::Path) -> String {
+    // AGENT_ENV=dev → .env.dev (BACKEND_DEV_PORT), prod → .env (BACKEND_PORT).
+    let env_file = if std::env::var("AGENT_ENV").as_deref() == Ok("dev") {
+        root.join(".env.dev")
+    } else {
+        root.join(".env")
+    };
+    let port_key = if std::env::var("AGENT_ENV").as_deref() == Ok("dev") {
+        "BACKEND_DEV_PORT"
+    } else {
+        "BACKEND_PORT"
+    };
     // Prefer the project's own BACKEND_PORT from .env, default 8000.
-    let port = parse_dotenv(&root.join(".env"))
+    let port = parse_dotenv(&env_file)
         .into_iter()
-        .find(|(k, _)| k == "BACKEND_PORT")
+        .find(|(k, _)| k == port_key)
         .map(|(_, v)| v)
         .filter(|v| !v.trim().is_empty())
         .unwrap_or_else(|| "8000".into());
