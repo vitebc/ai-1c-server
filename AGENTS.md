@@ -5,16 +5,17 @@
 и развёртывание клиентов в команде разработчиков.
 
 **Разделение dev/prod:** ветка `master` — разработка (dev-демон на :9225,
-`data-dev/`, админка из репо). Prod живёт ОТДЕЛЬНО в
+`data/`, админка из репо). Prod живёт ОТДЕЛЬНО в
 `/home/test/.config/ai-1c-server/adminka` — там только то, что нужно для
 запуска: бинарник, `admin-ui/dist`, `migrations/`, своя `data/`, скрипты
 start/stop/status/restart. Выкатка в prod — `scripts/deploy.sh`.
+Данные не пересекаются: dev пишет в `<repo>/data`, prod — в `adminka/data`.
 
 **Правило безопасности:** после каждого изменения — локальный коммит
-(`git add -A && git commit`). Если файл в `.gitignore` (не коммитится:
-`data/`, `data-dev/`, `admin-ui/dist/`, `server.log`, `*.jar`) — сделать
-бэкап вручную (например, `cp adminka/data/db.sqlite /tmp/opencode/db.sqlite.bak-<ts>`
-для prod) перед опасной операцией. Не делать «большой» коммит в конце сессии.
+(`git add -A && git commit`). Если файл в `.gitignore` (не коммитится: `data/`, `admin-ui/dist/`,
+`server.log`, `*.jar`) — сделать бэкап вручную (например,
+`cp adminka/data/db.sqlite /tmp/opencode/db.sqlite.bak-<ts>` для prod) перед
+опасной операцией. Не делать «большой» коммит в конце сессии.
 
 **Правило верстки:** для любой работы с UI/версткой админки (`admin-ui/`)
 обязательно использовать скил `ui-ux-pro-max` — консультироваться по
@@ -56,7 +57,7 @@ start/stop/status/restart. Выкатка в prod — `scripts/deploy.sh`.
 ## Сборка и разработка
 
 ```bash
-# Dev-демон (master, порт 9225, data-dev/)
+# Dev-демон (master, порт 9225, data/)
 ./scripts/start-dev.sh   # + AGENT_ENV=dev
 ./scripts/stop-dev.sh
 
@@ -70,7 +71,7 @@ start/stop/status/restart. Выкатка в prod — `scripts/deploy.sh`.
 
 # Dev (раздельные процессы, hot-reload)
 cd admin-ui && npm run dev          # Vite на :5173
-cargo run -- --data-dir ./data-dev  # Rust сервер на :9224 (локальная отладка)
+cargo run -- --data-dir ./data      # Rust сервер на :9224 (локальная отладка)
 
 # Admin UI отдельно
 cd admin-ui && npm install && npm run build
@@ -154,12 +155,12 @@ client_versions, clients, server_settings, audit_log),
   `server.log`, `server.pid`. Порт 9224, `AGENT_ENV=prod`.
 - Обновление — только через `scripts/deploy.sh`: build → копирование
   бинарника/dist/migrations → stop+start. `data/` deploy не трогает.
-- `<repo>/data` и `<repo>/data-dev` в git не попадают; prod больше в
-  `<repo>/data` не пишет (там остаётся старая копия — не используется).
+- `<repo>/data` в git не попадает; это данные dev-демона. Prod пишет только
+  в `adminka/data`.
 
 ## Ключевые факты
 
-- **`data/`, `data-dev/` в `.gitignore`** — runtime (БД, индексы, сборки,
+- **`data/` в `.gitignore`** — runtime dev-демона (БД, индексы, сборки,
   BSL LS JAR); у prod своя `data/` в adminka.
 - **`admin-ui/dist/`** вшивается в бинарник через `rust-embed`; в git не
   попадает (`.gitignore`), собирается всегда перед `cargo build`.

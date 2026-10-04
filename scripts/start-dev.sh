@@ -1,9 +1,9 @@
 #!/bin/bash
-# Запустить dev-демон ai-1c-server (порт 9225, data-dev/)
+# Запустить dev-демон ai-1c-server (порт 9225, data/)
 set -e
 
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
-DATA_DIR="$DIR/data-dev"
+DATA_DIR="$DIR/data"
 PORT=9225
 BINARY="$DIR/target/x86_64-unknown-linux-gnu/release/ai-1c-server"
 LOG="$DIR/server-dev.log"
