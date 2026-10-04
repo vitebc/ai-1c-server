@@ -10,7 +10,9 @@ Thumbs.db
 *.log
 .env
 data/
+data-dev/
 server.pid
+server-dev.pid
 main-*.md
 
 

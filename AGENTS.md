@@ -4,16 +4,17 @@
 Централизованное управление MCP-серверами, конфигурациями 1С
 и развёртывание клиентов в команде разработчиков.
 
-**ЭТО БОЕВОЙ СЕРВЕР.** Разработка ведётся прямо на нём:
-редактируешь код → собираешь → перезапускаешь демона (`scripts/stop.sh` +
-`start.sh`) → проверяешь в проде. Ничего не «откатится», если сломать —
-демон поднимется со старым бинарником, но БД и `data/` общие.
+**Разделение dev/prod:** ветка `master` — разработка (dev-демон на :9225,
+`data-dev/`, админка из репо). Prod живёт ОТДЕЛЬНО в
+`/home/test/.config/ai-1c-server/adminka` — там только то, что нужно для
+запуска: бинарник, `admin-ui/dist`, `migrations/`, своя `data/`, скрипты
+start/stop/status/restart. Выкатка в prod — `scripts/deploy.sh`.
 
 **Правило безопасности:** после каждого изменения — локальный коммит
 (`git add -A && git commit`). Если файл в `.gitignore` (не коммитится:
-`data/`, `admin-ui/dist/`, `server.log`, `*.jar`) — сделать бэкап вручную
-(например, `cp data/db.sqlite /tmp/opencode/db.sqlite.bak-<ts>` перед
-опасной операцией). Не делать «большой» коммит в конце сессии.
+`data/`, `data-dev/`, `admin-ui/dist/`, `server.log`, `*.jar`) — сделать
+бэкап вручную (например, `cp adminka/data/db.sqlite /tmp/opencode/db.sqlite.bak-<ts>`
+для prod) перед опасной операцией. Не делать «большой» коммит в конце сессии.
 
 **Правило верстки:** для любой работы с UI/версткой админки (`admin-ui/`)
 обязательно использовать скил `ui-ux-pro-max` — консультироваться по
@@ -55,13 +56,21 @@
 ## Сборка и разработка
 
 ```bash
-# Production (двухэтапная: admin-ui → cargo)
-./scripts/build-linux.sh           # Linux
-.\scripts\build-windows.ps1        # Windows
+# Dev-демон (master, порт 9225, data-dev/)
+./scripts/start-dev.sh   # + AGENT_ENV=dev
+./scripts/stop-dev.sh
 
-# Dev (раздельные процессы)
+# Prod (порт 9224) — живёт в adminka/, скрипты там же:
+/home/test/.config/ai-1c-server/adminka/start.sh   # CWD = adminka, AGENT_ENV=prod
+/home/test/.config/ai-1c-server/adminka/stop.sh    # + fallback на сироту по порту
+/home/test/.config/ai-1c-server/adminka/status.sh  # restart.sh — stop+start
+
+# Выкатка в prod (сборка + копирование + рестарт)
+./scripts/deploy.sh      # ADM_DIR=... для переопределения пути prod
+
+# Dev (раздельные процессы, hot-reload)
 cd admin-ui && npm run dev          # Vite на :5173
-cargo run -- --data-dir ./data      # Rust сервер на :9224
+cargo run -- --data-dir ./data-dev  # Rust сервер на :9224 (локальная отладка)
 
 # Admin UI отдельно
 cd admin-ui && npm install && npm run build
@@ -70,33 +79,29 @@ cd admin-ui && npm install && npm run build
 sudo ./scripts/install-service.sh   # + service-status.sh / service-logs.sh / uninstall-service.sh
 ```
 
-### Запуск демона (локально, без systemd)
-
-```bash
-./scripts/start.sh     # build не делает: нужен бинарник из target/x86_64-unknown-linux-gnu/release/ai-1c-server
-./scripts/stop.sh      # + fallback на сироту, слушающего порт (ss/lsof/fuser)
-./scripts/status.sh    # ./scripts/restart.sh — stop+start
-```
-
 - `start.sh` сам гоняет `migrate`, ждёт `/health` ~15 c, пишет `server.log`
   и `server.pid`; отказывается стартовать, если порт уже занят.
-- Переопределяются env: `PORT` (дефолт 9224), `DATA_DIR` (дефолт `<repo>/data`).
-- Дефолт `--data-dir` в бинарнике — `/data/mini-ai-1c` (VPS); локально всегда
-  передаётся явно, так что данные живут в `<repo>/data/`.
+- Переопределяются env: `PORT`, `DATA_DIR` (дефолт `<dir>/data`).
+- Миграции читаются из `./migrations` относительно CWD — prod-скрипты
+  запускают бинарник с CWD = adminka, поэтому там лежит копия migrations.
 - Бинарник: `ai-1c-server` (не `mini-ai-1c-server`).
 
 ### Обязательный цикл выката
 
 ```bash
+# Dev: собрать и проверить на 9225
 cd admin-ui && npm run build                        # НЕ коммитить при "error TS"
 touch src/main.rs && cargo build --release --target x86_64-unknown-linux-gnu
-bash scripts/stop.sh && bash scripts/start.sh
+git add -A && git commit -m "..."
+
+# Prod: выкатка (build + копирование в adminka/ + рестарт)
+./scripts/deploy.sh
 curl -s http://localhost:9224/ | grep -o 'index-[^"]*\.js'   # бандл обновился?
-git add -A && git commit -m "..." && git push
 ```
 
 `npm run build` не останавливается на ошибках tsc — при `error TS...`
-в выводе коммит не делать (иначе уедет сломанный бандл в прод).
+в выводе коммит не делать и deploy.sh прервётся (иначе уедет сломанный
+бандл в прод).
 
 Перед добавлением нового модуля: создать `mod.rs` и зарегистрировать
 в `main.rs`.
@@ -140,9 +145,22 @@ client_versions, clients, server_settings, audit_log),
 - `auth_required` (по умолчанию 1) гейтит **только** MCP-шлюз; админка
   всегда логин/пароль (machine-токен → 401).
 
+## Prod (adminka)
+
+- Prod-директория: `/home/test/.config/ai-1c-server/adminka` (вне git,
+  паттерн как у `1c-chat`). Состав: `ai-1c-server` (бинарник),
+  `admin-ui/dist/`, `migrations/`, `data/` (своя копия: БД, bsl-ls/, java/,
+  skills/), `start.sh` / `stop.sh` / `status.sh` / `restart.sh`,
+  `server.log`, `server.pid`. Порт 9224, `AGENT_ENV=prod`.
+- Обновление — только через `scripts/deploy.sh`: build → копирование
+  бинарника/dist/migrations → stop+start. `data/` deploy не трогает.
+- `<repo>/data` и `<repo>/data-dev` в git не попадают; prod больше в
+  `<repo>/data` не пишет (там остаётся старая копия — не используется).
+
 ## Ключевые факты
 
-- **`data/` в `.gitignore`** — runtime (БД, индексы, сборки, BSL LS JAR).
+- **`data/`, `data-dev/` в `.gitignore`** — runtime (БД, индексы, сборки,
+  BSL LS JAR); у prod своя `data/` в adminka.
 - **`admin-ui/dist/`** вшивается в бинарник через `rust-embed`; в git не
   попадает (`.gitignore`), собирается всегда перед `cargo build`.
 - **Тесты отсутствуют** (ни Rust, ни JS). Проверка фичи = временный объект

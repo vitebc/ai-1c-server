@@ -29,7 +29,7 @@ fi
 
 AGENT_ENV=dev "$BINARY" --data-dir "$DATA_DIR" --http-port "$PORT" --admin-dir "$DIR/admin-ui/dist" migrate
 
-setsid nohup env AGENT_ENV=dev "$BINARY" \
+exec env AGENT_ENV=dev "$BINARY" \
   --data-dir "$DATA_DIR" \
   --http-port "$PORT" \
   --admin-dir "$DIR/admin-ui/dist" \

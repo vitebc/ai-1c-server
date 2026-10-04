@@ -53,16 +53,21 @@ cd ai-1c-server
 
 ## 4. Запуск сервера
 
+Prod живёт в `/home/test/.config/ai-1c-server/adminka` (вне git): там
+бинарник, `admin-ui/dist`, `migrations/`, своя `data/` и скрипты запуска.
+Выкатка — `./scripts/deploy.sh` из репо (build + копирование + рестарт).
+
 ```bash
 # Первый запуск — инициализация БД
-./scripts/start.sh
+/home/test/.config/ai-1c-server/adminka/start.sh
 
 # Проверка
 curl http://localhost:9224/health
 # → OK
 
-# Статус
-./scripts/status.sh
+# Статус / остановка
+/home/test/.config/ai-1c-server/adminka/status.sh
+/home/test/.config/ai-1c-server/adminka/stop.sh
 ```
 
 **Проверить извне:**
@@ -103,7 +108,7 @@ sudo ./scripts/uninstall-service.sh
 
 Порядок при обновлении кода:
 ```bash
-./scripts/update.sh                 # git pull + build + stop/start (ручной режим)
+git pull && ./scripts/deploy.sh     # build + копирование в adminka/ + stop/start
 # если работает служба вместо ручного инстанса:
 sudo systemctl restart ai-1c-server # после update.sh
 ```
