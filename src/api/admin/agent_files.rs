@@ -45,7 +45,7 @@ pub const KNOWN_TOOLS: &[&str] = &[
     "validate_query",
 ];
 
-fn project_root(db: &crate::db::Database) -> PathBuf {
+pub fn project_root(db: &crate::db::Database) -> PathBuf {
     let custom: Option<String> = db
         .conn
         .query_row(
@@ -611,6 +611,7 @@ fn write_file(path: &Path, content: &str) -> Result<(), String> {
 
 pub async fn create_agent(
     State(state): State<Arc<AppState>>,
+    Extension(ident): Extension<crate::auth::AuthIdentity>,
     Json(body): Json<AgentBody>,
 ) -> Result<Json<AgentItem>, axum::response::Response> {
     use axum::response::IntoResponse;
@@ -643,11 +644,19 @@ pub async fn create_agent(
     write_file(&dir.join("AGENT.md"), &content)
         .map_err(|e| super::AppError::msg(e).into_response())?;
     tracing::info!("agent-files: created agent {name}");
+    {
+        let db = state.db.lock().await;
+        super::agent_audit::commit_and_record(
+            &state, &db, &ident.user_id, &ident.username,
+            "agent", &name, "create", &format!("backend/agents/{name}"),
+        );
+    }
     Ok(Json(read_agent(&dir)))
 }
 
 pub async fn update_agent(
     State(state): State<Arc<AppState>>,
+    Extension(ident): Extension<crate::auth::AuthIdentity>,
     AxPath(name): AxPath<String>,
     Json(body): Json<AgentBody>,
 ) -> Result<Json<AgentItem>, axum::response::Response> {
@@ -696,11 +705,19 @@ pub async fn update_agent(
     );
     write_file(&final_dir.join("AGENT.md"), &content)
         .map_err(|e| super::AppError::msg(e).into_response())?;
+    {
+        let db = state.db.lock().await;
+        super::agent_audit::commit_and_record(
+            &state, &db, &ident.user_id, &ident.username,
+            "agent", &new_name, "update", &format!("backend/agents/{new_name}"),
+        );
+    }
     Ok(Json(read_agent(&final_dir)))
 }
 
 pub async fn delete_agent(
     State(state): State<Arc<AppState>>,
+    Extension(ident): Extension<crate::auth::AuthIdentity>,
     AxPath(name): AxPath<String>,
 ) -> Result<Json<Value>, axum::response::Response> {
     use axum::response::IntoResponse;
@@ -718,6 +735,13 @@ pub async fn delete_agent(
     }
     std::fs::remove_dir_all(&dir).map_err(|e| super::AppError::msg(format!("delete: {e}")).into_response())?;
     tracing::warn!("agent-files: deleted agent {name}");
+    {
+        let db = state.db.lock().await;
+        super::agent_audit::commit_and_record(
+            &state, &db, &ident.user_id, &ident.username,
+            "agent", &name, "delete", &format!("backend/agents/{name}"),
+        );
+    }
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -725,6 +749,7 @@ pub async fn delete_agent(
 
 pub async fn create_skill(
     State(state): State<Arc<AppState>>,
+    Extension(ident): Extension<crate::auth::AuthIdentity>,
     Json(body): Json<SkillBody>,
 ) -> Result<Json<SkillItem>, axum::response::Response> {
     use axum::response::IntoResponse;
@@ -751,11 +776,19 @@ pub async fn create_skill(
     write_file(&dir.join("SKILL.md"), &content)
         .map_err(|e| super::AppError::msg(e).into_response())?;
     tracing::info!("agent-files: created skill {name}");
+    {
+        let db = state.db.lock().await;
+        super::agent_audit::commit_and_record(
+            &state, &db, &ident.user_id, &ident.username,
+            "skill", &name, "create", &format!("backend/skills/{name}"),
+        );
+    }
     Ok(Json(read_skill(&dir)))
 }
 
 pub async fn update_skill(
     State(state): State<Arc<AppState>>,
+    Extension(ident): Extension<crate::auth::AuthIdentity>,
     AxPath(name): AxPath<String>,
     Json(body): Json<SkillBody>,
 ) -> Result<Json<SkillItem>, axum::response::Response> {
@@ -797,11 +830,19 @@ pub async fn update_skill(
     let content = render_frontmatter(&meta, &lists, &body.body);
     write_file(&final_dir.join("SKILL.md"), &content)
         .map_err(|e| super::AppError::msg(e).into_response())?;
+    {
+        let db = state.db.lock().await;
+        super::agent_audit::commit_and_record(
+            &state, &db, &ident.user_id, &ident.username,
+            "skill", &new_name, "update", &format!("backend/skills/{new_name}"),
+        );
+    }
     Ok(Json(read_skill(&final_dir)))
 }
 
 pub async fn delete_skill(
     State(state): State<Arc<AppState>>,
+    Extension(ident): Extension<crate::auth::AuthIdentity>,
     AxPath(name): AxPath<String>,
 ) -> Result<Json<Value>, axum::response::Response> {
     use axum::response::IntoResponse;
@@ -819,6 +860,13 @@ pub async fn delete_skill(
     }
     std::fs::remove_dir_all(&dir).map_err(|e| super::AppError::msg(format!("delete: {e}")).into_response())?;
     tracing::warn!("agent-files: deleted skill {name}");
+    {
+        let db = state.db.lock().await;
+        super::agent_audit::commit_and_record(
+            &state, &db, &ident.user_id, &ident.username,
+            "skill", &name, "delete", &format!("backend/skills/{name}"),
+        );
+    }
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -826,6 +874,7 @@ pub async fn delete_skill(
 
 pub async fn create_pattern(
     State(state): State<Arc<AppState>>,
+    Extension(ident): Extension<crate::auth::AuthIdentity>,
     Json(body): Json<PatternBody>,
 ) -> Result<Json<PatternItem>, axum::response::Response> {
     use axum::response::IntoResponse;
@@ -849,11 +898,19 @@ pub async fn create_pattern(
     let content = render_frontmatter(&meta, &HashMap::new(), &body.body);
     write_file(&path, &content).map_err(|e| super::AppError::msg(e).into_response())?;
     tracing::info!("agent-files: created pattern {name}");
+    {
+        let db = state.db.lock().await;
+        super::agent_audit::commit_and_record(
+            &state, &db, &ident.user_id, &ident.username,
+            "pattern", &name, "create", &format!("backend/patterns/{name}.md"),
+        );
+    }
     Ok(Json(read_pattern(&path)))
 }
 
 pub async fn update_pattern(
     State(state): State<Arc<AppState>>,
+    Extension(ident): Extension<crate::auth::AuthIdentity>,
     AxPath(name): AxPath<String>,
     Json(body): Json<PatternBody>,
 ) -> Result<Json<PatternItem>, axum::response::Response> {
@@ -892,11 +949,19 @@ pub async fn update_pattern(
     ];
     let content = render_frontmatter(&meta, &HashMap::new(), &body.body);
     write_file(&final_path, &content).map_err(|e| super::AppError::msg(e).into_response())?;
+    {
+        let db = state.db.lock().await;
+        super::agent_audit::commit_and_record(
+            &state, &db, &ident.user_id, &ident.username,
+            "pattern", &new_name, "update", &format!("backend/patterns/{new_name}.md"),
+        );
+    }
     Ok(Json(read_pattern(&final_path)))
 }
 
 pub async fn delete_pattern(
     State(state): State<Arc<AppState>>,
+    Extension(ident): Extension<crate::auth::AuthIdentity>,
     AxPath(name): AxPath<String>,
 ) -> Result<Json<Value>, axum::response::Response> {
     use axum::response::IntoResponse;
@@ -914,5 +979,12 @@ pub async fn delete_pattern(
     }
     std::fs::remove_file(&path).map_err(|e| super::AppError::msg(format!("delete: {e}")).into_response())?;
     tracing::warn!("agent-files: deleted pattern {name}");
+    {
+        let db = state.db.lock().await;
+        super::agent_audit::commit_and_record(
+            &state, &db, &ident.user_id, &ident.username,
+            "pattern", &name, "delete", &format!("backend/patterns/{name}.md"),
+        );
+    }
     Ok(Json(json!({ "ok": true })))
 }

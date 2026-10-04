@@ -270,3 +270,20 @@ export interface StatsSummary {
   by_base: { base_name: string; count: number }[];
   by_agent: { agent: string; count: number }[];
 }
+
+export interface AgentChange {
+  id: number;
+  timestamp: string;
+  user_id: string;
+  username: string;
+  entity_type: 'agent' | 'skill' | 'pattern';
+  entity_name: string;
+  action: 'create' | 'update' | 'delete' | 'revert';
+  git_commit_hash: string;
+  diff_summary: string;
+}
+
+export interface AgentChangesPage {
+  items: AgentChange[];
+  total: number;
+}

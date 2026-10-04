@@ -149,6 +149,7 @@ pub const SECTIONS: &[&str] = &[
     "agent-agents",
     "agent-skills",
     "agent-patterns",
+    "agent-changes",
     "agent-backend",
     "skills",
     "bsl-ls",
@@ -183,6 +184,7 @@ fn base_sections(role: &str) -> Vec<String> {
             "agent-agents",
             "agent-skills",
             "agent-patterns",
+            "agent-changes",
             "agent-backend",
             "skills",
             "bsl-ls",
@@ -204,6 +206,7 @@ fn base_sections(role: &str) -> Vec<String> {
             "agent-agents",
             "agent-skills",
             "agent-patterns",
+            "agent-changes",
             "skills",
             "bsl-ls",
             "configs",
@@ -535,6 +538,8 @@ fn section_for(path: &str) -> Option<&'static str> {
         "agent-skills"
     } else if rest.starts_with("agent-files/patterns") {
         "agent-patterns"
+    } else if rest.starts_with("agent-changes") {
+        "agent-changes"
     } else if rest.starts_with("agent-backend/bases") {
         "env"
     } else if rest.starts_with("agent-backend/stats") {

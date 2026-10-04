@@ -1,4 +1,4 @@
-import type { BslLsState, Client, ClientVersion, ConfigProfile, DashboardData, FsBrowseResult, LogEntry, McpServer, ModelProvider, ServerStatus, Skill, StatsRequest, StatsSummary } from '../types';
+import type { AgentChangesPage, BslLsState, Client, ClientVersion, ConfigProfile, DashboardData, FsBrowseResult, LogEntry, McpServer, ModelProvider, ServerStatus, Skill, StatsRequest, StatsSummary } from '../types';
 import type {
   AgentItem, SkillFileItem, PatternItem, AgentOverview,
   AgentBackendStatus, EnvEntry, LiveAgents, LiveSkills, LiveTools,
@@ -227,6 +227,17 @@ export const api = {
   },
   getStatsDistinct: () =>
     request<{ ok: boolean; data?: { user_ids: string[]; base_names: string[]; agents: string[] }; error?: string }>('/agent-backend/stats/distinct'),
+
+  getAgentChanges: (params: Record<string, string>) => {
+    const qs = Object.entries(params).filter(([, v]) => v).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+    return request<AgentChangesPage>(`/agent-changes${qs ? `?${qs}` : ''}`);
+  },
+  getAgentChangesDistinct: () =>
+    request<{ users: string[]; entities: { entity_type: string; entity_name: string }[] }>('/agent-changes/distinct'),
+  getAgentChangeDiff: (id: number) =>
+    request<{ commit: string; diff: string }>(`/agent-changes/${id}/diff`),
+  revertAgentChange: (id: number) =>
+    request<{ ok: boolean; commit: string }>(`/agent-changes/${id}/revert`, { method: 'POST' }),
 
   login: (username: string, password: string, remember?: boolean) =>
     request<{ token: string; username: string; role: string; sections: string[] }>(

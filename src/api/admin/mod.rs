@@ -23,6 +23,7 @@ mod model_providers;
 pub(crate) mod search_sync;
 mod settings;
 pub mod skills;
+pub mod agent_audit;
 pub mod agent_backend;
 pub mod agent_files;
 mod users;
@@ -246,6 +247,11 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/agent-files/skills/{name}", put(agent_files::update_skill).delete(agent_files::delete_skill))
         .route("/agent-files/patterns", post(agent_files::create_pattern))
         .route("/agent-files/patterns/{name}", put(agent_files::update_pattern).delete(agent_files::delete_pattern))
+        .route("/agent-changes", get(agent_audit::list_changes))
+        .route("/agent-changes/distinct", get(agent_audit::distinct_changes))
+        .route("/agent-changes/purge", delete(agent_audit::purge_changes))
+        .route("/agent-changes/{id}/diff", get(agent_audit::change_diff))
+        .route("/agent-changes/{id}/revert", post(agent_audit::revert_change))
         .route("/agent-backend/status", get(agent_backend::status))
         .route("/agent-backend/up", post(agent_backend::up))
         .route("/agent-backend/stop", post(agent_backend::stop))
