@@ -27,9 +27,9 @@ if [ "$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$PORT/health" 2
   exit 1
 fi
 
-AGENT_ENV=dev "$BINARY" --data-dir "$DATA_DIR" --http-port "$PORT" --admin-dir "$DIR/admin-ui/dist" migrate
+"$BINARY" --data-dir "$DATA_DIR" --http-port "$PORT" --admin-dir "$DIR/admin-ui/dist" migrate
 
-exec env AGENT_ENV=dev "$BINARY" \
+exec "$BINARY" \
   --data-dir "$DATA_DIR" \
   --http-port "$PORT" \
   --admin-dir "$DIR/admin-ui/dist" \

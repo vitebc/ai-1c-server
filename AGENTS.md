@@ -58,11 +58,11 @@ start/stop/status/restart. Выкатка в prod — `scripts/deploy.sh`.
 
 ```bash
 # Dev-демон (master, порт 9225, data/)
-./scripts/start-dev.sh   # + AGENT_ENV=dev
+./scripts/start-dev.sh
 ./scripts/stop-dev.sh
 
 # Prod (порт 9224) — живёт в adminka/, скрипты там же:
-/home/test/.config/ai-1c-server/adminka/start.sh   # CWD = adminka, AGENT_ENV=prod
+/home/test/.config/ai-1c-server/adminka/start.sh   # CWD = adminka
 /home/test/.config/ai-1c-server/adminka/stop.sh    # + fallback на сироту по порту
 /home/test/.config/ai-1c-server/adminka/status.sh  # restart.sh — stop+start
 
@@ -152,7 +152,7 @@ client_versions, clients, server_settings, audit_log),
   паттерн как у `1c-chat`). Состав: `ai-1c-server` (бинарник),
   `admin-ui/dist/`, `migrations/`, `data/` (своя копия: БД, bsl-ls/, java/,
   skills/), `start.sh` / `stop.sh` / `status.sh` / `restart.sh`,
-  `server.log`, `server.pid`. Порт 9224, `AGENT_ENV=prod`.
+  `server.log`, `server.pid`. Порт 9224.
 - Обновление — только через `scripts/deploy.sh`: build → копирование
   бинарника/dist/migrations → stop+start. `data/` deploy не трогает.
 - `<repo>/data` в git не попадает; это данные dev-демона. Prod пишет только
