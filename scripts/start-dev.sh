@@ -9,6 +9,13 @@ BINARY="$DIR/target/x86_64-unknown-linux-gnu/release/ai-1c-server"
 LOG="$DIR/server-dev.log"
 PID_FILE="$DIR/server-dev.pid"
 
+# Единый JWT-ключ с бэкендом 1С-агента: токен админки принимается бэкендом
+# (per-user RLS, live tools/list). Ключ — в .env dev-репо (JWT_SECRET).
+if [ -f "$HOME/project/1c-ai-agent/.env" ]; then
+  JWT_SECRET="$(grep '^JWT_SECRET=' "$HOME/project/1c-ai-agent/.env" | cut -d= -f2-)"
+  export JWT_SECRET
+fi
+
 if [ ! -x "$BINARY" ]; then
   echo "ERROR: binary not found: $BINARY"
   echo "Build it first: ./scripts/build-linux.sh"

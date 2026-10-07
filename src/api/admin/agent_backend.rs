@@ -12,7 +12,7 @@ use std::time::Duration;
 use std::collections::HashMap;
 
 use axum::{
-    extract::{Query, State},
+    extract::{Query, Request, State},
     Json,
 };
 use serde::{Deserialize, Serialize};
@@ -479,6 +479,7 @@ pub async fn env_put(
 
 // ─── live read-through (backend's own view) ───
 
+/// GET без авторизации.
 async fn proxy_get(url: &str) -> Result<Value, String> {
     let resp = tokio::time::timeout(Duration::from_secs(10), reqwest::get(url))
         .await
@@ -492,31 +493,66 @@ async fn proxy_get(url: &str) -> Result<Value, String> {
         .map_err(|e| format!("invalid backend JSON: {e}"))
 }
 
-pub async fn live_agents(State(state): State<Arc<AppState>>) -> Json<Value> {
-    let url = {
+/// GET с JWT админки: бэкенд проверяет токен (единый JWT_SECRET) и отдаёт
+/// per-user RLS-данные. Токен берём из запроса к админке — без него бэкенд
+/// отвечает 401 на защищённые эндпоинты (напр. /tools?base_url=...).
+async fn proxy_get_auth(
+    url: &str,
+    bearer: Option<&str>,
+) -> Result<Value, String> {
+    let mut req = reqwest::Client::new().get(url);
+    if let Some(t) = bearer.filter(|t| !t.is_empty()) {
+        req = req.header(reqwest::header::AUTHORIZATION, format!("Bearer {t}"));
+    }
+    let resp = tokio::time::timeout(Duration::from_secs(10), req.send())
+        .await
+        .map_err(|_| "backend request timed out".to_string())?
+        .map_err(|e| format!("backend unreachable: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("backend returned {}", resp.status()));
+    }
+    resp.json::<Value>()
+        .await
+        .map_err(|e| format!("invalid backend JSON: {e}"))
+}
+
+fn bearer_from(h: &axum::http::HeaderMap) -> Option<String> {
+    h.get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .map(|t| t.trim().to_string())
+}
+
+pub async fn live_agents(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Json<Value> {
+    let (url, bearer) = {
         let db = state.db.lock().await;
         let root = project_root(&db);
-        backend_url(&db, &root)
+        (backend_url(&db, &root), bearer_from(&headers))
     };
-    match proxy_get(&format!("{url}/agents")).await {
+    match proxy_get_auth(&format!("{url}/agents"), bearer.as_deref()).await {
         Ok(v) => Json(json!({ "reachable": true, "data": v })),
         Err(e) => Json(json!({ "reachable": false, "error": e })),
     }
 }
 
-pub async fn live_skills(    State(state): State<Arc<AppState>>,
+pub async fn live_skills(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
     Query(q): Query<HashMap<String, String>>,
 ) -> Json<Value> {
-    let url = {
+    let (url, bearer) = {
         let db = state.db.lock().await;
         let root = project_root(&db);
-        backend_url(&db, &root)
+        (backend_url(&db, &root), bearer_from(&headers))
     };
     let mut target = format!("{url}/skills");
     if let Some(a) = q.get("agent") {
         target.push_str(&format!("?agent={}", urlencoding(a)));
     }
-    match proxy_get(&target).await {
+    match proxy_get_auth(&target, bearer.as_deref()).await {
         Ok(v) => Json(json!({ "reachable": true, "data": v })),
         Err(e) => Json(json!({ "reachable": false, "error": e })),
     }
@@ -527,18 +563,19 @@ pub async fn live_skills(    State(state): State<Arc<AppState>>,
 /// The source of truth for `AGENT.md`/`SKILL.md` `tools:` selectors.
 pub async fn live_tools(
     State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
     Query(qs): Query<HashMap<String, String>>,
 ) -> Json<Value> {
-    let (url, base_url) = {
+    let (url, base_url, bearer) = {
         let db = state.db.lock().await;
         let root = project_root(&db);
         let mut u = format!("{}/tools", backend_url(&db, &root));
         if let Some(b) = qs.get("base_url").filter(|b| !b.is_empty()) {
             u.push_str(&format!("?base_url={}", urlencoding(b)));
         }
-        (u, qs.get("base_url").cloned().filter(|b| !b.is_empty()))
+        (u, qs.get("base_url").cloned().filter(|b| !b.is_empty()), bearer_from(&headers))
     };
-    match proxy_get(&url).await {
+    match proxy_get_auth(&url, bearer.as_deref()).await {
         Ok(mut v) => {
             // base_url из запроса — источник истины для UI (бэкенд может не вернуть его).
             if let Some(obj) = v.as_object_mut() {

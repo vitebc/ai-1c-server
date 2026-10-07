@@ -407,6 +407,13 @@ fn jwt_secret(db: &Database) -> Result<String, Box<dyn std::error::Error>> {
             return Ok(s);
         }
     }
+    // Единый ключ с бэкендом 1С-агента (JWT_SECRET в его .env): токен админки
+    // принимается бэкендом для per-user RLS (live tools/list и т.п.).
+    if let Ok(s) = std::env::var("JWT_SECRET") {
+        if !s.trim().is_empty() {
+            return Ok(s);
+        }
+    }
     let secret = uuid::Uuid::new_v4().simple().to_string() + &uuid::Uuid::new_v4().simple().to_string();
     db.conn.execute(
         "INSERT INTO server_settings (key, value) VALUES ('jwt_secret', ?1)
@@ -416,8 +423,32 @@ fn jwt_secret(db: &Database) -> Result<String, Box<dyn std::error::Error>> {
     Ok(secret)
 }
 
+/// Синхронизировать JWT-ключ с бэкендом 1С-агента (env `JWT_SECRET`): токен
+/// админки принимается бэкендом для per-user RLS. Обновляет сохранённый ключ,
+/// если env задан и отличается; без env — не трогает (старый ключ работает).
 pub fn ensure_jwt_secret(db: &Database) -> Result<(), Box<dyn std::error::Error>> {
-    jwt_secret(db).map(|_| ())
+    if let Ok(s) = std::env::var("JWT_SECRET") {
+        let s = s.trim();
+        if !s.is_empty() {
+            let stored: Option<String> = db
+                .conn
+                .query_row(
+                    "SELECT value FROM server_settings WHERE key = 'jwt_secret'",
+                    [],
+                    |row| row.get(0),
+                )
+                .ok();
+            if stored.as_deref() != Some(s) {
+                db.conn.execute(
+                    "INSERT INTO server_settings (key, value) VALUES ('jwt_secret', ?1)
+                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    [s],
+                )?;
+                tracing::info!("auth: jwt_secret synced from env JWT_SECRET");
+            }
+        }
+    }
+    Ok(())
 }
 
 fn issue_jwt(db: &Database, user: &UserRow, remember: bool) -> Result<String, String> {
