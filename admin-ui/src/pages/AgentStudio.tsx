@@ -645,6 +645,21 @@ function SkillsTab({ ov, tools, toolsMode, onChanged }: { ov: AgentOverview; too
   );
 }
 
+// Инструменты по умолчанию при создании нового скилла (см. скриншот):
+// базовый набор для работы с 1С + get_pattern. Отмечаются только при
+// СОЗДАНИИ; при редактировании — как сохранено.
+const SKILL_DEFAULT_TOOLS = [
+  'execute_select',
+  'validate_query',
+  'list_metadata_objects',
+  'get_metadata_structure',
+  'get_metadata_tree',
+  'get_configuration_info',
+  'get_object_structure',
+  'execute_query',
+  'get_pattern',
+];
+
 const SKILL_BODY_EXAMPLE = `# Название сценария
 
 Сценарий «типичный вопрос пользователя» — одной строкой, что делает скилл.
@@ -664,7 +679,8 @@ function SkillForm({ item, tools, toolsMode, error, onClose, onSaved, onError }:
 }) {
   const [name, setName] = useState(item?.name || '');
   const [description, setDescription] = useState(item?.description || '');
-  const [selTools, setSelTools] = useState<string[]>(item?.tools || []);
+  // Новый скилл — базовый набор инструментов по умолчанию; редактирование — как есть.
+  const [selTools, setSelTools] = useState<string[]>(item ? item.tools : SKILL_DEFAULT_TOOLS);
   const [body, setBody] = useState(item?.body || '');
   const [hintOpen, setHintOpen] = useState(false);
   const [confirmExample, setConfirmExample] = useState(false);
