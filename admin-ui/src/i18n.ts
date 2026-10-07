@@ -135,6 +135,7 @@ export const t = {
     rootConfirm: (p: string) => `Переключить корень агентского проекта на:\n${p}\nВсе файловые/бэкенд операции будут нацелены туда.`,
     newAgent: 'Новый агент', newSkill: 'Новый скилл', newPattern: 'Новый паттерн',
     noAgents: 'Агентов нет', noSkills: 'Скиллов нет', noPatterns: 'Паттернов нет',
+    patternEnabled: 'Вкл', patternEnable: 'Включить (агент увидит)', patternDisable: 'Выключить (скрыть от агента)', patternAvailable: 'Доступен агенту (виден в get_pattern)',
     toolsLabel: 'Инструменты (подмножество ToolRegistry)',
     live: 'live', offline: 'офлайн', mcpServers: 'MCP-серверы',
     baseLabel: 'База live (MCP_ONEC_URL)',

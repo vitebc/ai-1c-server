@@ -765,6 +765,16 @@ function PatternsTab({ ov, onChanged }: { ov: AgentOverview; onChanged: () => vo
     onChanged();
   }
 
+  // Тумблер в таблице: переключает enabled в frontmatter (агент видит только включённые).
+  async function doTogglePattern(p: PatternItem) {
+    try {
+      await api.togglePattern(p.name);
+      onChanged();
+    } catch (err) {
+      alert(errText(err, 'Ошибка переключения'));
+    }
+  }
+
   return (
     <div>
       <div className="flex justify-end mb-3">
@@ -782,20 +792,31 @@ function PatternsTab({ ov, onChanged }: { ov: AgentOverview; onChanged: () => vo
           onConfirm={() => { doRemovePattern(delPattern); setDelPattern(null); }} />
       )}
       <TableShell
-        colSpan={3}
+        colSpan={4}
         empty={ov.patterns.length === 0 ? { text: t.studio.noPatterns } : null}
-        head={<><Th>Имя</Th><Th>Описание</Th><Th right>{t.common.actions}</Th></>}
+        head={<><Th>{t.studio.patternEnabled}</Th><Th>Имя</Th><Th>Описание</Th><Th right>{t.common.actions}</Th></>}
       >
-        {ov.patterns.map(p => (
-          <Row key={p.name}>
-            <Td><span className="font-mono text-xs font-medium text-slate-800 dark:text-slate-100">{p.name}</span><Err text={p.error} /></Td>
-            <Td><span className="text-xs text-slate-500 max-w-[420px] truncate block" title={p.description}>{p.description || '—'}</span></Td>
-            <Td className="text-right whitespace-nowrap">
-              <IconBtn title={t.common.edit} onClick={() => { setEdit(p); setFormError(''); setShowNew(false); }}><Pencil size={15} /></IconBtn>
-              <IconBtn title={t.common.delete} onClick={() => setDelPattern(p)} className="hover:!text-red-600"><Trash2 size={15} /></IconBtn>
-            </Td>
-          </Row>
-        ))}
+        {ov.patterns.map(p => {
+          const on = p.enabled !== false;
+          return (
+            <Row key={p.name} className={on ? undefined : 'opacity-50'}>
+              <Td>
+                <button type="button" aria-label={`${t.studio.patternEnabled}: ${on ? 'вкл' : 'выкл'}`}
+                  title={on ? t.studio.patternDisable : t.studio.patternEnable}
+                  onClick={() => doTogglePattern(p)}
+                  className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${on ? 'bg-emerald-600' : 'bg-slate-300 dark:bg-slate-600'}`}>
+                  <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${on ? 'translate-x-[18px]' : 'translate-x-[3px]'}`} />
+                </button>
+              </Td>
+              <Td><span className="font-mono text-xs font-medium text-slate-800 dark:text-slate-100">{p.name}</span><Err text={p.error} /></Td>
+              <Td><span className="text-xs text-slate-500 max-w-[420px] truncate block" title={p.description}>{p.description || '—'}</span></Td>
+              <Td className="text-right whitespace-nowrap">
+                <IconBtn title={t.common.edit} onClick={() => { setEdit(p); setFormError(''); setShowNew(false); }}><Pencil size={15} /></IconBtn>
+                <IconBtn title={t.common.delete} onClick={() => setDelPattern(p)} className="hover:!text-red-600"><Trash2 size={15} /></IconBtn>
+              </Td>
+            </Row>
+          );
+        })}
       </TableShell>
     </div>
   );
@@ -807,12 +828,14 @@ function PatternForm({ item, error, onClose, onSaved, onError }: {
 }) {
   const [name, setName] = useState(item?.name || '');
   const [description, setDescription] = useState(item?.description || '');
+  // Новый паттерн — включён; при редактировании — как в файле.
+  const [enabled, setEnabled] = useState(item ? item.enabled !== false : true);
   const [body, setBody] = useState(item?.body || '');
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     onError('');
-    const payload = { name: name.trim(), description, body };
+    const payload = { name: name.trim(), description, enabled, body };
     try {
       if (item) await api.updatePattern(item.name, payload);
       else await api.createPattern(payload);
@@ -830,6 +853,11 @@ function PatternForm({ item, error, onClose, onSaved, onError }: {
           <TextField label="Имя (файл, ^[a-z0-9-]+$)" value={name} onChange={setName} mono />
           <TextField label={t.skills.description} value={description} onChange={setDescription} />
         </div>
+        <label className="flex items-center gap-2 text-sm shrink-0 cursor-pointer select-none">
+          <input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)}
+            className="h-4 w-4 rounded accent-emerald-600" />
+          {t.studio.patternAvailable}
+        </label>
         <BodyField value={body} onChange={setBody} rows={14} />
       </div>
     </FormModal>

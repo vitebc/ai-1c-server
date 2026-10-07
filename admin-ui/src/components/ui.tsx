@@ -115,8 +115,8 @@ export function Td({ children, className = '' }: { children: ReactNode; classNam
   return <td className={`px-4 py-2.5 align-middle ${className}`}>{children}</td>;
 }
 
-export function Row({ children }: { children: ReactNode }) {
-  return <tr className="border-b border-slate-100 last:border-0 hover:bg-slate-50 dark:border-slate-800/70 dark:hover:bg-slate-800/40">{children}</tr>;
+export function Row({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return <tr className={`border-b border-slate-100 last:border-0 hover:bg-slate-50 dark:border-slate-800/70 dark:hover:bg-slate-800/40 ${className}`.trim()}>{children}</tr>;
 }
 
 export function Field({ label, children, hint, className = '' }: { label: string; children: ReactNode; hint?: string; className?: string }) {

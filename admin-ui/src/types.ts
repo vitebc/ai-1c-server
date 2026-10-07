@@ -171,6 +171,7 @@ export interface PatternItem {
   name: string;
   description: string;
   body: string;
+  enabled?: boolean; // нет флага в frontmatter = включён
   error: string | null;
 }
 

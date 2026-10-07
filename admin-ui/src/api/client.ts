@@ -187,6 +187,8 @@ export const api = {
   updatePattern: (name: string, data: Partial<PatternItem>) =>
     request<PatternItem>(`/agent-files/patterns/${name}`, { method: 'PUT', body: JSON.stringify(data) }),
   deletePattern: (name: string) => request<void>(`/agent-files/patterns/${name}`, { method: 'DELETE' }),
+  togglePattern: (name: string) =>
+    request<PatternItem>(`/agent-files/patterns/${name}/toggle`, { method: 'POST' }),
 
   getAgentBackendStatus: () => request<AgentBackendStatus>('/agent-backend/status'),
   agentBackendUp: (services: string[], profiles: string[]) =>

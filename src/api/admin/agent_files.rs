@@ -240,7 +240,13 @@ pub struct PatternItem {
     pub name: String,
     pub description: String,
     pub body: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
     pub error: Option<String>,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Serialize)]
@@ -344,8 +350,16 @@ pub struct SkillBody {
 pub struct PatternBody {
     pub name: String,
     pub description: Option<String>,
+    /// enabled в frontmatter; None = не менять (toggle идёт отдельным эндпоинтом).
+    #[serde(default)]
+    pub enabled: Option<bool>,
     #[serde(default)]
     pub body: String,
+}
+
+/// Значение `enabled` для frontmatter паттерна (строка 'true'/'false').
+fn pattern_enabled_value(enabled: bool) -> String {
+    if enabled { "true".into() } else { "false".into() }
 }
 
 // ─── readers ────────────────────────────────────────────────────────
@@ -457,6 +471,7 @@ fn read_pattern(path: &Path) -> PatternItem {
         name: name.clone(),
         description: String::new(),
         body: String::new(),
+        enabled: true, // дефолт — включён; реальный флаг ниже из frontmatter
         error: None,
     };
     let text = match std::fs::read_to_string(path) {
@@ -477,9 +492,15 @@ fn read_pattern(path: &Path) -> PatternItem {
         }
     };
     let fname = meta_str(&meta, "name");
+    // enabled: парсер frontmatter всё читает как строку; 'enabled: false' → выключен.
+    let enabled = match meta.get("enabled") {
+        Some(Value::String(s)) => s.trim().to_lowercase() != "false",
+        _ => true, // ключа нет — включён
+    };
     let mut item = PatternItem {
         description: meta_str(&meta, "description"),
         body,
+        enabled,
         error: None,
         ..blank
     };
@@ -891,13 +912,15 @@ pub async fn create_pattern(
     if path.exists() {
         return Err(super::BadRequest(format!("pattern {name:?} already exists")).into_response());
     }
+    let enabled = body.enabled.unwrap_or(true);
     let meta = vec![
         ("name".into(), name.clone()),
         ("description".into(), body.description.unwrap_or_default()),
+        ("enabled".into(), pattern_enabled_value(enabled)),
     ];
     let content = render_frontmatter(&meta, &HashMap::new(), &body.body);
     write_file(&path, &content).map_err(|e| super::AppError::msg(e).into_response())?;
-    tracing::info!("agent-files: created pattern {name}");
+    tracing::info!("agent-files: created pattern {name} (enabled={enabled})");
     {
         let db = state.db.lock().await;
         super::agent_audit::commit_and_record(
@@ -943,9 +966,14 @@ pub async fn update_pattern(
     } else {
         path
     };
+    let enabled = match body.enabled {
+        Some(e) => e,
+        None => read_pattern(&final_path).enabled, // не передан — как есть в файле
+    };
     let meta = vec![
         ("name".into(), new_name.clone()),
         ("description".into(), body.description.unwrap_or_default()),
+        ("enabled".into(), pattern_enabled_value(enabled)),
     ];
     let content = render_frontmatter(&meta, &HashMap::new(), &body.body);
     write_file(&final_path, &content).map_err(|e| super::AppError::msg(e).into_response())?;
@@ -957,6 +985,86 @@ pub async fn update_pattern(
         );
     }
     Ok(Json(read_pattern(&final_path)))
+}
+
+/// POST /agent-files/patterns/{name}/toggle — быстро переключить enabled,
+/// не трогая остальной frontmatter и тело. Агент видит только включённые.
+pub async fn toggle_pattern(
+    State(state): State<Arc<AppState>>,
+    Extension(ident): Extension<crate::auth::AuthIdentity>,
+    AxPath(name): AxPath<String>,
+) -> Result<Json<PatternItem>, axum::response::Response> {
+    use axum::response::IntoResponse;
+    if !is_valid_name(&name) {
+        return Err(super::BadRequest("invalid name".into()).into_response());
+    }
+    let root = {
+        let db = state.db.lock().await;
+        project_root(&db)
+    };
+    let path = jail(&root, &PathBuf::from(format!("backend/patterns/{name}.md")))
+        .map_err(|e| super::BadRequest(e).into_response())?;
+    if !path.is_file() {
+        return Err(super::NotFound.into_response());
+    }
+    let text = std::fs::read_to_string(&path)
+        .map_err(|e| super::AppError::msg(format!("read: {e}")).into_response())?;
+    let new_line = if read_pattern(&path).enabled {
+        "enabled: false"
+    } else {
+        "enabled: true"
+    };
+    let text = match text.lines().position(|l| l.trim_start().starts_with("enabled:")) {
+        Some(i) => {
+            let mut lines: Vec<&str> = text.lines().collect();
+            lines[i] = new_line;
+            let mut out = lines.join("\n");
+            if text.ends_with('\n') {
+                out.push('\n');
+            }
+            out
+        }
+        None => {
+            // Флага нет — вставляем после строки description (или name).
+            let mut out = String::new();
+            let mut inserted = false;
+            for l in text.lines() {
+                out.push_str(l);
+                out.push('\n');
+                if !inserted && l.trim_start().starts_with("description:") {
+                    out.push_str(new_line);
+                    out.push('\n');
+                    inserted = true;
+                }
+            }
+            if !inserted {
+                // description нет — после name.
+                let mut lines: Vec<&str> = text.lines().collect();
+                out.clear();
+                for (i, l) in lines.iter().enumerate() {
+                    out.push_str(l);
+                    out.push('\n');
+                    if !inserted && l.trim_start().starts_with("name:") {
+                        out.push_str(new_line);
+                        out.push('\n');
+                        inserted = true;
+                        let _ = i;
+                    }
+                }
+            }
+            out
+        }
+    };
+    write_file(&path, &text).map_err(|e| super::AppError::msg(e).into_response())?;
+    tracing::info!("agent-files: toggled pattern {name} -> {new_line}");
+    {
+        let db = state.db.lock().await;
+        super::agent_audit::commit_and_record(
+            &state, &db, &ident.user_id, &ident.username,
+            "pattern", &name, "toggle", &format!("backend/patterns/{name}.md"),
+        );
+    }
+    Ok(Json(read_pattern(&path)))
 }
 
 pub async fn delete_pattern(

@@ -247,6 +247,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/agent-files/skills/{name}", put(agent_files::update_skill).delete(agent_files::delete_skill))
         .route("/agent-files/patterns", post(agent_files::create_pattern))
         .route("/agent-files/patterns/{name}", put(agent_files::update_pattern).delete(agent_files::delete_pattern))
+        .route("/agent-files/patterns/{name}/toggle", post(agent_files::toggle_pattern))
         .route("/agent-changes", get(agent_audit::list_changes))
         .route("/agent-changes/distinct", get(agent_audit::distinct_changes))
         .route("/agent-changes/purge", delete(agent_audit::purge_changes))
