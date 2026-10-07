@@ -13,8 +13,8 @@ const EXACT: Record<string, string> = {
     'Сессия истекла — войдите снова',
   'invalid username or password': 'Неверное имя пользователя или пароль',
   'invalid old password': 'Неверный старый пароль',
-  'new password must be 8..128 chars': 'Пароль должен быть от 8 до 128 символов',
-  'password must be 8..128 chars': 'Пароль должен быть от 8 до 128 символов',
+  'new password must be 6..128 chars': 'Пароль должен быть от 6 до 128 символов',
+  'password must be 6..128 chars': 'Пароль должен быть от 6 до 128 символов',
   'username must be 3..32 chars: a-z 0-9 _ . -':
     'Имя пользователя: 3–32 символа (a-z, 0–9, _ . -)',
   'username already exists': 'Такое имя пользователя уже занято',

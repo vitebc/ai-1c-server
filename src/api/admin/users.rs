@@ -126,10 +126,10 @@ pub async fn create(
         )
             .into_response();
     }
-    if body.password.len() < 8 || body.password.len() > 128 {
+    if body.password.len() < 6 || body.password.len() > 128 {
         return (
             StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "password must be 8..128 chars" })),
+            Json(json!({ "error": "password must be 6..128 chars" })),
         )
             .into_response();
     }
@@ -493,10 +493,10 @@ pub async fn set_password(
     Extension(ident): Extension<auth::AuthIdentity>,
     Json(body): Json<SetPasswordBody>,
 ) -> Response {
-    if body.password.len() < 8 || body.password.len() > 128 {
+    if body.password.len() < 6 || body.password.len() > 128 {
         return (
             StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "password must be 8..128 chars" })),
+            Json(json!({ "error": "password must be 6..128 chars" })),
         )
             .into_response();
     }

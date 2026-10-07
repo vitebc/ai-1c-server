@@ -883,10 +883,10 @@ pub async fn password_handler(
     if ident.system {
         return unauthorized();
     }
-    if body.new_password.len() < 8 || body.new_password.len() > 128 {
+    if body.new_password.len() < 6 || body.new_password.len() > 128 {
         return (
             StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "new password must be 8..128 chars" })),
+            Json(json!({ "error": "new password must be 6..128 chars" })),
         )
             .into_response();
     }
