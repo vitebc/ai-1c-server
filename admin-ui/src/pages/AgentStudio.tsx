@@ -23,29 +23,21 @@ export default function AgentStudio({ me }: { me: Me | null }) {
   const [ov, setOv] = useState<AgentOverview | null>(null);
   const [tools, setTools] = useState<{ name: string; description: string }[]>([]);
   const [toolsMode, setToolsMode] = useState<string | null>(null);
-  const [baseUrls, setBaseUrls] = useState<string[]>([]);
+  // Live-режим: одна база из MCP_ONEC_URL (env бэкенда). Переключателя нет —
+  // агент ходит только в неё. ONEC_BASES остаётся для вкладки Bases (мапа исключений).
   const [baseUrl, setBaseUrl] = useState('');
   const [error, setError] = useState('');
   const [browseRoot, setBrowseRoot] = useState(false);
   const [pendingRoot, setPendingRoot] = useState<string | null>(null);
 
-  // ONEC_BASES из env бэкенда: имя=адрес;... — список баз для live-реестра.
+  // База live-режима: MCP_ONEC_URL из env бэкенда. Если не задана — без базы
+  // (live tools/list вернёт только локальные тулзы).
   const loadBaseUrls = useCallback(async () => {
     try {
       const env = await api.getAgentEnv();
-      const raw = env.find(e => e.key === 'ONEC_BASES')?.value || '';
-      const list: string[] = [];
-      for (const part of raw.split(';')) {
-        const eq = part.indexOf('=');
-        if (eq > 0) {
-          const url = part.slice(eq + 1).trim();
-          if (url && !list.includes(url)) list.push(url);
-        }
-      }
-      setBaseUrls(list);
-      // по умолчанию — первая база, если текущая не в списке.
-      setBaseUrl(prev => (prev === '' || !list.includes(prev)) ? (list[0] || '') : prev);
-    } catch { /* env недоступен — без списка баз */ }
+      const entry = env.find(e => e.key === 'MCP_ONEC_URL');
+      setBaseUrl(entry && typeof entry.value === 'string' ? entry.value.trim() : '');
+    } catch { /* env недоступен — без базы */ }
   }, []);
 
   const load = useCallback(async () => {
@@ -111,14 +103,11 @@ export default function AgentStudio({ me }: { me: Me | null }) {
 
       <div className="mb-4 flex items-center gap-3">
         <Segmented value={tab} onChange={setTab} options={tabs} />
-        {baseUrls.length > 0 && (
-          <label className="ml-auto flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+        {baseUrl && (
+          <span className="ml-auto flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
             {t.studio.baseLabel}
-            <Select value={baseUrl} onChange={e => setBaseUrl(e.target.value)} className="max-w-[320px]">
-              <option value="">{t.studio.baseNone}</option>
-              {baseUrls.map(u => <option key={u} value={u}>{u}</option>)}
-            </Select>
-          </label>
+            <code className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-mono">{baseUrl}</code>
+          </span>
         )}
       </div>
 
