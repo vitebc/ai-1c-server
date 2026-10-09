@@ -57,16 +57,17 @@ start/stop/status/restart. Выкатка в prod — `scripts/deploy.sh`.
 ## Сборка и разработка
 
 ```bash
-# Dev-демон (master, порт 9225, data/)
-./scripts/start-dev.sh
-./scripts/stop-dev.sh
+# Демоны под user-level systemd (автоперезапуск + watchdog 60s):
+systemctl --user status ai-1c-server-dev.service ai-1c-server-prod.service
+systemctl --user restart ai-1c-server-{dev,prod}.service
+journalctl --user -u ai-1c-server-{dev,prod}.service -f   # логи
+# Установка/перевод под systemd: ./scripts/install-user-services.sh [dev|prod|all]
 
-# Prod (порт 9224) — живёт в adminka/, скрипты там же:
-/home/test/.config/ai-1c-server/adminka/start.sh   # CWD = adminka
-/home/test/.config/ai-1c-server/adminka/stop.sh    # + fallback на сироту по порту
-/home/test/.config/ai-1c-server/adminka/status.sh  # restart.sh — stop+start
+# Скриптовые запуски (legacy — systemd останавливает их сам при установке):
+./scripts/start-dev.sh                                   # dev :9225
+/home/test/.config/ai-1c-server/adminka/start.sh         # prod :9224 (CWD = adminka)
 
-# Выкатка в prod (сборка + копирование + рестарт)
+# Выкатка в prod (сборка + копирование + рестарт systemd-сервиса)
 ./scripts/deploy.sh      # ADM_DIR=... для переопределения пути prod
 
 # Dev (раздельные процессы, hot-reload)
