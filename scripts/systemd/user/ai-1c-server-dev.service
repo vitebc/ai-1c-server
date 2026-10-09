@@ -1,0 +1,18 @@
+[Unit]
+Description=AI 1C Enterprise Server (dev, port 9225)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/project/ai-1c-server
+EnvironmentFile=-%h/.config/ai-1c-server/dev.env
+ExecStartPre=%h/project/ai-1c-server/target/x86_64-unknown-linux-gnu/release/ai-1c-server --data-dir %h/project/ai-1c-server/data --http-port 9225 --admin-dir %h/project/ai-1c-server/admin-ui/dist migrate
+ExecStart=%h/project/ai-1c-server/target/x86_64-unknown-linux-gnu/release/ai-1c-server --data-dir %h/project/ai-1c-server/data --http-port 9225 --admin-dir %h/project/ai-1c-server/admin-ui/dist
+Restart=always
+RestartSec=5
+# Auto-restart if the process stops answering /health for 60s (hang protection).
+WatchdogSec=60
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

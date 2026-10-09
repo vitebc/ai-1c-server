@@ -1,0 +1,18 @@
+[Unit]
+Description=AI 1C Enterprise Server (prod, port 9224)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.config/ai-1c-server/adminka
+EnvironmentFile=-%h/.config/ai-1c-server/prod.env
+ExecStartPre=%h/.config/ai-1c-server/adminka/ai-1c-server --data-dir %h/.config/ai-1c-server/adminka/data --http-port 9224 --admin-dir %h/.config/ai-1c-server/adminka/admin-ui/dist migrate
+ExecStart=%h/.config/ai-1c-server/adminka/ai-1c-server --data-dir %h/.config/ai-1c-server/adminka/data --http-port 9224 --admin-dir %h/.config/ai-1c-server/adminka/admin-ui/dist
+Restart=always
+RestartSec=5
+# Auto-restart if the process stops answering /health for 60s (hang protection).
+WatchdogSec=60
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target
