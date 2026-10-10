@@ -18,8 +18,7 @@ use tower_http::services::ServeDir;
 
 /// sd_notify WATCHDOG=1 без внешних кристаллов: unix-сокет из NOTIFY_SOCKET.
 fn nix_sys_notify() -> Result<(), String> {
-    use std::io::Write;
-    use std::os::unix::net::UnixStream;
+    use std::os::unix::net::UnixDatagram;
     let sock = std::env::var("NOTIFY_SOCKET").map_err(|e| e.to_string())?;
     let path = if let Some(n) = sock.strip_prefix('@') {
         // abstract namespace: '@' → NUL.
@@ -27,9 +26,29 @@ fn nix_sys_notify() -> Result<(), String> {
     } else {
         sock
     };
-    let mut stream = UnixStream::connect(&path).map_err(|e| e.to_string())?;
-    stream.write_all(b"WATCHDOG=1").map_err(|e| e.to_string())?;
+    let sock = UnixDatagram::unbound().map_err(|e| e.to_string())?;
+    sock.send_to(b"WATCHDOG=1", &path).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// Пинги WATCHDOG=1 на отдельном OS-потоке (не спавним задачу в рантайм —
+/// под systemd она не выполнялась, а tokio::spawn молча падал).
+fn spawn_watchdog_pinger() {
+    let sock = match std::env::var("NOTIFY_SOCKET") {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+    tracing::info!("watchdog pinger: NOTIFY_SOCKET={sock}");
+    std::thread::Builder::new()
+        .name("wd-ping".into())
+        .spawn(move || loop {
+            match nix_sys_notify() {
+                Ok(()) => tracing::debug!("sd_notify WATCHDOG=1 ok"),
+                Err(e) => tracing::warn!("sd_notify failed: {e}"),
+            }
+            std::thread::sleep(std::time::Duration::from_secs(20));
+        })
+        .ok();
 }
 
 #[derive(Parser, Debug)]
@@ -163,15 +182,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             tracing::info!("Listening on http://{}", addr);
 
             // systemd watchdog (WatchdogSec=60): сервис без sd_notify-пингов
-            // убивается за 60с даже при живом /health. Пингуем каждые 20с.
-            if std::env::var("NOTIFY_SOCKET").is_ok() {
-                tokio::task::spawn_blocking(move || loop {
-                    if let Err(e) = nix_sys_notify() {
-                        tracing::debug!("sd_notify: {e}");
-                    }
-                    std::thread::sleep(std::time::Duration::from_secs(20));
-                });
-            }
+            // убивается за 60с даже при живом /health. Пингуем каждые 20с на
+            // отдельном OS-потоке — spawn_blocking под systemd не отрабатывал.
+            spawn_watchdog_pinger();
 
             let listener = tokio::net::TcpListener::bind(&addr).await?;
             axum::serve(
