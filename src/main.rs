@@ -165,11 +165,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // systemd watchdog (WatchdogSec=60): сервис без sd_notify-пингов
             // убивается за 60с даже при живом /health. Пингуем каждые 20с.
             if std::env::var("NOTIFY_SOCKET").is_ok() {
-                tokio::spawn(async move {
-                    loop {
-                        let _ = nix_sys_notify();
-                        tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+                tokio::task::spawn_blocking(move || loop {
+                    if let Err(e) = nix_sys_notify() {
+                        tracing::debug!("sd_notify: {e}");
                     }
+                    std::thread::sleep(std::time::Duration::from_secs(20));
                 });
             }
 
