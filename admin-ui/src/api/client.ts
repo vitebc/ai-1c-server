@@ -172,6 +172,8 @@ export const api = {
   getAgentTools: () => request<string[]>('/agent-files/tools'),
   getAgentMcpOptions: () =>
     request<{ servers: { name: string; running: boolean }[] }>('/agent-files/mcp-options'),
+  getBaseUsers: (base: string) =>
+    request<{ base: string; cached: boolean; users: string[] }>(`/agent-files/base-users?base=${encodeURIComponent(base)}`),
   createAgent: (data: Partial<AgentItem>) =>
     request<AgentItem>('/agent-files/agents', { method: 'POST', body: JSON.stringify(data) }),
   updateAgent: (name: string, data: Partial<AgentItem>) =>

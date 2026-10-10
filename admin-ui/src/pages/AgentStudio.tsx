@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Plus, Pencil, Trash2, Play, Pause, Square, RotateCcw, RefreshCw, Server, AlertTriangle, FolderOpen, Database, Power, Check, X } from 'lucide-react';
+import { Plus, Pencil, Trash2, Play, Pause, Square, RotateCcw, RefreshCw, Server, AlertTriangle, FolderOpen, Database, Power, Check, X, Users, Download } from 'lucide-react';
 import { api } from '../api/client';
 import FileBrowser from '../components/FileBrowser';
 import type { AgentItem, SkillFileItem, PatternItem, AgentOverview, AgentBackendStatus, EnvEntry, Me, McpServer } from '../types';
@@ -111,7 +111,7 @@ export default function AgentStudio({ me }: { me: Me | null }) {
         )}
       </div>
 
-      {tab === 'agents' && ov && <AgentsTab ov={ov} tools={tools} toolsMode={toolsMode} skills={ov.skills.map(s => ({ name: s.name, description: s.description }))} onChanged={load} />}
+      {tab === 'agents' && ov && <AgentsTab ov={ov} tools={tools} toolsMode={toolsMode} skills={ov.skills.map(s => ({ name: s.name, description: s.description }))} onChanged={load} baseUrl={baseUrl} />}
       {tab === 'skills' && ov && <SkillsTab ov={ov} tools={tools} toolsMode={toolsMode} onChanged={load} />}
       {tab === 'patterns' && ov && <PatternsTab ov={ov} onChanged={load} />}
       {tab === 'backend' && <BackendTab />}
@@ -360,11 +360,31 @@ function FormModal({ title, onClose, onSubmit, error, children, wide, xwide, fil
 
 // ─── Agents tab ───
 
-function AgentsTab({ ov, tools, toolsMode, skills, onChanged }: { ov: AgentOverview; tools: { name: string; description: string }[]; toolsMode: string | null; skills: { name: string; description: string }[]; onChanged: () => void }) {
+function AgentsTab({ ov, tools, toolsMode, skills, onChanged, baseUrl }: { ov: AgentOverview; tools: { name: string; description: string }[]; toolsMode: string | null; skills: { name: string; description: string }[]; onChanged: () => void; baseUrl: string }) {
   const [edit, setEdit] = useState<AgentItem | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [formError, setFormError] = useState('');
   const [delAgent, setDelAgent] = useState<AgentItem | null>(null);
+
+  // Базы для вкладки «Базы и пользователи»: мапа ONEC_BASES + базы, с которых были запросы.
+  const [knownBases, setKnownBases] = useState<string[]>([]);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const [map, distinct] = await Promise.all([
+          api.getAgentBases().catch(() => null),
+          api.getStatsDistinct().catch(() => null),
+        ]);
+        if (!alive) return;
+        const names = new Set<string>();
+        for (const b of map?.bases || []) names.add(b.name);
+        for (const n of distinct?.data?.base_names || []) if (n) names.add(n);
+        setKnownBases([...names].sort());
+      } catch { /* без списка баз форма всё равно работает */ }
+    })();
+    return () => { alive = false; };
+  }, []);
 
   async function doRemove(a: AgentItem) {
     await api.deleteAgent(a.name);
@@ -384,6 +404,8 @@ function AgentsTab({ ov, tools, toolsMode, skills, onChanged }: { ov: AgentOverv
           tools={tools}
           toolsMode={toolsMode}
           skills={skills}
+          knownBases={knownBases}
+          baseUrl={baseUrl}
           error={formError}
           onClose={() => { setShowNew(false); setEdit(null); }}
           onSaved={onChanged}
@@ -408,6 +430,15 @@ function AgentsTab({ ov, tools, toolsMode, skills, onChanged }: { ov: AgentOverv
               {a.description && <span className="block truncate text-xs text-slate-500" title={a.description}>{a.description}</span>}
               {a.model && <span className="block font-mono text-[11px] text-slate-400">model: {a.model}</span>}
               {a.provider && <span className="block font-mono text-[11px] text-slate-400">provider: {a.provider}</span>}
+              {(a.bases?.length || a.users?.length) ? (
+                <span className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+                  <Users size={11} /> {t.studio.accessRestricted(a.bases?.length || 0, a.users?.length || 0)}
+                </span>
+              ) : (
+                <span className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                  {t.studio.accessNone}
+                </span>
+              )}
             </Td>
             <Td><span className="font-mono text-[11px] text-slate-500 max-w-[220px] truncate block" title={a.tools.join(', ')}>{a.tools.join(', ') || '—'}</span></Td>
             <Td><span className="font-mono text-[11px] text-slate-500 max-w-[160px] truncate block" title={a.skills.join(', ')}>{a.skills.join(', ') || '—'}</span></Td>
@@ -422,8 +453,9 @@ function AgentsTab({ ov, tools, toolsMode, skills, onChanged }: { ov: AgentOverv
   );
 }
 
-function AgentForm({ item, tools, toolsMode, skills, error, onClose, onSaved, onError }: {
+function AgentForm({ item, tools, toolsMode, skills, knownBases, baseUrl, error, onClose, onSaved, onError }: {
   item: AgentItem | null; tools: { name: string; description: string }[]; toolsMode: string | null; skills: { name: string; description: string }[];
+  knownBases: string[]; baseUrl: string;
   error: string; onClose: () => void; onSaved: () => void; onError: (e: string) => void;
 }) {
   const [name, setName] = useState(item?.name || '');
@@ -443,9 +475,42 @@ function AgentForm({ item, tools, toolsMode, skills, error, onClose, onSaved, on
     if (typeof v === 'string') return v.split(',').map(s => s.trim()).filter(Boolean);
     return ['default'];
   });
+  const [selBases, setSelBases] = useState<string[]>(item?.bases || []);
+  const [baseQ, setBaseQ] = useState('');
+  const visibleBases = knownBases.filter(b => !baseQ.trim() || b.toLowerCase().includes(baseQ.trim().toLowerCase()));
+  const [selUsers, setSelUsers] = useState<string[]>(item?.users || []);
+  const [userQ, setUserQ] = useState('');
+  const [userInput, setUserInput] = useState('');
+  // Загрузка пользователей из базы: выбранный адрес + кэш ответов.
+  const [loadBase, setLoadBase] = useState(baseUrl && knownBases.length === 0 ? baseUrl : '');
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [usersError, setUsersError] = useState('');
+  const [allBaseUsers, setAllBaseUsers] = useState<string[]>([]);
+  const visibleUsers = allBaseUsers.filter(u => !userQ.trim() || u.toLowerCase().includes(userQ.trim().toLowerCase()));
   const [model, setModel] = useState(item?.model || '');
   const [provider, setProvider] = useState(item?.provider || '');
-  const [ftab, setFtab] = useState<'main' | 'tools' | 'skills'>('main');
+  const [ftab, setFtab] = useState<'main' | 'tools' | 'skills' | 'access'>('main');
+
+  async function loadBaseUsers(base: string) {
+    if (!base.trim()) return;
+    setLoadingUsers(true);
+    setUsersError('');
+    try {
+      const r = await api.getBaseUsers(base.trim());
+      setAllBaseUsers(r.users || []);
+    } catch (err) {
+      setUsersError(errText(err, t.studio.accessUsersError));
+    } finally {
+      setLoadingUsers(false);
+    }
+  }
+
+  function addManualUser() {
+    const u = userInput.trim();
+    if (!u || selUsers.includes(u)) return;
+    setSelUsers([...selUsers, u]);
+    setUserInput('');
+  }
   const [body, setBody] = useState(item?.body || '');
   const [providers, setProviders] = useState<{ name: string; default_model: string | null; models: string[]; is_default: boolean }[]>([]);
 
@@ -476,7 +541,7 @@ function AgentForm({ item, tools, toolsMode, skills, error, onClose, onSaved, on
     const payload = {
       name: name.trim(), title, description,
       tools: selTools, skills: allSkills ? ['*'] : selSkills,
-      mcp: selMcp, model, provider, body,
+      mcp: selMcp, bases: selBases, users: selUsers, model, provider, body,
     };
     try {
       if (item) await api.updateAgent(item.name, payload);
@@ -494,6 +559,7 @@ function AgentForm({ item, tools, toolsMode, skills, error, onClose, onSaved, on
         { key: 'main', label: t.studio.tabMain },
         { key: 'tools', label: `${t.studio.tabTools} (${selTools.length})` },
         { key: 'skills', label: `${t.studio.tabSkills} (${allSkills ? '*' : selSkills.length})` },
+        { key: 'access', label: `${t.studio.tabAccess}${selBases.length || selUsers.length ? ` (${selBases.length + selUsers.length})` : ''}` },
       ]} />
       <div className="flex-1 min-h-0 flex flex-col">
       {ftab === 'main' && (
@@ -568,6 +634,82 @@ function AgentForm({ item, tools, toolsMode, skills, error, onClose, onSaved, on
           ))}
         </datalist>
       </div>
+      </div>
+      )}
+      {ftab === 'access' && (
+      <div className="space-y-4 mt-3">
+        <p className="text-xs text-slate-500 dark:text-slate-400">{t.studio.accessHint}</p>
+        <div>
+          <label className="block text-[13px] font-medium text-slate-700 dark:text-slate-300 mb-1">{t.studio.accessBases}</label>
+          <input value={baseQ} onChange={e => setBaseQ(e.target.value)} placeholder={`${t.common.search} — ${knownBases.length}`}
+            className="w-full mb-1 px-2 py-1 text-xs border border-slate-300 rounded-lg bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200" />
+          <div className="border border-slate-300 dark:border-slate-700 rounded-lg p-2 max-h-36 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1 bg-slate-50 dark:bg-slate-950">
+            {visibleBases.map(b => (
+              <label key={b} className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 px-1 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer">
+                <input type="checkbox" checked={selBases.includes(b)}
+                  onChange={() => setSelBases(selBases.includes(b) ? selBases.filter(x => x !== b) : [...selBases, b])}
+                  className="rounded accent-blue-600" />
+                <span className="font-mono truncate">{b}</span>
+              </label>
+            ))}
+            {visibleBases.length === 0 && <span className="text-xs text-slate-400">Нет баз (мапа ONEC_BASES пуста)</span>}
+          </div>
+          {selBases.filter(b => !knownBases.includes(b)).length > 0 && (
+            <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">Вне мапы: {selBases.filter(b => !knownBases.includes(b)).join(', ')}</p>
+          )}
+        </div>
+        <div>
+          <label className="block text-[13px] font-medium text-slate-700 dark:text-slate-300 mb-1">{t.studio.accessUsers}</label>
+          <div className="flex gap-2 mb-1">
+            <input value={loadBase} onChange={e => setLoadBase(e.target.value)} list="agent-base-list" placeholder="база (имя из мапы или URL)" spellCheck={false}
+              className="flex-1 px-2 py-1 text-xs border border-slate-300 rounded-lg bg-white text-slate-700 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200" />
+            <datalist id="agent-base-list">
+              {knownBases.map(b => <option key={b} value={b} />)}
+              {baseUrl && !knownBases.includes(baseUrl) && <option value={baseUrl} />}
+            </datalist>
+            <Btn onClick={() => loadBaseUsers(loadBase)} disabled={loadingUsers || !loadBase.trim()}>
+              <Download size={14} /> {loadingUsers ? '…' : t.studio.accessLoadUsers}
+            </Btn>
+          </div>
+          {usersError && <p className="text-xs text-red-600 dark:text-red-400 mb-1">{usersError}</p>}
+          {allBaseUsers.length > 0 && (
+            <>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-1">{t.studio.accessUsersLoaded(allBaseUsers.length)}</p>
+              <input value={userQ} onChange={e => setUserQ(e.target.value)} placeholder={`${t.common.search} — ${visibleUsers.length}`}
+                className="w-full mb-1 px-2 py-1 text-xs border border-slate-300 rounded-lg bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200" />
+              <div className="border border-slate-300 dark:border-slate-700 rounded-lg p-2 max-h-48 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1 bg-slate-50 dark:bg-slate-950">
+                {visibleUsers.map(u => (
+                  <label key={u} className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 px-1 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer">
+                    <input type="checkbox" checked={selUsers.includes(u)}
+                      onChange={() => setSelUsers(selUsers.includes(u) ? selUsers.filter(x => x !== u) : [...selUsers, u])}
+                      className="rounded accent-blue-600" />
+                    <span className="truncate">{u}</span>
+                  </label>
+                ))}
+                {visibleUsers.length === 0 && <span className="text-xs text-slate-400">Ничего не найдено</span>}
+              </div>
+            </>
+          )}
+          <div className="flex gap-2 mt-1.5">
+            <input value={userInput} onChange={e => setUserInput(e.target.value)} spellCheck={false}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addManualUser(); } }}
+              placeholder={`${t.studio.accessAddUser} — onec_id`}
+              className="flex-1 px-2 py-1 text-xs border border-slate-300 rounded-lg bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200" />
+            <Btn onClick={addManualUser} disabled={!userInput.trim() || selUsers.includes(userInput.trim())}>
+              <Plus size={14} /> {t.common.add}
+            </Btn>
+          </div>
+          {selUsers.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {selUsers.map(u => (
+                <span key={u} className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-800 dark:bg-blue-900/40 dark:text-blue-300">
+                  {u}
+                  <button type="button" onClick={() => setSelUsers(selUsers.filter(x => x !== u))} className="hover:text-red-600 cursor-pointer"><X size={11} /></button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
       )}
       </div>

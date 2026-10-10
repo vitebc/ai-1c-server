@@ -153,6 +153,10 @@ export interface AgentItem {
   tools: string[];
   skills: string[];
   mcp: string[];
+  /** Доступность по базам (пусто = всем): имена из мапы ONEC_BASES. */
+  bases?: string[];
+  /** Доступность по пользователям 1С (пусто = всем): onec_id. */
+  users?: string[];
   model: string;
   provider: string;
   body: string;
