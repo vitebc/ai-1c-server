@@ -16,6 +16,22 @@ use tokio::sync::Mutex;
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
 
+/// sd_notify WATCHDOG=1 без внешних кристаллов: unix-сокет из NOTIFY_SOCKET.
+fn nix_sys_notify() -> Result<(), String> {
+    use std::io::Write;
+    use std::os::unix::net::UnixStream;
+    let sock = std::env::var("NOTIFY_SOCKET").map_err(|e| e.to_string())?;
+    let path = if let Some(n) = sock.strip_prefix('@') {
+        // abstract namespace: '@' → NUL.
+        format!("\0{n}")
+    } else {
+        sock
+    };
+    let mut stream = UnixStream::connect(&path).map_err(|e| e.to_string())?;
+    stream.write_all(b"WATCHDOG=1").map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[derive(Parser, Debug)]
 #[command(name = "ai-1c-server", about = "AI 1C Enterprise Server")]
 struct Cli {
@@ -145,6 +161,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let addr = format!("0.0.0.0:{}", cli.http_port);
             tracing::info!("Listening on http://{}", addr);
+
+            // systemd watchdog (WatchdogSec=60): сервис без sd_notify-пингов
+            // убивается за 60с даже при живом /health. Пингуем каждые 20с.
+            if std::env::var("NOTIFY_SOCKET").is_ok() {
+                tokio::spawn(async move {
+                    loop {
+                        let _ = nix_sys_notify();
+                        tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+                    }
+                });
+            }
 
             let listener = tokio::net::TcpListener::bind(&addr).await?;
             axum::serve(
