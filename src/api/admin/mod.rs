@@ -241,6 +241,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/agent-files", get(agent_files::overview))
         .route("/agent-files/tools", get(agent_files::known_tools))
         .route("/agent-files/mcp-options", get(agent_files::mcp_options))
+        .route("/agent-files/base-users", get(agent_files::base_users))
         .route("/agent-files/agents", post(agent_files::create_agent))
         .route("/agent-files/agents/{name}", put(agent_files::update_agent).delete(agent_files::delete_agent))
         .route("/agent-files/skills", post(agent_files::create_skill))

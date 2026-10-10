@@ -146,7 +146,7 @@ fn render_list(items: &[String]) -> String {
     format!("[{}]", items.join(", "))
 }
 
-/// Canonical AGENT.md field order: name, title, description, tools, skills, mcp, model, provider.
+/// Canonical AGENT.md field order: name, title, description, tools, skills, mcp, bases, users, model, provider.
 fn render_agent_file(
     name: &str,
     title: &str,
@@ -154,6 +154,8 @@ fn render_agent_file(
     tools: &[String],
     skills: &[String],
     mcp: &[String],
+    bases: &[String],
+    users: &[String],
     model: &str,
     provider: &str,
     body: &str,
@@ -165,6 +167,8 @@ fn render_agent_file(
     out.push_str(&format!("tools: {}\n", render_list(tools)));
     out.push_str(&format!("skills: {}\n", render_list(skills)));
     out.push_str(&format!("mcp: {}\n", render_list(mcp)));
+    out.push_str(&format!("bases: {}\n", render_list(bases)));
+    out.push_str(&format!("users: {}\n", render_list(users)));
     out.push_str(&format!("model: {model}\n"));
     out.push_str(&format!("provider: {provider}\n"));
     out.push_str("---\n");
@@ -220,6 +224,12 @@ pub struct AgentItem {
     pub tools: Vec<String>,
     pub skills: Vec<String>,
     pub mcp: Vec<String>,
+    /// Ограничение доступности (пусто = всем): имена баз из мапы ONEC_BASES.
+    #[serde(default)]
+    pub bases: Vec<String>,
+    /// Ограничение доступности (пусто = всем): пользователи 1С (onec_id).
+    #[serde(default)]
+    pub users: Vec<String>,
     pub model: String,
     pub provider: String,
     pub body: String,
@@ -271,6 +281,12 @@ pub struct AgentBody {
     /// string, or a list — mirrors the agent backend (`mcp: [a, b]`).
     #[serde(default, deserialize_with = "de_mcp")]
     pub mcp: Vec<String>,
+    /// Доступность по базам (пусто = всем): имена из мапы ONEC_BASES.
+    #[serde(default)]
+    pub bases: Vec<String>,
+    /// Доступность по пользователям 1С (пусто = всем): onec_id.
+    #[serde(default)]
+    pub users: Vec<String>,
     pub model: Option<String>,
     /// Model provider name (our model_providers table). The agent backend
     /// ignores unknown keys, so this is forward-compatible storage.
@@ -303,6 +319,18 @@ fn split_mcp(s: &str) -> Vec<String> {
         .map(|p| p.trim().to_string())
         .filter(|p| !p.is_empty())
         .collect()
+}
+
+/// Access lists (bases/users): trim, drop empties/duplicates. Empty result =
+/// «доступно всем» — валидное состояние, не ошибка.
+fn normalize_access_list(raw: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    for s in raw.iter().flat_map(|x| x.split(',').map(|p| p.trim().to_string())) {
+        if !s.is_empty() && !out.contains(&s) {
+            out.push(s);
+        }
+    }
+    out
 }
 
 /// Provider name: single line, 0..64 chars (empty = backend default).
@@ -377,6 +405,8 @@ fn read_agent(dir: &Path) -> AgentItem {
         tools: Vec::new(),
         skills: Vec::new(),
         mcp: Vec::new(),
+        bases: Vec::new(),
+        users: Vec::new(),
         model: String::new(),
         provider: String::new(),
         body: String::new(),
@@ -406,6 +436,8 @@ fn read_agent(dir: &Path) -> AgentItem {
         tools: meta_list(&meta, "tools"),
         skills: meta_list(&meta, "skills"),
         mcp: meta_list(&meta, "mcp"),
+        bases: meta_list(&meta, "bases"),
+        users: meta_list(&meta, "users"),
         model: meta_str(&meta, "model"),
         provider: meta_str(&meta, "provider"),
         body,
@@ -658,6 +690,8 @@ pub async fn create_agent(
         &body.tools,
         &body.skills,
         &mcp,
+        &normalize_access_list(&body.bases),
+        &normalize_access_list(&body.users),
         &body.model.unwrap_or_default(),
         &provider,
         &body.body,
@@ -720,6 +754,8 @@ pub async fn update_agent(
         &body.tools,
         &body.skills,
         &mcp,
+        &normalize_access_list(&body.bases),
+        &normalize_access_list(&body.users),
         &body.model.unwrap_or_default(),
         &provider,
         &body.body,
@@ -1095,4 +1131,176 @@ pub async fn delete_pattern(
         );
     }
     Ok(Json(json!({ "ok": true })))
+}
+
+// ─── base-users: пользователи 1С из базы (тулза get_users) ──────────────
+
+/// Кэш ответов get_users на базу: имя/URL → (время, список). TTL 5 минут —
+/// состав пользователей в базе меняется редко, а запрос идёт к живой 1С.
+static BASE_USERS_CACHE: std::sync::LazyLock<std::sync::Mutex<HashMap<String, (std::time::Instant, Vec<String>)>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
+
+const BASE_USERS_TTL: std::time::Duration = std::time::Duration::from_secs(300);
+
+fn dotenv_value(root: &Path, key: &str) -> Option<String> {
+    let text = std::fs::read_to_string(root.join(".env")).ok()?;
+    for line in text.lines() {
+        let t = line.trim().strip_prefix("export ").unwrap_or(line.trim());
+        if let Some((k, v)) = t.split_once('=') {
+            if k.trim() == key {
+                let mut v = v.trim().to_string();
+                if v.len() >= 2
+                    && ((v.starts_with('"') && v.ends_with('"')) || (v.starts_with('\'') && v.ends_with('\'')))
+                {
+                    v = v[1..v.len() - 1].to_string();
+                }
+                return if v.is_empty() { None } else { Some(v) };
+            }
+        }
+    }
+    None
+}
+
+/// Разобрать "имя=url;..." (формат ONEC_BASES). Мусорные записи пропускаются.
+fn parse_bases_env(raw: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for part in raw.split(';') {
+        if let Some((name, url)) = part.trim().split_once('=') {
+            let name = name.trim().to_lowercase();
+            let url = url.trim().to_string();
+            if !name.is_empty() && (url.starts_with("http://") || url.starts_with("https://")) {
+                out.push((name, url));
+            }
+        }
+    }
+    out
+}
+
+/// GET /agent-files/base-users?base={name|url} — уникальные пользователи 1С
+/// из базы через её тулзу `get_users` (Basic auth MCP_ONEC_USERNAME/PASSWORD
+/// из .env проекта). Дедуп: trim + case-insensitive, регистр первого вхождения.
+pub async fn base_users(
+    State(state): State<Arc<AppState>>,
+    Extension(_ident): Extension<crate::auth::AuthIdentity>,
+    axum::extract::Query(qs): axum::extract::Query<HashMap<String, String>>,
+) -> Result<Json<Value>, axum::response::Response> {
+    use axum::response::IntoResponse;
+    let base = qs.get("base").map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let base = match base {
+        Some(b) => b,
+        None => return Err(super::BadRequest("нужен параметр ?base={имя из мапы или URL}".into()).into_response()),
+    };
+    let root = {
+        let db = state.db.lock().await;
+        project_root(&db)
+    };
+
+    // Кэш: сначала по имени, потом по URL (одна база — один ответ).
+    {
+        let cache = BASE_USERS_CACHE.lock().unwrap();
+        if let Some((at, users)) = cache.get(&base) {
+            if at.elapsed() < BASE_USERS_TTL {
+                return Ok(Json(json!({ "base": base, "cached": true, "users": users })));
+            }
+        }
+    }
+
+    // Резолв: имя из мапы (bases.conf → ONEC_BASES из .env) или прямой URL.
+    let resolve = || -> Result<String, String> {
+        if base.starts_with("http://") || base.starts_with("https://") {
+            return Ok(base.clone());
+        }
+        let conf = root.join("backend").join("bases.conf");
+        if conf.is_file() {
+            let text = std::fs::read_to_string(&conf).unwrap_or_default();
+            for (name, url) in super::agent_backend::parse_bases_lines_pub(&text) {
+                if name == base.to_lowercase() {
+                    return Ok(url);
+                }
+            }
+        }
+        if let Some(raw) = dotenv_value(&root, "ONEC_BASES") {
+            for (name, url) in parse_bases_env(&raw) {
+                if name == base.to_lowercase() {
+                    return Ok(url);
+                }
+            }
+        }
+        Err(format!("база {base:?} не найдена в мапе ONEC_BASES (bases.conf / .env)"))
+    };
+    let url = match resolve() {
+        Ok(u) => u,
+        Err(e) => return Err(super::BadRequest(e).into_response()),
+    };
+
+    let username = dotenv_value(&root, "MCP_ONEC_USERNAME").unwrap_or_default();
+    let password = dotenv_value(&root, "MCP_ONEC_PASSWORD").unwrap_or_default();
+    if username.is_empty() || password.is_empty() {
+        return Err(super::BadRequest(
+            "в .env проекта нет MCP_ONEC_USERNAME/MCP_ONEC_PASSWORD".into(),
+        )
+        .into_response());
+    }
+
+    let rpc_url = format!("{}/hs/mcp/rpc", url.trim_end_matches('/'));
+    let payload = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": { "name": "get_users", "arguments": {} },
+    });
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(|e| super::BadRequest(format!("http client: {e}")).into_response())?;
+    let resp = client
+        .post(&rpc_url)
+        .basic_auth(username, Some(password))
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| super::BadRequest(format!("база недоступна ({rpc_url}): {e}")).into_response())?;
+    let status = resp.status();
+    let body: Value = resp
+        .json()
+        .await
+        .map_err(|e| super::BadRequest(format!("база вернула не-JSON (HTTP {status}): {e}")).into_response())?;
+    if !status.is_success() {
+        return Err(super::BadRequest(format!("база вернула HTTP {status}: {}", body.to_string())).into_response());
+    }
+    // JSON-RPC: result.content[0].text → {"users": "a, b, c"} (строка).
+    let text = body
+        .get("result")
+        .and_then(|r| r.get("content"))
+        .and_then(|c| c.get(0))
+        .and_then(|b| b.get("text"))
+        .and_then(|t| t.as_str())
+        .ok_or_else(|| super::BadRequest("в ответе get_users нет result.content[0].text".into()).into_response())?;
+    let inner: Value = serde_json::from_str(text)
+        .map_err(|e| super::BadRequest(format!("ответ get_users не JSON: {e}")).into_response())?;
+    let raw_users = inner
+        .get("users")
+        .and_then(|u| u.as_str())
+        .ok_or_else(|| super::BadRequest("в ответе get_users нет поля users".into()).into_response())?;
+    // Дедуп: trim + case-insensitive (регистр первого вхождения сохраняется).
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut users: Vec<String> = Vec::new();
+    for part in raw_users.split(',') {
+        let u = part.trim().to_string();
+        if u.is_empty() {
+            continue;
+        }
+        if seen.insert(u.to_lowercase()) {
+            users.push(u);
+        }
+    }
+    users.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+    {
+        let mut cache = BASE_USERS_CACHE.lock().unwrap();
+        for key in [base.clone(), url.clone()] {
+            cache.insert(key, (std::time::Instant::now(), users.clone()));
+        }
+    }
+    tracing::info!("agent-files: base-users {base}: {} уникальных пользователей", users.len());
+    Ok(Json(json!({ "base": base, "cached": false, "users": users })))
 }

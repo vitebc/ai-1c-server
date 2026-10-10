@@ -610,7 +610,15 @@ fn bases_conf_path(root: &std::path::Path) -> PathBuf {
 /// Разобрать "имя=url;..." (формат ONEC_BASES, см. parse_bases_map в бэкенде).
 /// Имя — латиница/цифры/_, URL обязан начинаться с http(s)://: мусорные записи
 /// (прерванные правки, переносы строк) отбрасываются, а не ломают таблицу.
+pub(crate) fn parse_bases_lines_pub(raw: &str) -> Vec<(String, String)> {
+    parse_bases_lines_impl(raw)
+}
+
 fn parse_bases_lines(raw: &str) -> Vec<(String, String)> {
+    parse_bases_lines_impl(raw)
+}
+
+fn parse_bases_lines_impl(raw: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
     // Сначала убираем комментарии (строки, начинающиеся с #), чтобы `;` внутри
     // комментария не разрезал данные.
