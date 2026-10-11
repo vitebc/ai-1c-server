@@ -164,9 +164,59 @@ CRUD: `GET/POST /model-providers`, `GET/PUT/DELETE /model-providers/{id}` — `{
 | PUT/DELETE | `/agent-files/agents/{name}`, `.../skills/{name}`, `.../patterns/{name}` | изменить / удалить (переименование = перемещение папки) |
 
 - Подсекции: `agent-agents`, `agent-skills`, `agent-patterns`.
-- Тела: агент `{name, title, description, tools[], skills[], mcp[], model?, provider?, body}`; скилл `{name, description, tools[], body}`; паттерн `{name, description, body}`.
-- Канонический порядок frontmatter агента: `name, title, description, tools, skills, mcp, model, provider`. `mcp` — список (`mcp: [a, b]`), совместим с `Agent.mcp_servers` бэкенда; `provider` бэкендом игнорируется.
+- Тела: агент `{name, title, description, tools[], skills[], mcp[], restricted?, bases[], users[], model?, provider?, body}`; скилл `{name, description, tools[], body}`; паттерн `{name, description, body}`.
+- Канонический порядок frontmatter агента: `name, title, description, tools, skills, mcp, restricted, bases, users, model, provider`. `mcp` — список (`mcp: [a, b]`), совместим с `Agent.mcp_servers` бэкенда; `provider` бэкендом игнорируется.
 - Бэкенд перечитывает файлы на каждый запрос — рестарт не нужен. Live-видимость проверяется через `/agent-backend/live/*`.
+
+### Доступность агентов (bases / users / restricted)
+
+Frontmatter `AGENT.md` поддерживает три опциональных поля:
+
+| Поле | Тип | Семантика |
+|---|---|---|
+| `restricted` | bool | `true` — агент недоступен **никому** (переопределяет bases/users). В файле пишется только если `true`. |
+| `bases` | string[] | Имена баз из мапы ONEC_BASES. Пусто/отсутствует = все базы. Сравнение — без учёта регистра. |
+| `users` | string[] | onec_id пользователей 1С. Пусто/отсутствует = все пользователи. Сравнение — как есть. |
+
+Агент виден, если: `restricted == false` **И** (bases пуст ИЛИ база сессии ∈ bases) **И** (users пуст ИЛИ onec_id ∈ users).
+
+#### Клиентский контракт (форма 1С)
+
+Форма 1С **обязана** передавать оба параметра, иначе ограниченные агенты будут скрыты:
+
+**`GET /agents`** (дропдаун):
+```http
+GET /agents?base_name=<имя из мапы ONEC_BASES> HTTP/1.1
+Authorization: Bearer <JWT HS256, sub = onec_id>
+```
+- `base_name` — имя базы (не URL), в нижнем регистре. Берётся из текущей сессии 1С.
+- JWT — общий секрет (`YnSdgu3G...`), payload `{"sub": "<onec_id>", "exp": <unix_ts>}`.
+
+**`POST /chat`**:
+```json
+{
+  "message": "...",
+  "user_id": "<onec_id>",
+  "base_name": "<имя из мапы ONEC_BASES>",
+  "agent": "<имя>"
+}
+```
+- `Authorization: Bearer <JWT>` — тот же токен.
+- `base_name` — **обязателен**, если агент ограничен по базам. Без него `visible_for(None, ...)` → агент с непустым `bases` невидим.
+
+**Поведение без параметров (безопасный дефолт):**
+- Без JWT → видны только агенты без ограничений (`restricted=false`, `bases=[]`, `users=[]`).
+- Без `base_name` → видны только агенты с пустым `bases`.
+- Явный выбор невидимого агента в `/chat` → **403** «агент X недоступен для этой базы/пользователя».
+- Залипший в сессии невидимый агент → fallback на дефолт (без 403).
+
+#### Логирование
+
+Бэкенд логирует входящие `base_name` и наличие JWT на debug-уровне:
+- `GET /agents`: `list_agents base_name=<...> jwt=<yes|no> visible=<n>`
+- `POST /chat`: `chat base_name=<...> user_id=<...> agent=<...> jwt=<yes|no>`
+
+Это позволяет диагностировать проблемы с доступностью по журналу без изменения кода.
 
 ### Agent Backend (docker compose)
 
