@@ -153,6 +153,8 @@ export interface AgentItem {
   tools: string[];
   skills: string[];
   mcp: string[];
+  /** restricted=true — агент недоступен никому (переопределяет bases/users). */
+  restricted?: boolean;
   /** Доступность по базам (пусто = всем): имена из мапы ONEC_BASES. */
   bases?: string[];
   /** Доступность по пользователям 1С (пусто = всем): onec_id. */

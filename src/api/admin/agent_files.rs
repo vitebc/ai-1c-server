@@ -111,6 +111,10 @@ fn parse_value(raw: &str) -> Result<Value, String> {
     {
         return Ok(Value::String(raw[1..raw.len() - 1].to_string()));
     }
+    // YAML-bool (без кавычек): зеркалит app/frontmatter.py.
+    if raw == "true" || raw == "false" {
+        return Ok(Value::Bool(raw == "true"));
+    }
     Ok(Value::String(raw.to_string()))
 }
 
@@ -146,7 +150,7 @@ fn render_list(items: &[String]) -> String {
     format!("[{}]", items.join(", "))
 }
 
-/// Canonical AGENT.md field order: name, title, description, tools, skills, mcp, bases, users, model, provider.
+/// Canonical AGENT.md field order: name, title, description, tools, skills, mcp, restricted, bases, users, model, provider.
 fn render_agent_file(
     name: &str,
     title: &str,
@@ -154,6 +158,7 @@ fn render_agent_file(
     tools: &[String],
     skills: &[String],
     mcp: &[String],
+    restricted: bool,
     bases: &[String],
     users: &[String],
     model: &str,
@@ -167,6 +172,9 @@ fn render_agent_file(
     out.push_str(&format!("tools: {}\n", render_list(tools)));
     out.push_str(&format!("skills: {}\n", render_list(skills)));
     out.push_str(&format!("mcp: {}\n", render_list(mcp)));
+    if restricted {
+        out.push_str("restricted: true\n");
+    }
     out.push_str(&format!("bases: {}\n", render_list(bases)));
     out.push_str(&format!("users: {}\n", render_list(users)));
     out.push_str(&format!("model: {model}\n"));
@@ -214,6 +222,14 @@ fn meta_list(meta: &HashMap<String, Value>, key: &str) -> Vec<String> {
     }
 }
 
+fn meta_bool(meta: &HashMap<String, Value>, key: &str) -> bool {
+    match meta.get(key) {
+        Some(Value::Bool(b)) => *b,
+        Some(Value::String(s)) => s.trim() == "true",
+        _ => false,
+    }
+}
+
 // ─── DTOs ───────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
@@ -224,6 +240,9 @@ pub struct AgentItem {
     pub tools: Vec<String>,
     pub skills: Vec<String>,
     pub mcp: Vec<String>,
+    /// restricted=true — агент недоступен никому (переопределяет bases/users).
+    #[serde(default)]
+    pub restricted: bool,
     /// Ограничение доступности (пусто = всем): имена баз из мапы ONEC_BASES.
     #[serde(default)]
     pub bases: Vec<String>,
@@ -281,6 +300,9 @@ pub struct AgentBody {
     /// string, or a list — mirrors the agent backend (`mcp: [a, b]`).
     #[serde(default, deserialize_with = "de_mcp")]
     pub mcp: Vec<String>,
+    /// restricted=true — агент недоступен никому (переопределяет bases/users).
+    #[serde(default)]
+    pub restricted: bool,
     /// Доступность по базам (пусто = всем): имена из мапы ONEC_BASES.
     #[serde(default)]
     pub bases: Vec<String>,
@@ -405,6 +427,7 @@ fn read_agent(dir: &Path) -> AgentItem {
         tools: Vec::new(),
         skills: Vec::new(),
         mcp: Vec::new(),
+        restricted: false,
         bases: Vec::new(),
         users: Vec::new(),
         model: String::new(),
@@ -436,6 +459,7 @@ fn read_agent(dir: &Path) -> AgentItem {
         tools: meta_list(&meta, "tools"),
         skills: meta_list(&meta, "skills"),
         mcp: meta_list(&meta, "mcp"),
+        restricted: meta_bool(&meta, "restricted"),
         bases: meta_list(&meta, "bases"),
         users: meta_list(&meta, "users"),
         model: meta_str(&meta, "model"),
@@ -690,6 +714,7 @@ pub async fn create_agent(
         &body.tools,
         &body.skills,
         &mcp,
+        body.restricted,
         &normalize_access_list(&body.bases),
         &normalize_access_list(&body.users),
         &body.model.unwrap_or_default(),
@@ -754,6 +779,7 @@ pub async fn update_agent(
         &body.tools,
         &body.skills,
         &mcp,
+        body.restricted,
         &normalize_access_list(&body.bases),
         &normalize_access_list(&body.users),
         &body.model.unwrap_or_default(),

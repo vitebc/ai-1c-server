@@ -430,7 +430,11 @@ function AgentsTab({ ov, tools, toolsMode, skills, onChanged, baseUrl }: { ov: A
               {a.description && <span className="block truncate text-xs text-slate-500" title={a.description}>{a.description}</span>}
               {a.model && <span className="block font-mono text-[11px] text-slate-400">model: {a.model}</span>}
               {a.provider && <span className="block font-mono text-[11px] text-slate-400">provider: {a.provider}</span>}
-              {(a.bases?.length || a.users?.length) ? (
+              {a.restricted ? (
+                <span className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-medium text-red-800 dark:bg-red-900/40 dark:text-red-300">
+                  <Users size={11} /> {t.studio.accessRestrictedAll}
+                </span>
+              ) : (a.bases?.length || a.users?.length) ? (
                 <span className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
                   <Users size={11} /> {t.studio.accessRestricted(a.bases?.length || 0, a.users?.length || 0)}
                 </span>
@@ -475,6 +479,7 @@ function AgentForm({ item, tools, toolsMode, skills, knownBases, baseUrl, error,
     if (typeof v === 'string') return v.split(',').map(s => s.trim()).filter(Boolean);
     return ['default'];
   });
+  const [restricted, setRestricted] = useState(!!item?.restricted);
   const [selBases, setSelBases] = useState<string[]>(item?.bases || []);
   const [baseQ, setBaseQ] = useState('');
   const visibleBases = knownBases.filter(b => !baseQ.trim() || b.toLowerCase().includes(baseQ.trim().toLowerCase()));
@@ -541,7 +546,7 @@ function AgentForm({ item, tools, toolsMode, skills, knownBases, baseUrl, error,
     const payload = {
       name: name.trim(), title, description,
       tools: selTools, skills: allSkills ? ['*'] : selSkills,
-      mcp: selMcp, bases: selBases, users: selUsers, model, provider, body,
+      mcp: selMcp, restricted, bases: selBases, users: selUsers, model, provider, body,
     };
     try {
       if (item) await api.updateAgent(item.name, payload);
@@ -559,7 +564,7 @@ function AgentForm({ item, tools, toolsMode, skills, knownBases, baseUrl, error,
         { key: 'main', label: t.studio.tabMain },
         { key: 'tools', label: `${t.studio.tabTools} (${selTools.length})` },
         { key: 'skills', label: `${t.studio.tabSkills} (${allSkills ? '*' : selSkills.length})` },
-        { key: 'access', label: `${t.studio.tabAccess}${selBases.length || selUsers.length ? ` (${selBases.length + selUsers.length})` : ''}` },
+        { key: 'access', label: `${t.studio.tabAccess}${restricted ? ' (×)' : selBases.length || selUsers.length ? ` (${selBases.length + selUsers.length})` : ''}` },
       ]} />
       <div className="flex-1 min-h-0 flex flex-col">
       {ftab === 'main' && (
@@ -639,6 +644,14 @@ function AgentForm({ item, tools, toolsMode, skills, knownBases, baseUrl, error,
       {ftab === 'access' && (
       <div className="space-y-4 mt-3">
         <p className="text-xs text-slate-500 dark:text-slate-400">{t.studio.accessHint}</p>
+        <label className={`flex items-start gap-2 rounded-lg border p-2.5 cursor-pointer transition-colors ${restricted ? 'border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950/40' : 'border-slate-300 dark:border-slate-700'}`}>
+          <input type="checkbox" checked={restricted} onChange={e => setRestricted(e.target.checked)} className="mt-0.5 rounded accent-red-600" />
+          <span>
+            <span className="block text-[13px] font-medium text-slate-800 dark:text-slate-100">{t.studio.accessRestrictedToggle}</span>
+            <span className="block text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{t.studio.accessRestrictedHint}</span>
+          </span>
+        </label>
+        <div className={restricted ? 'opacity-40 pointer-events-none select-none' : ''}>
         <div>
           <label className="block text-[13px] font-medium text-slate-700 dark:text-slate-300 mb-1">{t.studio.accessBases}</label>
           <input value={baseQ} onChange={e => setBaseQ(e.target.value)} placeholder={`${t.common.search} — ${knownBases.length}`}
@@ -709,6 +722,7 @@ function AgentForm({ item, tools, toolsMode, skills, knownBases, baseUrl, error,
               ))}
             </div>
           )}
+        </div>
         </div>
       </div>
       )}
