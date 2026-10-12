@@ -40,8 +40,12 @@ impl HttpMcpSession {
         let session = Self {
             id: config.id.clone(),
             url: url.to_string(),
+            // 120s — достаточно для тяжёлых tool-call'ов (semantic_find, glob search
+            // по индексам >1GB). Было 35s, что вызывало TaskGroup errors в Python SDK.
             client: reqwest::Client::builder()
-                .timeout(Duration::from_secs(35))
+                .timeout(Duration::from_secs(120))
+                .connect_timeout(Duration::from_secs(10))
+                .read_timeout(Duration::from_secs(90))
                 .build()?,
             headers,
             next_id: Arc::new(Mutex::new(1)),
