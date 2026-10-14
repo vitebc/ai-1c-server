@@ -8,12 +8,12 @@ use super::protocol::{JsonRpcRequest, JsonRpcResponse};
 use super::session::McpSession;
 
 enum ManagedSession {
-    Stdio(McpSession),
-    Http(HttpMcpSession),
+    Stdio(Arc<McpSession>),
+    Http(Arc<HttpMcpSession>),
 }
 
 pub struct McpManager {
-    sessions: RwLock<HashMap<String, ManagedSession>>,
+    sessions: RwLock<HashMap<String, Arc<ManagedSession>>>,
 }
 
 impl McpManager {
@@ -43,27 +43,34 @@ impl McpManager {
         // Hot-reload safe: stop previous session for this id first.
         self.stop_server(&config.id).await;
         let session = match config.transport.as_str() {
-            "stdio" => ManagedSession::Stdio(McpSession::start(config).await?),
+            "stdio" => ManagedSession::Stdio(Arc::new(McpSession::start(config).await?)),
             "http" | "sse" => {
                 let s = HttpMcpSession::start(config).await.map_err(|e| {
                     format!("MCP HTTP '{}' ({}): {e}", config.id, config.url.as_deref().unwrap_or("-"))
                 })?;
-                ManagedSession::Http(s)
+                ManagedSession::Http(Arc::new(s))
             }
             other => {
                 tracing::warn!("MCP server '{}': transport '{}' not yet supported", config.id, other);
                 return Ok(());
             }
         };
-        self.sessions.write().await.insert(config.id.clone(), session);
+        self.sessions
+            .write()
+            .await
+            .insert(config.id.clone(), Arc::new(session));
         tracing::info!("MCP server '{}' started ({})", config.id, config.transport);
         Ok(())
     }
 
     pub async fn stop_server(&self, id: &str) {
-        let mut sessions = self.sessions.write().await;
-        if let Some(mut session) = sessions.remove(id) {
-            if let ManagedSession::Stdio(s) = &mut session {
+        // Снимаем с карты под write-lock, но убиваем subprocess уже после
+        // освобождения: `shutdown` ждёт з reap'а процесса, и держать
+        // write-lock на это время нельзя — он блокирует ВСЕ вызовы
+        // ко всем серверам.
+        let session = self.sessions.write().await.remove(id);
+        if let Some(session) = session {
+            if let ManagedSession::Stdio(s) = &*session {
                 s.shutdown().await;
             }
             // Http sessions are stateless: dropping is enough.
@@ -77,13 +84,17 @@ impl McpManager {
     /// so presence in the map is enough — probing them would add latency to
     /// every dashboard refresh.
     pub async fn is_running(&self, id: &str) -> bool {
-        let sessions = self.sessions.read().await;
-        match sessions.get(id) {
-            Some(ManagedSession::Stdio(s)) => s
-                .call(JsonRpcRequest::new("ping", serde_json::json!({})))
-                .await
-                .is_ok(),
-            Some(ManagedSession::Http(_)) => true,
+        // Клонируем `Arc` и отпускаем read-lock до сетевого/stdio-обмена:
+        // иначе ping в дашборде заблокирует рестарт любого сервера.
+        let session = self.sessions.read().await.get(id).cloned();
+        match session {
+            Some(session) => match &*session {
+                ManagedSession::Stdio(s) => s
+                    .call(JsonRpcRequest::new("ping", serde_json::json!({})))
+                    .await
+                    .is_ok(),
+                ManagedSession::Http(_) => true,
+            },
             None => false,
         }
     }
@@ -119,9 +130,17 @@ impl McpManager {
 
     pub async fn call(&self, server_id: &str, request: JsonRpcRequest) -> Result<JsonRpcResponse, McpError> {
         let client_id = request.id.clone();
-        let sessions = self.sessions.read().await;
-        let session = sessions.get(server_id).ok_or_else(|| McpError::NotFound(server_id.to_string()))?;
-        let mut response = match session {
+        // Читаем карту и сразу отпускаем лок: сам вызов идёт уже без него.
+        // Иначе `start_server`/`stop_server` (write-lock) ждали бы конца
+        // каждого текущего вызова — глобальная блокировка шлюза.
+        let session = self
+            .sessions
+            .read()
+            .await
+            .get(server_id)
+            .cloned()
+            .ok_or_else(|| McpError::NotFound(server_id.to_string()))?;
+        let mut response = match &*session {
             ManagedSession::Stdio(s) => s.call(request).await.map_err(|e| McpError::CallError(e.to_string()))?,
             ManagedSession::Http(s) => s.call(request).await.map_err(|e| McpError::CallError(e.to_string()))?,
         };
@@ -132,9 +151,9 @@ impl McpManager {
     }
 
     pub async fn shutdown_all(&self) {
-        let mut sessions = self.sessions.write().await;
-        for (_, mut session) in sessions.drain() {
-            if let ManagedSession::Stdio(s) = &mut session {
+        let sessions: Vec<Arc<ManagedSession>> = self.sessions.write().await.drain().map(|(_, s)| s).collect();
+        for session in sessions {
+            if let ManagedSession::Stdio(s) = &*session {
                 s.shutdown().await;
             }
         }
