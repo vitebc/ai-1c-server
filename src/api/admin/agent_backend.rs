@@ -637,11 +637,19 @@ pub async fn onec_tools(State(state): State<Arc<AppState>>) -> Json<Value> {
 
     let resp = match req.send().await {
         Ok(r) => r,
+        // Connection refused / timeout / DNS — база реально недоступна.
         Err(e) => return Json(json!({ "ok": false, "url": target, "error": e.to_string() })),
     };
 
-    if !resp.status().is_success() {
-        let status = resp.status();
+    let status = resp.status();
+
+    // 405/401/403 — сервер отвечает (Streamable HTTP требует session handshake),
+    // база жива. Показываем «online» без точного числа тулзов.
+    if status.as_u16() == 405 || status.as_u16() == 401 || status.as_u16() == 403 {
+        return Json(json!({ "ok": true, "url": target, "tools_count": null, "note": "online" }));
+    }
+
+    if !status.is_success() {
         return Json(json!({ "ok": false, "url": target, "error": format!("HTTP {status}") }));
     }
 

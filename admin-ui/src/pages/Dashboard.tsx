@@ -97,7 +97,7 @@ export default function Dashboard() {
           </div>
           <div className="min-w-0">
             <p className="text-xl font-bold tabular-nums text-slate-900 dark:text-slate-100">
-              {!onec ? '—' : onec.ok ? `${onec.tools_count ?? 0} tools` : '✕'}
+              {!onec ? '—' : onec.ok ? (onec.tools_count != null ? `${onec.tools_count} tools` : 'online') : '✕'}
             </p>
             <p className="text-xs text-slate-500 dark:text-slate-400 truncate" title={onec?.url || t.dash.onecLive}>
               {t.dash.onecLive}{onec?.error ? ` — ${onec.error}` : ''}
