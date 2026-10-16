@@ -78,6 +78,13 @@ export interface ServerStatus {
   status: string;
 }
 
+export interface OnecToolsStatus {
+  ok: boolean;
+  url: string;
+  tools_count?: number;
+  error?: string;
+}
+
 export interface DashboardData {
   servers: number;
   skills: number;
@@ -86,6 +93,7 @@ export interface DashboardData {
   mcp: ServerStatus[];
   bsl: BslLsState;
   agent_backend: AgentBackendStatus;
+  onec_tools?: OnecToolsStatus | null;
 }
 
 export interface LogEntry {

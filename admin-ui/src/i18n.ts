@@ -33,6 +33,7 @@ export const t = {
     mcpStatus: 'Статус MCP-серверов', bsl: 'BSL Language Server',
     agentBackend: 'AI Agent Studio — Backend API',
     agentBackendHint: 'Состояние контейнеров и health-эндпоинта бэкенда агентов',
+    onecLive: 'База live (MCP_ONEC_URL)',
     noServers: 'Серверы не настроены', pid: 'PID',
     tokenTitle: 'Токен для MCP', tokenOn: 'Токен ВКЛ', tokenOff: 'Токен ВЫКЛ',
     tokenOnHint: 'Машинные MCP-клиенты должны слать Authorization: Bearer. Токен автоматически подставляется в пресеты экспорта. В панель всегда нужен логин/пароль.',

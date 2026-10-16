@@ -300,6 +300,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/agent-backend/live/agents", get(agent_backend::live_agents))
         .route("/agent-backend/live/skills", get(agent_backend::live_skills))
         .route("/agent-backend/live/tools", get(agent_backend::live_tools))
+        .route("/agent-backend/live/onec-tools", get(agent_backend::onec_tools))
         .route("/agent-backend/bases", get(agent_backend::bases_list).put(agent_backend::bases_put))
         .route("/agent-backend/bases/{name}", put(agent_backend::bases_put_named).delete(agent_backend::bases_delete))
         .route("/agent-backend/stats/requests", get(agent_backend::stats_requests))

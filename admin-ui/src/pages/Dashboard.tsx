@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Server, Brain, FileJson, Users, Code, Bot, Container, HeartPulse, KeyRound, Copy, Check, RefreshCw, ShieldCheck, ShieldOff } from 'lucide-react';
+import { Server, Brain, FileJson, Users, Code, Bot, Container, HeartPulse, KeyRound, Copy, Check, RefreshCw, ShieldCheck, ShieldOff, Database } from 'lucide-react';
 import { api } from '../api/client';
 import { copyText } from '../clipboard';
-import type { AgentBackendStatus, BslLsState, DashboardData, ServerStatus } from '../types';
+import type { AgentBackendStatus, BslLsState, DashboardData, OnecToolsStatus, ServerStatus } from '../types';
 import { t } from '../i18n';
 import { PageHeader, Card, CardBody, CardTitle, Badge, StatusDot, Btn, Alert, Confirm } from '../components/ui';
 
@@ -11,6 +11,7 @@ export default function Dashboard() {
   const [counts, setCounts] = useState({ servers: 0, skills: 0, configs: 0, clients: 0 });
   const [bsl, setBsl] = useState<BslLsState | null>(null);
   const [ab, setAb] = useState<AgentBackendStatus | null>(null);
+  const [onec, setOnec] = useState<OnecToolsStatus | null>(null);
 
   useEffect(() => {
     api.getDashboard().then((d: DashboardData) => {
@@ -19,6 +20,7 @@ export default function Dashboard() {
       setBsl(d.bsl);
       setAb(d.agent_backend || null);
     }).catch(() => {});
+    api.getOnecTools().then(setOnec).catch(() => setOnec(null));
   }, []);
 
   const cards = [
@@ -57,7 +59,7 @@ export default function Dashboard() {
       </div>
 
       {/* AI Agent Studio — Backend API */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-5">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
         <Card><CardBody className="flex items-center gap-3">
           <div className={`p-2.5 rounded-lg ${!ab ? 'bg-slate-100 text-slate-400 dark:bg-slate-800' : ab.backend_reachable ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-300'}`}>
             <Bot size={20} />
@@ -87,6 +89,19 @@ export default function Dashboard() {
               {!ab ? '—' : ab.root_exists ? (ab.compose_available ? t.common.active : 'no compose') : 'нет проекта'}
             </p>
             <p className="text-xs text-slate-500 dark:text-slate-400 truncate" title={ab?.root || ''}>Проект: {ab?.root || '—'}</p>
+          </div>
+        </CardBody></Card>
+        <Card><CardBody className="flex items-center gap-3">
+          <div className={`p-2.5 rounded-lg ${!onec ? 'bg-slate-100 text-slate-400 dark:bg-slate-800' : onec.ok ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-300'}`}>
+            <Database size={20} />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xl font-bold tabular-nums text-slate-900 dark:text-slate-100">
+              {!onec ? '—' : onec.ok ? `${onec.tools_count ?? 0} tools` : '✕'}
+            </p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 truncate" title={onec?.url || t.dash.onecLive}>
+              {t.dash.onecLive}{onec?.error ? ` — ${onec.error}` : ''}
+            </p>
           </div>
         </CardBody></Card>
       </div>

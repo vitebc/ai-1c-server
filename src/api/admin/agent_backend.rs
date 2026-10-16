@@ -589,6 +589,92 @@ pub async fn live_tools(
     }
 }
 
+/// GET /agent-backend/live/onec-tools — проба live-базы 1С (MCP_ONEC_URL из .env).
+/// Шлёт JSON-RPC `tools/list` напрямую в MCP-прокси 1С (Basic auth из
+/// MCP_ONEC_USERNAME/PASSWORD) и возвращает количество инструментов или ошибку.
+pub async fn onec_tools(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let (url, username, password) = {
+        let db = state.db.lock().await;
+        let root = project_root(&db);
+        let env = parse_dotenv(&root.join(".env"));
+        let map: std::collections::HashMap<_, _> = env.into_iter().collect();
+        (
+            map.get("MCP_ONEC_URL").cloned().unwrap_or_default(),
+            map.get("MCP_ONEC_USERNAME").cloned().unwrap_or_default(),
+            map.get("MCP_ONEC_PASSWORD").cloned().unwrap_or_default(),
+        )
+    };
+
+    if url.trim().is_empty() {
+        return Json(json!({ "ok": false, "url": "", "error": "MCP_ONEC_URL не задан в .env" }));
+    }
+
+    let target = url.trim().trim_end_matches('/');
+    let body = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list",
+        "params": {}
+    });
+
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => return Json(json!({ "ok": false, "url": target, "error": e.to_string() })),
+    };
+
+    let mut req = client
+        .post(target)
+        .header("Content-Type", "application/json")
+        .header("Accept", "application/json, text/event-stream")
+        .json(&body);
+    if !username.trim().is_empty() {
+        let pw: &str = password.trim();
+        req = req.basic_auth(username.trim(), Some(pw));
+    }
+
+    let resp = match req.send().await {
+        Ok(r) => r,
+        Err(e) => return Json(json!({ "ok": false, "url": target, "error": e.to_string() })),
+    };
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        return Json(json!({ "ok": false, "url": target, "error": format!("HTTP {status}") }));
+    }
+
+    let text: String = match resp.text().await {
+        Ok(t) => t,
+        Err(e) => return Json(json!({ "ok": false, "url": target, "error": e.to_string() })),
+    };
+
+    // Ответ может быть plain JSON или SSE-фреймом `data: {...}`.
+    let json_text = text.lines().find_map(|l| {
+        let l = l.trim();
+        if let Some(d) = l.strip_prefix("data:") {
+            Some(d.trim())
+        } else if l.starts_with('{') {
+            Some(l)
+        } else {
+            None
+        }
+    }).unwrap_or(&text);
+
+    match serde_json::from_str::<Value>(json_text) {
+        Ok(v) => {
+            if let Some(err) = v.get("error") {
+                return Json(json!({ "ok": false, "url": target, "error": err.to_string() }));
+            }
+            let tools = v.get("result").and_then(|r| r.get("tools")).and_then(|t| t.as_array());
+            let count = tools.map(|a| a.len()).unwrap_or(0);
+            Json(json!({ "ok": true, "url": target, "tools_count": count }))
+        }
+        Err(e) => Json(json!({ "ok": false, "url": target, "error": format!("некорректный ответ: {e}") })),
+    }
+}
+
 fn urlencoding(s: &str) -> String {
     let mut out = String::new();
     for b in s.bytes() {

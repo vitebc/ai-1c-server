@@ -216,6 +216,7 @@ export const api = {
     request<LiveSkills>(`/agent-backend/live/skills${agent ? `?agent=${encodeURIComponent(agent)}` : ''}`),
   getLiveTools: (baseUrl?: string) =>
     request<LiveTools>(`/agent-backend/live/tools${baseUrl ? `?base_url=${encodeURIComponent(baseUrl)}` : ''}`),
+  getOnecTools: () => request<import('../types').OnecToolsStatus>('/agent-backend/live/onec-tools'),
   getAgentBases: () => request<{ source: string; bases: { name: string; url: string }[] }>('/agent-backend/bases'),
   putAgentBase: (name: string, url: string, oldName?: string) =>
     request<{ ok: boolean; name: string; url: string }>(oldName ? `/agent-backend/bases/${encodeURIComponent(oldName)}` : '/agent-backend/bases', { method: 'PUT', body: JSON.stringify({ name, url }) }),
