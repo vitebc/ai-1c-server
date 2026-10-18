@@ -1,0 +1,106 @@
+# Linux-контур (VPS/сервер). Бэкенд — нативный Linux-контейнер, 1С — по сети.
+#
+# Всегда:            docker compose up -d postgres
+# Бэкенд (Linux):    docker compose up -d backend        # требует .env с LLM_* и MCP_ONEC_URL
+# RAG (шаг 2):       docker compose --profile rag up -d
+# 1С через прокси:   docker compose --profile onec up -d   (MCP_ONEC_URL -> тестовая база)
+
+services:
+  backend:
+    build: ./backend
+    image: ${BACKEND_IMAGE:-1c-ai-agent-backend}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Внутри compose backend ходит на postgres по имени сервиса, а не на localhost.
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-agent}:${POSTGRES_PASSWORD:-agent}@postgres:5432/${POSTGRES_DB:-agentdb}
+      # Внутри compose-сети прокси доступен как mcp-proxy:8000, а не localhost (localhost = сам backend).
+      ONEC_MCP_URL: ${ONEC_MCP_URL_COMPOSE:-http://mcp-proxy:8000}
+      # Публикация 1С для дашборда GET /stats/onec (тот же MCP_ONEC_URL, что у mcp-proxy).
+      MCP_ONEC_URL: ${MCP_ONEC_URL:-}
+      # Полный лог петли (каждый раунд: assistant-контент + tool args/results) — файл.
+      LOOP_LOG_FILE: /app/logs/agent-loop.log
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      # Рантайм-конфиги агента/скилов/паттернов — монтируем из репозитория,
+      # чтобы новый AGENT.md/SKILL.md/паттерн подхватывался без пересборки образа
+      # (бэкенд перечитывает папки на каждый запрос). Только чтение.
+      - ./backend/agents:/app/agents:ro
+      - ./backend/skills:/app/skills:ro
+      - ./backend/patterns:/app/patterns:ro
+      # Мапа баз ONEC_BASES — hot-reload: бэкенд перечитывает файл по mtime (TTL 2с),
+      # правка на хосте подхватывается без рестарта контейнера. Файл опционален:
+      # нет файла -> fallback на ONEC_BASES из .env (стартовое значение).
+      - ./backend/bases.conf:/app/bases.conf:ro
+      - ./backend/search-maps.conf:/app/search-maps.conf:ro
+      # Файл полного лога петли — на хост, чтобы пережил рестарты контейнера.
+      - ./logs/agent-loop.log:/app/logs/agent-loop.log
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: sh -c "uv run --frozen alembic upgrade head && exec uv run --frozen uvicorn app.main:app --host 0.0.0.0 --port 8000 --app-dir src"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3).read()\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-agent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-agent}
+      POSTGRES_DB: ${POSTGRES_DB:-agentdb}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agent}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # CPU-сервис эмбеддингов (deepvk/USER-bge-m3, кириллица). Тяжёлый образ (~2-3 ГБ
+  # с моделью), поэтому за профилем rag — понадобится на шаге 2 (RAG).
+  tei:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.6
+    profiles: ["rag"]
+    restart: unless-stopped
+    environment:
+      MODEL_ID: ${TEI_MODEL_ID:-deepvk/USER-bge-m3}
+    ports:
+      - "${TEI_PORT:-8081}:80"
+    volumes:
+      - tei-data:/data
+
+  # Python-прокси из форка vladimir-kharin/1c_mcp: Streamable HTTP + per-user OAuth2.
+  # MCP_ONEC_URL указывает на тестовую базу 1С (Windows-VM пользователя).
+  mcp-proxy:
+    # Собирается из сабмодуля onec/1c_mcp (пин 5abe316, см. onec/1c_mcp.md).
+    # Вынесен в профиль "proxy": по умолчанию НЕ поднимается — никаких инициативных
+    # обращений к 1С без явного запроса со стороны 1С. Прямые вызовы баз
+    # ({base_url}/hs/mcp/rpc) прокси не нужны; поднять вручную:
+    #   docker compose --profile proxy up -d mcp-proxy
+    build: ./onec/1c_mcp
+    image: ${MCP_PROXY_IMAGE:-1c-ai-agent-mcp-proxy:local}
+    profiles: ["proxy"]
+    restart: unless-stopped
+    environment:
+      # Обязательна при использовании профиля onec (иначе прокси некуда ходить).
+      # Через ${...:-} а не :?, чтобы `up -d postgres` работал без настроенной 1С.
+      MCP_ONEC_URL: ${MCP_ONEC_URL:-}
+      MCP_ONEC_SERVICE_ROOT: mcp
+      MCP_AUTH_MODE: ${MCP_AUTH_MODE:-none}
+      MCP_ONEC_USERNAME: ${MCP_ONEC_USERNAME:-}
+      MCP_ONEC_PASSWORD: ${MCP_ONEC_PASSWORD:-}
+      MCP_PORT: 8000
+    ports:
+      - "${MCP_PROXY_PORT:-8001}:8000"
+
+volumes:
+  postgres-data:
+  tei-data:

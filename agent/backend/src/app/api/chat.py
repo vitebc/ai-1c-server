@@ -1,0 +1,901 @@
+"""POST /chat: вопрос -> агент -> SSE-стрим событий с персистентностью.
+
+События: `tool` (вызов инструмента), `answer` (финальный ответ кусками),
+`done` (мета: session_id, rounds, tool_errors).
+Настоящий токен-стриминг появится с локальной моделью; пока ответ режем кусками.
+Поддерживает вложения (attachments) как multimodal content и ограничение
+истории через context_size. Фоновый режим ?background=true возвращает JSON
+{job_id} с polling GET /chat/result/{job_id}.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import time
+import uuid
+from collections.abc import AsyncIterator
+from typing import Any
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+
+from app.agent import SYSTEM_PROMPT, AgentResult, ToolRegistry, run_agent
+from app.agent.tools import ToolDefinition
+from app.agents import Agent, AgentRegistry
+from app.auth.jwt import extract_bearer_token, validate_hs256
+from app.config import settings
+from app.db.models import ChatRequestLog, ChatSession, Message, User
+from app.db.session import SessionFactory
+from app.llm import ChatLLM, OpenAICompatibleLLM
+from app.llm.client import build_user_content
+from app.onec import (
+    JsonRpcOnecClient,
+    McpOnecClient,
+    OnecClient,
+    build_agg_tools,
+    build_onec_tools,
+    fetch_agg_tools,
+    make_ext_freshness_tool,
+    make_generic_tool,
+    search_maps,
+    validate_base_url,
+)
+from app.onec import bases as onec_bases
+from app.patterns import make_pattern_tool
+from app.rag import build_embeddings, make_kb_search
+from app.skills import Skill, SkillRegistry
+from app.tools import MOCK_ONEC_TOOLS, make_get_agent_tool, make_get_skill_tool, make_list_registry_tool
+
+router = APIRouter()
+
+log = logging.getLogger("agent1c.chat")
+
+# In-memory store для фоновых задач (достаточно для совместимости с BSL).
+# Потокобезопасность не нужна — один процесс, GIL.
+_background_jobs: dict[str, dict[str, Any]] = {}
+
+
+# Префиксы user_id из тестов — не пишем их в статистику.
+_TEST_USER_PREFIXES = ("test-", "agent-u", "skill-u")
+
+
+def _is_test_user(user_id: str) -> bool:
+    return any(user_id.startswith(p) for p in _TEST_USER_PREFIXES)
+
+
+async def _record_request(
+    user_id: str,
+    session_id: int | None,
+    base_name: str | None,
+    base_url: str | None,
+    agent: str,
+    skill: str,
+    model: str,
+    question: str,
+    result: AgentResult | None,
+    elapsed_s: float,
+    error: str | None = None,
+) -> None:
+    """Запись статистики запроса в chat_requests. Ошибка записи не ломает чат."""
+    if _is_test_user(user_id):
+        return
+    try:
+        async with SessionFactory() as s:
+            row = ChatRequestLog(
+                user_id=user_id,
+                session_id=session_id,
+                base_name=base_name,
+                base_url=base_url,
+                agent=agent or None,
+                skill=skill or None,
+                model=model or None,
+                question=question[:500],
+                answer=(result.answer[:500] if result and result.answer else None),
+                status="error" if error else "ok",
+                error=error[:1000] if error else None,
+                prompt_tokens=result.prompt_tokens if result else 0,
+                completion_tokens=result.completion_tokens if result else 0,
+                total_tokens=(result.prompt_tokens + result.completion_tokens) if result else 0,
+                rounds=result.rounds if result else 0,
+                tool_calls=result.tool_calls if result else None,
+                elapsed_s=elapsed_s,
+            )
+            s.add(row)
+            await s.commit()
+    except Exception:  # noqa: BLE001
+        log.warning("не удалось записать chat_requests", exc_info=True)
+
+
+class Attachment(BaseModel):
+    filename: str = Field(min_length=1, max_length=512, validation_alias="name", alias_priority=1)
+    mime_type: str = Field(
+        default="application/octet-stream",
+        max_length=256,
+        validation_alias="mime",
+    )
+    content_base64: str = Field(
+        default="",
+        max_length=20_000_000,
+        validation_alias="data_base64",
+    )
+    # url-альтернатива для будущего расширения — пока не используется
+    url: str | None = Field(default=None, max_length=2048)
+
+    model_config = {"populate_by_name": True, "extra": "ignore"}
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=20000)
+    session_id: int | None = None
+    # Идентификатор пользователя 1С. На шаге 3 сюда придёт OAuth-токен прокси.
+    user_id: str = "dev"
+    attachments: list[Attachment] | None = Field(default=None, max_length=10)
+    context_size: int | None = Field(
+        default=None, ge=1, le=100, description="Сколько последних пар сообщений передавать в LLM"
+    )
+    # Имя ИБ 1С (НРег) для мультибазовости: считает BSL (БСП или разбор строки соединения).
+    base_name: str | None = Field(default=None, max_length=128)
+    # Корень публикации базы (http://srvr/Ref из Srvr/Ref строки соединения).
+    # Бэкенд ходит в {base_url}/hs/mcp/rpc напрямую, минуя прокси: вопрос из базы X
+    # отвечает база X. Пусто — штатный путь (mock или прокси по ONEC_MODE).
+    base_url: str | None = Field(default=None, max_length=256)
+    # Рантайм-скил (backend/skills/<name>); пусто — авто-матчинг по description.
+    skill: str | None = Field(default=None, max_length=64)
+    # Рантайм-агент (backend/agents/<name>); пусто — агент по умолчанию.
+    agent: str | None = Field(default=None, max_length=64)
+
+    model_config = {"extra": "ignore"}
+
+
+async def get_llm() -> ChatLLM:
+    return OpenAICompatibleLLM(
+        base_url=settings.llm_base_url,
+        api_key=settings.llm_api_key,
+        model=settings.llm_model,
+        temperature=settings.llm_temperature,
+        top_p=settings.llm_top_p,
+        top_k=settings.llm_top_k,
+        repetition_penalty=settings.llm_repetition_penalty,
+        enable_thinking=settings.llm_enable_thinking,
+    )
+
+
+async def _merge_live_registry(client: OnecClient, extra: list[ToolDefinition]) -> ToolRegistry:
+    """Курируемые тулзы + динамика из tools/list базы + тулзы агрегатора + локальные.
+
+    Общая для прокси (McpOnecClient) и прямых вызовов (JsonRpcOnecClient):
+    контракт 1С одинаковый. Недоступность базы на list_tools не роняет чат —
+    отдаём статический набор, ошибки всплывут per-tool и их срежет предохранитель.
+    """
+    known = build_onec_tools(client)
+    known_names = {t.name for t in known} | {t.name for t in extra}
+    proxy_tools: list[dict[str, Any]] = []
+    try:
+        proxy_tools = await client.list_tools()
+    except Exception as e:  # noqa: BLE001 — база недоступна: отдаём статический набор
+        log.warning("не удалось опросить 1С для списка инструментов: %s", e)
+    generics: list[ToolDefinition] = []
+    for pt in proxy_tools:
+        name = pt.get("name")
+        if not isinstance(name, str) or not name or name in known_names:
+            continue
+        description = pt.get("description")
+        schema = pt.get("inputSchema")
+        generics.append(
+            make_generic_tool(
+                client,
+                name,
+                description if isinstance(description, str) else "",
+                schema if isinstance(schema, dict) else None,
+            )
+        )
+        known_names.add(name)
+    agg_tools: list[ToolDefinition] = []
+    if settings.agg_mcp_url.strip():
+        try:
+            agg_client = McpOnecClient(settings.agg_mcp_url, token=settings.agg_mcp_token)
+            raw = await fetch_agg_tools(agg_client, settings.agg_mcp_url, settings.agg_mcp_cache_ttl)
+            for tool in build_agg_tools(agg_client, raw):
+                if tool.name in known_names:
+                    continue
+                known_names.add(tool.name)
+                agg_tools.append(tool)
+        except Exception as e:  # noqa: BLE001 — агрегатор упал: чат живёт на default-тулзах
+            log.warning("агрегатор MCP недоступен, работаем без его тулзов: %s", e)
+    return ToolRegistry(known + generics + agg_tools + extra)
+
+
+def _local_tools() -> list[ToolDefinition]:
+    """Локальные тулзы вне агрегатора и 1С.
+
+    Единственный перечень локальных тулз проекта: и _fallback_registry, и
+    build_registry_for_root зовут эту функцию. Добавлять тулзу надо сюда —
+    иначе она не доедет до чата (был такой баг с дублирующимся списком).
+    """
+    embeddings = build_embeddings(settings.embeddings_provider, settings.tei_base_url)
+    pattern_tool = make_pattern_tool(settings.patterns_dir)
+    return [
+        make_kb_search(SessionFactory, embeddings),
+        make_ext_freshness_tool(),
+        make_list_registry_tool(),
+        make_get_agent_tool(),
+        make_get_skill_tool(),
+    ] + ([pattern_tool] if pattern_tool else [])
+
+
+async def _fallback_registry() -> ToolRegistry:
+    """Реестр без обращения к 1С (локальные тулзы + агрегатор).
+
+    live-режим через прокси больше не штатный путь: прокси по умолчанию не
+    поднимается (никаких инициативных обращений к 1С), чат с base_url ходит
+    напрямую в {base_url}/hs/mcp/rpc. Прокси остаётся опцией (профиль proxy) —
+    при включении вручную динамические тулзы базы можно посмотреть через
+    GET /tools?base_url=...
+
+    Агрегатор MCP (AGG_MCP_URL) — не 1С, а реестр кодовых тулзов
+    (search-*, rlm, ...): опрашиваем его и здесь (async: вызывается только из
+    event loop). Падение агрегатора чат не роняет — работаем без его тулзов.
+    """
+    extra = _local_tools()
+    agg_tools: list[ToolDefinition] = []
+    if settings.agg_mcp_url.strip():
+        try:
+            agg_client = McpOnecClient(settings.agg_mcp_url, token=settings.agg_mcp_token)
+            raw = await fetch_agg_tools(agg_client, settings.agg_mcp_url, settings.agg_mcp_cache_ttl)
+            for tool in build_agg_tools(agg_client, raw):
+                agg_tools.append(tool)
+        except Exception as e:  # noqa: BLE001 — агрегатор упал: чат живёт без его тулзов
+            log.warning("агрегатор MCP недоступен, работаем без его тулзов: %s", e)
+    if settings.onec_mode == "live":
+        # Прокси не опрашиваем: локальные тулзы + агрегатор. Динамические
+        # инструменты базы подхватываются в чате через build_registry_for_root(base_url).
+        # MOCK_ONEC_TOOLS — только как оффлайн-заглушка (тесты/dev без 1С), не для live.
+        return ToolRegistry(agg_tools + extra)
+    if settings.onec_mode != "mock":
+        raise ValueError(f"ONEC_MODE: жди 'mock' или 'live', получено {settings.onec_mode!r}")
+    return ToolRegistry(MOCK_ONEC_TOOLS + agg_tools + extra)
+
+
+async def get_registry() -> ToolRegistry:
+    """Зависимость FastAPI: реестр без обращения к 1С (см. _fallback_registry)."""
+    return await _fallback_registry()
+
+
+def resolve_base_root(base_name: str | None, base_url: str | None) -> str | None:
+    """Корень публикации базы для запроса. None — идентификации нет, штатный путь.
+
+    Порядок: мапа исключений ONEC_BASES (побеждает присланное) → валидный base_url
+    из запроса. Имя есть, а адреса нигде нет (файловая ИБ, кривой запрос) — ValueError
+    с эхом пришедшего (эндпоинт отдаёт 400): молча отвечать чужой базой хуже ошибки.
+
+    Мапа берётся из app.onec.bases: файл ONEC_BASES_FILE перечитывается на лету
+    (hot-reload без рестарта), fallback — ONEC_BASES из .env.
+    """
+    name = (base_name or "").strip().lower()
+    url = (base_url or "").strip()
+    if not name and not url:
+        return None
+    base_map = onec_bases.get_bases_map()
+    if name and name in base_map:
+        return base_map[name]
+    if url:
+        return validate_base_url(url)  # ValueError -> 400 в эндпоинте
+    raise ValueError(
+        "не могу получить инструменты базы "
+        f"{name!r}: проверьте адрес публикации "
+        f"(пришло: base_name={base_name!r}, base_url={base_url!r})"
+    )
+
+
+def resolve_onec_auth(auth_header: str | None = None) -> tuple[str, str]:
+    """Аутентификация 1С для запроса: per-user (JWT) или сервисный fallback.
+
+    Порядок:
+    1. JWT_SECRET задан + валидный Bearer-токен → токен пробрасывается в 1С
+       (1С проверяет подпись, находит пользователя по sub, ставит ТекущийПользователь).
+    2. JWT_SECRET задан, но токена нет / невалиден → ValueError (401).
+    3. JWT_SECRET пуст (dev) → сервисный ONEC_USERNAME/PASSWORD (Basic auth).
+
+    Возвращает (jwt_token, username): jwt_token непустой — Bearer, иначе Basic.
+    """
+    if settings.jwt_secret:
+        token = extract_bearer_token(auth_header)
+        if token is None:
+            raise ValueError("нет JWT-токена в заголовке Authorization (per-user RLS включён)")
+        payload = validate_hs256(token, settings.jwt_secret)
+        if payload is None:
+            raise ValueError("невалидный JWT-токен (подпись или срок действия)")
+        sub = str(payload.get("sub", "")).strip()
+        if not sub:
+            raise ValueError("JWT без поля sub")
+        log.info("per-user RLS: запрос от %s (JWT)", sub)
+        return token, ""
+    # Dev-режим: сервисный пользователь.
+    return "", settings.onec_username
+
+
+async def build_registry_for_root(root: str, client: OnecClient | None = None, jwt_token: str = "") -> ToolRegistry:
+    """Реестр под уже проверенный корень публикации (см. resolve_base_root).
+
+    jwt_token — Bearer-токен для per-user RLS; пусто → сервисный Basic auth.
+    Локальные тулзы берём из _local_tools() — единственного места, где они
+    перечисляются (раньше тут была вторая копия списка, и добавленная в
+    _local_tools() тулза до чата не доезжала: в логе «нет в реестре»).
+    """
+    extra = _local_tools()
+    if client is not None:
+        direct = client
+    elif jwt_token:
+        direct = JsonRpcOnecClient(root, jwt_token=jwt_token)
+    else:
+        direct = JsonRpcOnecClient(
+            root,
+            username=settings.onec_username,
+            password=settings.onec_password,
+        )
+    log.info("реестр инструментов базы: %s (auth=%s)", root, "jwt" if jwt_token else "basic")
+    return await _merge_live_registry(direct, extra)
+
+
+async def build_registry_for_base_url(base_url: str, client: OnecClient | None = None) -> ToolRegistry:
+    """Реестр под конкретную базу: прямой JSON-RPC в {base_url}/hs/mcp/rpc.
+
+    client — только для тестов (FakeOnecClient); в проде строится JsonRpcOnecClient
+    под сервисными ONEC_USERNAME/ONEC_PASSWORD. Невалидный base_url — ValueError.
+    """
+    return await build_registry_for_root(validate_base_url(base_url), client)
+
+
+def scope_registry_for_agent(
+    registry: ToolRegistry, agent: Agent, base_name: str | None = None
+) -> tuple[ToolRegistry, list[str]]:
+    """Фильтр реестра под агента: сервер тулзы обязан быть в agent.mcp_servers
+    (локальные server="local" — всегда), имя — в agent.tools.
+
+    search-серверы агрегатора дополнительно фильтруются по мапе база -> серверы
+    (app.onec.search_maps): вопрос из базы X видит только её кодовые индексы.
+    Мапа пустая или базы в ней нет — без фильтрации (все серверы агента).
+
+    Возвращает (урезанный реестр, список отброшенных с причинами).
+    """
+    allowed_search = search_maps.allowed_search_servers(base_name)
+    scoped: list[str] = []
+    rejected: list[str] = []
+    for t in agent.tools:
+        td = registry.get(t)
+        if td is None:
+            rejected.append(f"{t} (нет в реестре)")
+        elif td.server != "local" and td.server not in agent.mcp_servers:
+            rejected.append(f"{t} (сервер {td.server} не в mcp агента {sorted(agent.mcp_servers)})")
+        elif allowed_search is not None and td.server.startswith("search-") and td.server not in allowed_search:
+            rejected.append(
+                f"{t} (search-сервер {td.server} не разрешён для базы {base_name}: {allowed_search})"
+            )
+        else:
+            scoped.append(t)
+    return registry.subset(scoped), rejected
+
+
+async def _lazy_registry() -> ToolRegistry:
+    """Реестр без обращения к 1С: локальные тулзы (+ mock-тулзы в mock-режиме).
+
+    Используется как dependency FastAPI до резолва базы — никаких инициативных
+    обращений к 1С. После resolve_base_root чат сам строит реестр конкретной
+    базы (build_registry_for_root).
+    """
+    return await _fallback_registry()
+
+
+async def get_skill_registry() -> SkillRegistry:
+    # Перечитываем файлы на каждый запрос: новый SKILL.md подхватывается без рестарта.
+    return SkillRegistry.load(settings.skills_dir)
+
+
+async def get_agent_registry() -> AgentRegistry:
+    # Перечитываем файлы на каждый запрос: новый AGENT.md подхватывается без рестарта.
+    return AgentRegistry.load(settings.agents_dir)
+
+
+@router.get("/tools")
+async def list_tools(
+    registry: ToolRegistry = Depends(_lazy_registry),  # noqa: B008
+    base_url: str | None = Query(default=None, max_length=256, description="Реестр конкретной базы: прямой JSON-RPC"),
+    base_name: str | None = Query(default=None, max_length=128, description="Имя базы: сначала мапа ONEC_BASES"),
+    authorization: str | None = Header(default=None),  # noqa: B008 — JWT per-user RLS
+) -> JSONResponse:
+    """Полный реестр доступных инструментов (динамически: mock/live + локальные).
+
+    Источник правды для `AGENT.md: tools:` — бери имена отсюда.
+    В live мода прокси опрашивается; динамические тулзы из 1С (a1c_Инструмент*)
+    появляются без правки кода бэкенда.
+    С base_url/base_name — реестр именно этой базы (тот же резолвер, что в POST /chat:
+    мапа ONEC_BASES → base_url; мусор — 400).
+    """
+    root: str | None = None
+    if base_name or base_url:
+        try:
+            root = resolve_base_root(base_name, base_url)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+    # Per-user RLS: JWT → токен для 1С (та же логика, что в POST /chat).
+    # Только когда запрашивается реестр конкретной базы (base_name/base_url):
+    # общий реестр без базы — диагностика, не требует аутентификации.
+    jwt_token = ""
+    if root is not None:
+        try:
+            jwt_token, _onec_user = resolve_onec_auth(authorization)
+        except ValueError as e:
+            raise HTTPException(status_code=401, detail=str(e)) from e
+        registry = await build_registry_for_root(root, jwt_token=jwt_token)
+    else:
+        registry = await _fallback_registry()
+    return JSONResponse(
+        {
+            "mode": settings.onec_mode,
+            "base_url": root,
+            "tools": [
+                {
+                    "name": t.name,
+                    "server": t.server,
+                    "description": t.description,
+                    "parameters": t.openai_schema["function"]["parameters"],
+                }
+                for t in registry.tools
+            ],
+        }
+    )
+
+
+@router.get("/agents")
+async def list_agents(
+    agents: AgentRegistry = Depends(get_agent_registry),  # noqa: B008
+    authorization: str | None = Header(default=None),  # noqa: B008 — JWT per-user RLS
+    base_name: str | None = Query(default=None, max_length=128, description="База сессии для фильтра доступности"),
+) -> JSONResponse:
+    """Агенты для дропдауна формы 1С: имя + title + описание + инструменты + битые файлы.
+
+    Доступность (AGENT.md: bases/users): без валидного JWT отдаём только агентов
+    без ограничений (безопасный дефолт для старых клиентов); с JWT — фильтруем
+    по onec_id из sub и base_name запроса (база сессии).
+    """
+    onec_id: str | None = None
+    token = extract_bearer_token(authorization)
+    jwt_valid = False
+    if token is not None and settings.jwt_secret:
+        payload = validate_hs256(token, settings.jwt_secret)
+        if payload is not None:
+            onec_id = str(payload.get("sub", "")).strip() or None
+            jwt_valid = True
+    visible = [a for a in agents.agents if a.visible_for(base_name, onec_id)]
+    log.debug(
+        "list_agents base_name=%s jwt=%s onec_id=%s visible=%d/%d",
+        base_name, "yes" if jwt_valid else "no", onec_id, len(visible), len(agents.agents),
+    )
+    return JSONResponse(
+        {
+            "default": settings.default_agent,
+            "agents": [
+                {
+                    "name": a.name,
+                    "title": a.title,
+                    "description": a.description,
+                    "mcp": list(a.mcp_servers),
+                    "tools": list(a.tools),
+                    "skills": list(a.skills),
+                    "restricted": a.restricted,
+                    "bases": list(a.bases),
+                    "users": list(a.users),
+                }
+                for a in visible
+            ],
+            "errors": list(agents.errors),
+        }
+    )
+
+
+@router.get("/skills")
+async def list_skills(
+    skills: SkillRegistry = Depends(get_skill_registry),  # noqa: B008
+    agents: AgentRegistry = Depends(get_agent_registry),  # noqa: B008
+    agent: str | None = Query(default=None, max_length=64, description="Фильтр скилов по агенту"),
+) -> JSONResponse:
+    """Скилы для дропдауна формы 1С: имя + описание + инструменты + битые файлы."""
+    visible = skills.skills
+    if agent is not None:
+        spec = agents.get(agent)
+        if spec is None:
+            raise HTTPException(status_code=404, detail=f"agent not found: {agent}")
+        if not spec.allows_all_skills:
+            visible = [s for s in visible if s.name in spec.skills]
+    return JSONResponse(
+        {
+            "skills": [{"name": s.name, "description": s.description, "tools": list(s.tools)} for s in visible],
+            "errors": list(skills.errors),
+        }
+    )
+
+
+def _history_to_messages(rows: list[Message]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for m in rows:
+        if m.role in ("user", "assistant"):
+            out.append({"role": m.role, "content": m.content})
+    return out
+
+
+@router.get("/chat/result/{job_id}")
+async def chat_result(job_id: str) -> JSONResponse:
+    job = _background_jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    if job["status"] == "running":
+        return JSONResponse({"job_id": job_id, "status": "running", "session_id": job["session_id"]})
+    if job["status"] == "error":
+        return JSONResponse(
+            {"job_id": job_id, "status": "error", "error": job.get("error"), "session_id": job["session_id"]}
+        )
+    result: AgentResult = job["result"]
+    return JSONResponse(
+        {
+            "job_id": job_id,
+            "status": "done",
+            "session_id": job["session_id"],
+            "agent": job.get("agent_name"),
+            "skill": job.get("skill_name"),
+            "model": job.get("model_name"),
+            "elapsed_s": job.get("elapsed_s"),
+            "prompt_tokens": result.prompt_tokens,
+            "completion_tokens": result.completion_tokens,
+            "total_tokens": result.prompt_tokens + result.completion_tokens,
+            "answer": result.answer,
+            "rounds": result.rounds,
+            "tool_calls": result.tool_calls,
+            "tool_errors": result.tool_errors,
+        }
+    )
+
+
+@router.post("/chat", response_model=None)
+async def chat(
+    req: ChatRequest,
+    background: bool = Query(
+        default=False, description="Фоновый режим: вернуть job_id и опрашивать GET /chat/result/{job_id}"
+    ),
+    authorization: str | None = Header(default=None),  # noqa: B008 — JWT per-user RLS
+    llm: ChatLLM = Depends(get_llm),  # noqa: B008 — идиома FastAPI
+    registry: ToolRegistry = Depends(_lazy_registry),  # noqa: B008 — без обращения к 1С до резолва базы
+    skills: SkillRegistry = Depends(get_skill_registry),  # noqa: B008 — идиома FastAPI
+    agents: AgentRegistry = Depends(get_agent_registry),  # noqa: B008 — идиома FastAPI
+) -> Any:
+    # Защита от огромных вложений на уровне сериализации уже есть (max_length),
+    # но дополнительно режем число вложений
+    if req.attachments and len(req.attachments) > 10:
+        raise HTTPException(status_code=413, detail="too many attachments (max 10)")
+    # База раньше сессии: не смогли резолвить адрес — ни сессии, ни эмбеддингов,
+    # только громкая 400 с эхом пришедшего. Пусто — штатный путь (mock/прокси).
+    try:
+        base_root = resolve_base_root(req.base_name, req.base_url)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    # Per-user RLS: JWT → токен для 1С. Ошибка токена — 401 до сессии и эмбеддингов.
+    try:
+        jwt_token, _onec_user = resolve_onec_auth(authorization)
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=str(e)) from e
+    log.debug(
+        "chat base_name=%s user_id=%s agent=%s jwt=%s",
+        req.base_name, req.user_id, req.agent, "yes" if authorization else "no",
+    )
+    # Создаём/находим сессию и грузим историю
+    async with SessionFactory() as session:
+        user = (await session.execute(select(User).where(User.onec_id == req.user_id))).scalar_one_or_none()
+        if user is None:
+            user = User(onec_id=req.user_id, display_name=req.user_id)
+            session.add(user)
+            await session.flush()
+        chat_session = None
+        if req.session_id is not None:
+            chat_session = (
+                await session.execute(
+                    select(ChatSession).where(ChatSession.id == req.session_id, ChatSession.user_id == user.id)
+                )
+            ).scalar_one_or_none()
+            if chat_session is None:
+                raise HTTPException(status_code=404, detail="session not found")
+            if req.base_name and chat_session.base_name and chat_session.base_name != req.base_name:
+                # Сессия чужой базы — историю не смешиваем, заводим новую.
+                chat_session = None
+            elif req.base_name and not chat_session.base_name:
+                # Старая сессия без базы — привязываем к текущей.
+                chat_session.base_name = req.base_name
+        if chat_session is None:
+            chat_session = ChatSession(user_id=user.id, title=req.message[:80], base_name=req.base_name)
+            session.add(chat_session)
+            await session.flush()
+        session_id, profile = chat_session.id, user.access_profile
+        # Агент: явный выбор > залипший в сессии > дефолт. Итог пишем в сессию.
+        agent_spec: Agent | None = None
+        if req.agent is not None:
+            agent_spec = agents.get(req.agent)
+            if agent_spec is None:
+                raise HTTPException(status_code=404, detail=f"agent not found: {req.agent}")
+        elif chat_session.agent_name:
+            agent_spec = agents.get(chat_session.agent_name)
+            if agent_spec is None:
+                chat_session.agent_name = None  # файл агента удалён — отвязываем
+        if agent_spec is None:
+            agent_spec = agents.get(settings.default_agent)
+            if agent_spec is None and agents.agents:
+                agent_spec = agents.agents[0]
+            if agent_spec is None:
+                raise HTTPException(status_code=500, detail="no agents configured")
+        # Доступность (AGENT.md: bases/users): явный выбор чужого агента — 403,
+        # залипший в сессии невидимый — отвязываем и падаем на дефолт.
+        if not agent_spec.visible_for(chat_session.base_name, req.user_id):
+            if req.agent is not None:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"агент {agent_spec.name} недоступен для этой базы/пользователя ({agent_spec.access_note()})",
+                )
+            chat_session.agent_name = None
+            default_agent = agents.get(settings.default_agent)
+            candidates = [default_agent] if default_agent else []
+            candidates += [a for a in agents.agents if a.name != settings.default_agent]
+            agent_spec = next((a for a in candidates if a.visible_for(chat_session.base_name, req.user_id)), None)
+            if agent_spec is None:
+                raise HTTPException(status_code=403, detail="нет доступных агентов для этой базы/пользователя")
+        chat_session.agent_name = agent_spec.name
+        # Модель: оверрайд из AGENT.md, иначе из конфига.
+        if agent_spec.model and agent_spec.model != settings.llm_model:
+            llm = OpenAICompatibleLLM(
+                base_url=settings.llm_base_url,
+                api_key=settings.llm_api_key,
+                model=agent_spec.model,
+                temperature=settings.llm_temperature,
+                top_p=settings.llm_top_p,
+                top_k=settings.llm_top_k,
+                repetition_penalty=settings.llm_repetition_penalty,
+                enable_thinking=settings.llm_enable_thinking,
+            )
+            log.info("агент %s: модель %s (оверрайд)", agent_spec.name, agent_spec.model)
+        # Скил внутри агента: явный обязан быть разрешён, залипший чужой — сброс, иначе авто-матчинг среди своих.
+        skill: Skill | None = None
+        if req.skill is not None:
+            skill = skills.get(req.skill)
+            if skill is None:
+                raise HTTPException(status_code=404, detail=f"skill not found: {req.skill}")
+            if not agent_spec.allows_skill(skill.name):
+                raise HTTPException(status_code=404, detail=f"skill not available for agent {agent_spec.name}")
+        elif chat_session.skill_name:
+            skill = skills.get(chat_session.skill_name)
+            if skill is None or not agent_spec.allows_skill(skill.name):
+                chat_session.skill_name = None  # файл удалён или скил чужого агента — отвязываем
+                skill = None
+        if skill is None and req.skill is None:
+            embeddings = build_embeddings(settings.embeddings_provider, settings.tei_base_url)
+            scoped = (
+                SkillRegistry(skills=list(skills.skills))
+                if agent_spec.allows_all_skills
+                else SkillRegistry(skills=[s for s in skills.skills if s.name in agent_spec.skills])
+            )
+            skill, match_score = await scoped.match(req.message, embeddings, min_score=settings.skill_match_threshold)
+            log.info(
+                "авто-матчинг скила: score=%.3f порог=%.2f итог=%s",
+                match_score,
+                settings.skill_match_threshold,
+                skill.name if skill is not None else None,
+            )
+        if skill is not None:
+            chat_session.skill_name = skill.name
+        else:
+            chat_session.skill_name = None
+        # Вопрос из базы X отвечает база X: прямой JSON-RPC в её публикацию.
+        # base_root уже проверен выше (мапа → base_url); None — штатный путь.
+        if base_root is not None:
+            registry = await build_registry_for_root(base_root, jwt_token=jwt_token)
+        elif settings.onec_mode == "live":
+            log.warning(
+                "чат без base_url в live-режиме: прокси не поднят, тулзы 1С недоступны "
+                "(локальные работают). Форма обязана присылать base_url."
+            )
+        registry, rejected = scope_registry_for_agent(registry, agent_spec, base_name=req.base_name)
+        if rejected:
+            log.warning("агент %s: отброшены инструменты: %s", agent_spec.name, rejected)
+        if skill is not None:
+            missing = [t for t in skill.tools if t not in registry.names]
+            if missing:
+                log.warning("скил %s ссылается на неизвестные инструменты: %s", skill.name, missing)
+            registry = registry.subset(skill.tools)
+        # История до текущего сообщения
+        history_rows: list[Message] = []
+        # Загружаем историю если нужен context_size или просто для передачи в LLM
+        # При context_size = N берём последние N пар (2*N сообщений)
+        if req.context_size is not None:
+            limit = req.context_size * 2
+            q = select(Message).where(Message.session_id == session_id).order_by(Message.id.desc()).limit(limit)
+            rows = (await session.execute(q)).scalars().all()
+            history_rows = list(reversed(rows))
+        else:
+            # По умолчанию — тоже грузим историю (ограничим 20 последних пар чтобы не раздуть промпт)
+            q = select(Message).where(Message.session_id == session_id).order_by(Message.id.desc()).limit(40)
+            rows = (await session.execute(q)).scalars().all()
+            history_rows = list(reversed(rows))
+        history = _history_to_messages(history_rows)
+        # Сохраняем текущее сообщение пользователя (текст, без base64 чтобы не раздувать БД)
+        stored_content = req.message
+        if req.attachments:
+            names = ", ".join(a.filename for a in req.attachments)
+            stored_content = f"{req.message}\n[Вложения: {names}]" if req.message else f"[Вложения: {names}]"
+        session.add(Message(session_id=session_id, role="user", content=stored_content))
+        await session.commit()
+
+    # Формируем multimodal content для LLM
+    att_dicts: list[dict[str, str]] | None = None
+    if req.attachments:
+        att_dicts = [
+            {"filename": a.filename, "mime_type": a.mime_type, "content_base64": a.content_base64, "url": a.url or ""}
+            for a in req.attachments
+        ]
+    user_content: str | list[dict[str, Any]] = build_user_content(req.message, att_dicts)
+
+    extra_system = skill.system_block if skill is not None else ""
+    skill_name = skill.name if skill is not None else ""
+    base_system = agent_spec.prompt.strip() or SYSTEM_PROMPT
+    agent_name = agent_spec.name
+    model_name = agent_spec.model or settings.llm_model
+    max_rounds = agent_spec.max_rounds if agent_spec.max_rounds is not None else settings.agent_max_rounds
+    if background:
+        job_id = uuid.uuid4().hex
+        _background_jobs[job_id] = {
+            "status": "running",
+            "session_id": session_id,
+            "skill_name": skill_name or None,
+            "agent_name": agent_name,
+            "model_name": model_name,
+            "elapsed_s": None,
+            "result": None,
+        }
+
+        async def _run_bg() -> None:
+            started = time.monotonic()
+            try:
+                result = await run_agent(
+                    llm=llm,
+                    registry=registry,
+                    user_message=user_content,
+                    user_id=req.user_id,
+                    access_profile=profile,
+                    base_name=req.base_name or "",
+                    base_url=base_root or "",
+                    max_rounds=max_rounds,
+                    history=history if history else None,
+                    extra_system=extra_system,
+                    skill_name=skill_name,
+                    agent_name=agent_name,
+                    base_system=base_system,
+                    max_consecutive_errors=settings.agent_max_consecutive_errors,
+                    max_repeat_calls=settings.agent_max_repeat_calls,
+                )
+                async with SessionFactory() as s:
+                    s.add(Message(session_id=session_id, role="assistant", content=result.answer))
+                    await s.commit()
+                elapsed_bg = round(time.monotonic() - started, 1)
+                _background_jobs[job_id].update({"status": "done", "elapsed_s": elapsed_bg, "result": result})
+                await _record_request(
+                    user_id=req.user_id,
+                    session_id=session_id,
+                    base_name=req.base_name,
+                    base_url=base_root,
+                    agent=agent_name,
+                    skill=skill_name,
+                    model=model_name,
+                    question=req.message,
+                    result=result,
+                    elapsed_s=elapsed_bg,
+                )
+            except Exception as e:  # noqa: BLE001
+                _background_jobs[job_id].update({"status": "error", "error": str(e)})
+                await _record_request(
+                    user_id=req.user_id,
+                    session_id=session_id,
+                    base_name=req.base_name,
+                    base_url=base_root,
+                    agent=agent_name,
+                    skill=skill_name,
+                    model=model_name,
+                    question=req.message,
+                    result=None,
+                    elapsed_s=round(time.monotonic() - started, 1),
+                    error=str(e),
+                )
+
+        asyncio.create_task(_run_bg())
+        return JSONResponse({"job_id": job_id, "session_id": session_id, "status": "running", "agent": agent_name})
+
+    started = time.monotonic()
+    try:
+        result = await run_agent(
+            llm=llm,
+            registry=registry,
+            user_message=user_content,
+            user_id=req.user_id,
+            access_profile=profile,
+            base_name=req.base_name or "",
+            base_url=base_root or "",
+            max_rounds=max_rounds,
+            history=history if history else None,
+            extra_system=extra_system,
+            skill_name=skill_name,
+            agent_name=agent_name,
+            base_system=base_system,
+            max_consecutive_errors=settings.agent_max_consecutive_errors,
+            max_repeat_calls=settings.agent_max_repeat_calls,
+        )
+    except Exception as e:  # noqa: BLE001 — показываем ошибку в чате, а не 500
+        # 1С ждёт SSE, поэтому отдаём ошибку как обычный answer, чтобы форма показала текст а не "HTTP 500"
+        err_text = (
+            f"Ошибка обращения к LLM ({type(e).__name__}: {e}). "
+            f"Проверь .env: LLM_BASE_URL={settings.llm_base_url}, LLM_MODEL={settings.llm_model} "
+            f"и LLM_API_KEY задан (сейчас {'пуст' if settings.llm_api_key in ('none', '') else 'задан'}). "
+            f"Для локальной модели укажи http://llama:8080/v1 и ключ none."
+        )
+        result = AgentResult(answer=err_text, rounds=0, tool_calls=[], tool_errors=1)
+
+    async with SessionFactory() as session:
+        session.add(Message(session_id=session_id, role="assistant", content=result.answer))
+        await session.commit()
+
+    elapsed_s = round(time.monotonic() - started, 1)
+    # Статистика: пишем до отдачи SSE (быстро, не блокирует стриминг).
+    err_str = None
+    if result.rounds == 0 and result.tool_errors > 0 and "Ошибка обращения" in (result.answer or ""):
+        err_str = result.answer[:500]
+    await _record_request(
+        user_id=req.user_id,
+        session_id=session_id,
+        base_name=req.base_name,
+        base_url=base_root,
+        agent=agent_name,
+        skill=skill_name,
+        model=model_name,
+        question=req.message,
+        result=result,
+        elapsed_s=elapsed_s,
+        error=err_str,
+    )
+    return StreamingResponse(
+        _events(session_id, result, skill_name, agent_name, model_name, elapsed_s),
+        media_type="text/event-stream",
+    )
+
+
+async def _events(
+    session_id: int,
+    result: AgentResult,
+    skill_name: str = "",
+    agent_name: str = "",
+    model_name: str = "",
+    elapsed_s: float = 0.0,
+) -> AsyncIterator[str]:
+    for tool_name in result.tool_calls:
+        yield f"event: tool\ndata: {json.dumps({'tool': tool_name}, ensure_ascii=False)}\n\n"
+    # Ответ кусками по ~500 символов — скелет стриминга до токенного.
+    for i in range(0, len(result.answer), 500):
+        yield f"event: answer\ndata: {json.dumps({'delta': result.answer[i : i + 500]}, ensure_ascii=False)}\n\n"
+    meta = {
+        "session_id": session_id,
+        "agent": agent_name or None,
+        "skill": skill_name or None,
+        "model": model_name or None,
+        "elapsed_s": elapsed_s,
+        "prompt_tokens": result.prompt_tokens,
+        "completion_tokens": result.completion_tokens,
+        "total_tokens": result.prompt_tokens + result.completion_tokens,
+        "rounds": result.rounds,
+        "tool_errors": result.tool_errors,
+    }
+    yield f"event: done\ndata: {json.dumps(meta, ensure_ascii=False)}\n\n"
