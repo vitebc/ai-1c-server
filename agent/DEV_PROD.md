@@ -7,8 +7,8 @@ Prod — отдельная директория **вне git**, в ней то�
 ## Архитектура
 
 ```
-MAIN (ветка main, разработка + тесты):
-  /home/test/project/1c-ai-agent/
+MAIN (монорепо, ветка master, разработка + тесты):
+  /home/test/project/ai-1c-server/agent/
     backend (:8001, dev-конфиг) → postgres (:5435, volume dev-postgres-data)
 
 PROD (не git, только запуск):
@@ -22,8 +22,8 @@ LLM, базы 1С, агрегатор — общие для обоих окру�
 
 | Параметр | Main (dev-конфиг) | Prod |
 |---|---|---|
-| Путь | `/home/test/project/1c-ai-agent` | `/home/test/.config/ai-1c-server/1c-chat` |
-| Git | да (ветка `main`) | нет — только runtime-файлы |
+| Путь | `/home/test/project/ai-1c-server/agent` | `/home/test/.config/ai-1c-server/1c-chat` |
+| Git | да (монорепо `ai-1c-server`, ветка `master`) | нет — только runtime-файлы |
 | Бэкенд | `:8001` | `:8000` |
 | Postgres | `:5435`, volume `dev-postgres-data` | `:5432`, volume `1c-chat_postgres-data` |
 | JWT_SECRET | пусто (Basic auth под `agent`) | задан (per-user RLS) |
@@ -46,10 +46,10 @@ LLM, базы 1С, агрегатор — общие для обоих окру�
 ## Рабочий цикл
 
 ```bash
-# 1. Разработка и тесты в main (dev-конфиг :8001)
-cd /home/test/project/1c-ai-agent
+# 1. Разработка и тесты (dev-конфиг :8001)
+cd /home/test/project/ai-1c-server/agent
 docker compose up -d --build backend    # :8001, тестируешь
-git add -A && git commit -m "feat: ..." && git push origin main
+cd .. && git add -A && git commit -m "feat: ..." && git push   # из корня монорепо
 
 # 2. Накатка в prod (одной командой)
 scripts/deploy_prod.sh
@@ -57,7 +57,7 @@ scripts/deploy_prod.sh
 #     + docker compose up -d backend (:8000) + проверка /health
 ```
 
-`deploy_prod.sh` отказывается работать не из ветки `main`. `.env` и БД prod не трогает.
+`deploy_prod.sh` отказывается работать не из ветки `master`. `.env` и БД prod не трогает.
 
 ## Откат
 
@@ -78,7 +78,7 @@ curl http://localhost:8000/health
 ## Чистка dev БД
 
 ```bash
-cd /home/test/project/1c-ai-agent
+cd /home/test/project/ai-1c-server/agent
 docker compose exec -T postgres \
   psql -U agent -d agentdb -c "TRUNCATE chat_requests;"
 ```

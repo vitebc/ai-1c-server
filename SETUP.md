@@ -225,7 +225,7 @@ Hot-reload: добавление/изменение/удаление серве�
 - Админ-аккаунты скрыты от не-админов (в списке и по 404) — чтобы имена
   админов не утекали.
 
-## 6.2. AI Agent Studio и backend 1c-ai-agent
+## 6.2. AI Agent Studio и backend (`agent/`)
 
 Страница **Agent Studio** (секции `agent-studio` + подсекции
 `agent-agents|agent-skills|agent-patterns|agent-backend|env`):

@@ -63,13 +63,13 @@
 
 ## Dev/Prod
 
-**main — разработка и тесты, prod — отдельная директория вне git**, в ней только то,
+**master (монорепо `ai-1c-server`, подкаталог `agent/`) — разработка и тесты, prod — отдельная директория вне git**, в ней только то,
 что нужно для запуска бэкенда. Подробности — `DEV_PROD.md`.
 
 | | Main (dev-конфиг) | Prod |
 |---|---|---|
-| Путь | `/home/test/project/1c-ai-agent` | `/home/test/.config/ai-1c-server/1c-chat` |
-| Git | да (ветка `main`) | нет — только runtime-файлы |
+| Путь | `/home/test/project/ai-1c-server/agent` | `/home/test/.config/ai-1c-server/1c-chat` |
+| Git | да (монорепо `ai-1c-server`, ветка `master`) | нет — только runtime-файлы |
 | Бэкенд | `:8001` | `:8000` |
 | Postgres | `:5435`, volume `dev-postgres-data` | `:5432`, volume `1c-chat_postgres-data` |
 | JWT_SECRET | пусто (Basic auth под `agent`) | задан (per-user RLS) |
@@ -77,12 +77,12 @@
 
 **Рабочий цикл:**
 ```bash
-# Разработка и тесты в main (dev-конфиг :8001)
-cd /home/test/project/1c-ai-agent
+# Разработка и тесты (dev-конфиг :8001)
+cd /home/test/project/ai-1c-server/agent
 docker compose up -d --build backend    # :8001, тестируешь
-git add -A && git commit -m "feat: ..." && git push origin main
+cd /home/test/project/ai-1c-server && git add -A && git commit -m "feat: ..." && git push
 
-# Накатка в prod (одной командой, только из ветки main)
+# Накатка в prod (одной командой, только из ветки master)
 scripts/deploy_prod.sh
 #   = build образа + rsync runtime-файлов (agents/skills/patterns/bases.conf/Dockerfile/alembic)
 #     в /home/test/.config/ai-1c-server/1c-chat + docker compose up -d backend (:8000) + /health
@@ -94,7 +94,7 @@ scripts/deploy_prod.sh
 
 ## Окружение разработки
 
-- Тесты и линт — на этом сервере (`cd backend && uv run pytest`). Удалённый сервер — только по явной просьбе: `ssh test@100.85.239.61`, проект `/home/test/project/1c-ai-agent` (там же `.env`, бэкапы `.env.bak-*`).
+- Тесты и линт — на этом сервере (`cd backend && uv run pytest`). Удалённый сервер — только по явной просьбе: `ssh test@100.85.239.61`, проект `/home/test/project/ai-1c-server/agent` (там же `.env`, бэкапы `.env.bak-*`).
 - GPU-сервер (5090, 72 ГБ): llama.cpp-server под `qwen3.8-27b-1C` на `http://192.168.170.105:12600/v1`.
 - Тестовая 1С — Windows-VM (8.3.20+, КА2), требуется элемент Пользователи + чтение 7 объектов + роль `a1c_АгентДоступ` в конфигураторе (шаг 4 `onec/DEPLOY.md`). Связка Linux-бэкенда — по сети (прямые вызовы — `ONEC_USERNAME`/`ONEC_PASSWORD` + `ONEC_BASES`; агрегатор — `AGG_MCP_URL`, см. `.env.example`). Детали — `onec/README.md`.
 
@@ -130,7 +130,10 @@ pre-commit: `pre-commit install && pre-commit run --all-files`. 1С: `onec/smoke
 
 ## Git
 
-Remote `origin` https://github.com/vitebc/1c-ai-agent.git, ветка `main`. По шагу: коммит + `git push origin main`, дерево чистое.
+Монорепо: remote `origin` https://github.com/vitebc/ai-1c-server.git, ветка `master`.
+Коммит + `git push origin master` из корня `/home/test/project/ai-1c-server`; история
+1c-ai-agent сохранена в `agent/` (git subtree). Старый отдельный репозиторий
+1c-ai-agent больше не используется.
 
 ## Свежесть расширения 1С (обязательно)
 

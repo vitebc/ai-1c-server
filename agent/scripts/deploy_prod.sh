@@ -3,7 +3,7 @@
 # Prod — /home/test/.config/ai-1c-server/1c-chat (не git): только backend + postgres.
 #
 # Использование:
-#   scripts/deploy_prod.sh          # из main после git push origin main
+#   scripts/deploy_prod.sh          # из master после git push
 #
 # Не трогает .env и БД prod. Откат: docker compose up -d --no-build в старой копии
 # (обратный rsync не нужен — runtime-файлы пересинхронизируются при следующем deploy).
@@ -18,12 +18,15 @@ if [ ! -d "$PROD" ]; then
   exit 1
 fi
 
-# Только из main — dev-правки в prod не накатываются.
+# Только из основной ветки монорепо (master) — dev-правки в prod не накатываются.
 BRANCH="$(git -C "$REPO" branch --show-current)"
-if [ "$BRANCH" != "main" ]; then
-  echo "Deploy только из ветки main (сейчас: $BRANCH). git checkout main && git pull origin main" >&2
-  exit 1
-fi
+case "$BRANCH" in
+  master|main) ;;
+  *)
+    echo "Deploy только из master/main (сейчас: $BRANCH). git checkout master && git pull" >&2
+    exit 1
+    ;;
+esac
 
 echo "== Build образа из main (no-cache: src/ обязана быть свежей) =="
 # Dev-образ собирается как 1c-ai-agent-backend:dev, prod-compose ждёт :latest —

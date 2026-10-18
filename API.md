@@ -149,11 +149,12 @@ CRUD: `GET/POST /model-providers`, `GET/PUT/DELETE /model-providers/{id}` — `{
 
 `GET /bsl-ls` (статус: config/pid/status), `POST /bsl-ls/config|/restart|/stop|/install-java`, `GET /bsl-ls/logs`, `POST /bsl-ls/logs/clear`, `GET /bsl-ls/versions`, `POST /bsl-ls/download/{version}`.
 
-### AI Agent Studio (проект 1c-ai-agent)
+### AI Agent Studio (проект `agent/` в этом монорепо)
 
-Корень проекта — `server_settings(agent_project_root)` (по умолчанию авто-поиск
-рядом с сервером), файлы: `backend/agents/<name>/AGENT.md`,
+Корень проекта — `server_settings(agent_project_root)` (по умолчанию
+`$HOME/project/ai-1c-server/agent`), файлы: `backend/agents/<name>/AGENT.md`,
 `backend/skills/<name>/SKILL.md`, `backend/patterns/<name>.md`.
+История правок коммитится в монорепо (корень git ищется выше `agent/`).
 
 | Метод | Путь | Описание |
 |---|---|---|

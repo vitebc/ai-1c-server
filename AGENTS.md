@@ -4,6 +4,24 @@
 Централизованное управление MCP-серверами, конфигурациями 1С
 и развёртывание клиентов в команде разработчиков.
 
+## Монорепо: две части, один репозиторий
+
+| Часть | Что это | Как деплоится |
+|---|---|---|
+| Корень (`src/`, `admin-ui/`, `migrations/`, `mcp/`) | Rust-сервер: MCP-шлюз + админка | `scripts/deploy.sh` → `~/.config/ai-1c-server/adminka`, порт 9224 (prod) / 9225 (dev) |
+| `agent/` | Python-бэкенд ИИ-агента (бывший отдельный репозиторий 1c-ai-agent; история сохранена через `git subtree`) | `agent/scripts/deploy_prod.sh` → `~/.config/ai-1c-server/1c-chat`, порт 8000 (prod) / 8001 (dev) |
+
+Правила для `agent/` — в `agent/AGENTS.md`, dev/prod бэкенда — в
+`agent/DEV_PROD.md`. Два деплоя намеренно раздельные: бинарник и docker-образ
+собираются и накатываются по отдельности, общий только git.
+
+Связка между частями: админка читает/пишет файлы агентов в `agent/` (через
+`server_settings(agent_project_root)`, дефолт `~/project/ai-1c-server/agent`),
+управляет его `docker compose` и проксирует live-эндпоинты (`/health`,
+`/tools`, `/agents`, `/skills`). Общий секрет — `JWT_SECRET` (в `agent/.env`).
+**Dev-бэкенд должен брать агрегатор с dev-инстанса** (`AGG_MCP_URL` → `:9225`),
+иначе тулзы MCP-серверов, добавленных в dev-БД, не появятся в `GET /tools`.
+
 **Разделение dev/prod:** ветка `master` — разработка (dev-демон на :9225,
 `data/`, админка из репо). Prod живёт ОТДЕЛЬНО в
 `/home/test/.config/ai-1c-server/adminka` — там только то, что нужно для
