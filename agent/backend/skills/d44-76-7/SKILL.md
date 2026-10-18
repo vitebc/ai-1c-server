@@ -1,7 +1,7 @@
 ---
 name: d44-76-7
 description: Контроль за ведением денежных документов в УПП
-tools: [execute_select, validate_query, execute_query, get_metadata_structure, list_metadata_objects, get_metadata_tree, get_object_structure, get_access_rights]
+tools: [execute_select, validate_query, execute_query, get_metadata_structure, list_metadata_objects, get_metadata_tree, get_object_structure, get_pattern, get_configuration_info]
 ---
 
 Агент обязан последовательно проверить 11 объектов контроля, используя указанные настройки отчетов и критерии:

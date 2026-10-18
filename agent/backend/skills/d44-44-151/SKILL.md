@@ -1,7 +1,7 @@
 ---
 name: d44-44-151
 description: провести аудит, аудит договора d44-44-151, аудит НСИ, проверка договоров и контрагентов, контроль НСИ, договоры без менеджера, дубли договоров, вид договора, вид контрагента не соответствует ОПФ, полные наименования вместо ИП и ОАО
-tools: [get_pattern, search_knowledge_base, get_configuration_info, get_metadata_tree, list_metadata_objects, get_metadata_structure, validate_query, execute_select, execute_query, get_access_rights]
+tools: [get_pattern, get_configuration_info, get_metadata_tree, list_metadata_objects, get_metadata_structure, validate_query, execute_select, execute_query, get_object_structure]
 ---
 
 # Аудит д44-44-151
