@@ -141,11 +141,19 @@ def test_scope_registry_for_agent_filters_servers() -> None:
     assert any(r.startswith("nope") for r in rejected)
 
 
-def test_repo_analyst_uses_three_sources() -> None:
+def test_repo_analyst_sources_follow_mcp_field() -> None:
+    """Конфиг агента в репозитории: `mcp` — источник правды.
+
+    `search-ka-update__*` в `tools` остались от прежней редакции агента, но
+    сервера `search-ka-update` в `mcp` больше нет — `scope_registry_for_agent`
+    такие тулзы отбрасывает (см. test_scope_registry_for_agent_filters_servers),
+    поэтому проверяем именно это, а не наличие сервера в mcp.
+    """
     repo = Path(__file__).resolve().parent.parent / "agents"
     analyst = AgentRegistry.load(repo).get("analyst")
     assert analyst is not None
-    assert set(analyst.mcp_servers) == {"default", "search-ka-update", "rlm"}
-    full = [t for t in analyst.tools if t.startswith("search-ka-update__")]
-    assert len(full) == 16
+    assert set(analyst.mcp_servers) == {"default", "rlm"}
     assert len([t for t in analyst.tools if t.startswith("rlm__")]) == 6
+    dropped = [t for t in analyst.tools if t.startswith("search-ka-update__")]
+    assert dropped, "в tools остались тулзы search-ka-update"
+    assert "search-ka-update" not in analyst.mcp_servers
