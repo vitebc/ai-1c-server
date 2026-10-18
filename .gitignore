@@ -22,3 +22,18 @@ main-*.md
 
 *.jar
 .openchamber/
+
+# Python (agent/ — бэкенд 1c-ai-agent)
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+.coverage
+htmlcov/
+
+# Модели/веса (никогда в git)
+*.gguf
+*.safetensors

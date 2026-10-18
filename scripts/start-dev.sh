@@ -11,8 +11,9 @@ PID_FILE="$DIR/server-dev.pid"
 
 # Единый JWT-ключ с бэкендом 1С-агента: токен админки принимается бэкендом
 # (per-user RLS, live tools/list). Ключ — в .env dev-репо (JWT_SECRET).
-if [ -f "$HOME/project/1c-ai-agent/.env" ]; then
-  JWT_SECRET="$(grep '^JWT_SECRET=' "$HOME/project/1c-ai-agent/.env" | cut -d= -f2-)"
+AGENT_ENV="$DIR/agent/.env"
+if [ -f "$AGENT_ENV" ]; then
+  JWT_SECRET="$(grep '^JWT_SECRET=' "$AGENT_ENV" | cut -d= -f2-)"
   export JWT_SECRET
 fi
 

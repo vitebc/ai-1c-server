@@ -8,7 +8,8 @@
 //! (`^[a-z0-9-]+$`). Broken files are reported, never fatal.
 //!
 //! Project root comes from `server_settings(agent_project_root)`,
-//! default `/root/project/1c-ai-agent`. All paths are jailed inside it.
+//! default `/root/project/ai-1c-server/agent` (monorepo subdir). All paths
+//! are jailed inside it.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -24,11 +25,12 @@ use serde_json::{json, Value};
 use super::super::AppState;
 
 /// Default project root follows the server process owner:
-/// `$HOME/project/1c-ai-agent` (e.g. `/root/...` or `/home/test/...`).
+/// `$HOME/project/ai-1c-server/agent` (e.g. `/root/...` or `/home/test/...`).
+/// Monorepo: the `1c-ai-agent` project lives in the `agent/` subdirectory.
 /// Overridable via `server_settings(agent_project_root)`.
 pub fn default_root() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/root".into());
-    PathBuf::from(home).join("project/1c-ai-agent")
+    PathBuf::from(home).join("project/ai-1c-server/agent")
 }
 
 /// Tool names known to the agent backend (mock + live + built-in).

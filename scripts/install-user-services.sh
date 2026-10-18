@@ -67,7 +67,7 @@ if [ "$SCOPE" = "dev" ] || [ "$SCOPE" = "all" ]; then
     "$DIR/scripts/systemd/user/ai-1c-server-dev.service" \
     "$ENV_DIR/dev.env" \
     "$DIR/scripts/stop-dev.sh" \
-    "$HOME/project/1c-ai-agent" \
+    "$HOME/project/ai-1c-server/agent" \
     "dev"
 fi
 
