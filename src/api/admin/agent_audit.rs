@@ -9,7 +9,7 @@
 //! API call — the file change is already on disk, the audit row is simply
 //! skipped (warning in server log).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
@@ -140,8 +140,22 @@ pub fn record_change(
     }
 }
 
+/// Enclosing git repository of `root` (monorepo: `agent/` is a subdirectory
+/// of the `ai-1c-server` repo, so `.git` lives in an ancestor). `None` when
+/// the path is outside any repository.
+fn enclosing_repo(root: &Path) -> Option<PathBuf> {
+    let (out, _err) = git(root, &["rev-parse", "--show-toplevel"]).ok()?;
+    let top = out.trim();
+    if top.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(top))
+    }
+}
+
 /// Convenience used by agent_files handlers: commit + record in one call.
-/// `rel_path` is the repo-relative path to add (folder or file).
+/// `rel_path` is relative to the project root (e.g. `backend/agents/foo`);
+/// the commit is made in the enclosing git repo, so the path is rebased.
 pub fn commit_and_record(
     state: &Arc<AppState>,
     db: &crate::db::Database,
@@ -153,15 +167,29 @@ pub fn commit_and_record(
     rel_path: &str,
 ) {
     let root = project_root(db);
-    if !root.join(".git").is_dir() {
-        tracing::warn!("agent-audit: project root is not a git repo — skipping commit");
-        return;
-    }
+    let repo = match enclosing_repo(&root) {
+        Some(r) => r,
+        None => {
+            tracing::warn!("agent-audit: project root is not inside a git repo — skipping commit");
+            return;
+        }
+    };
+    // `rel_path` is project-root-relative; git wants it repo-relative.
+    let rebased = match root.join(rel_path).strip_prefix(&repo) {
+        Ok(p) => p.to_string_lossy().to_string(),
+        Err(_) => {
+            tracing::warn!(
+                "agent-audit: {rel_path} is outside the repo ({}) — skipping commit",
+                repo.display()
+            );
+            return;
+        }
+    };
     let message = format!("{entity_type}: {entity_name} — {action} by {username}");
-    match git_commit_paths(&root, &[rel_path.to_string()], &message) {
+    match git_commit_paths(&repo, &[rebased], &message) {
         Ok(hash) => {
             // Short diff summary: first changed file + line counts.
-            let summary = git(&root, &["show", "--stat", "--format=", &hash])
+            let summary = git(&repo, &["show", "--stat", "--format=", &hash])
                 .map(|(out, _)| out.trim().to_string())
                 .unwrap_or_default();
             record_change(
