@@ -43,10 +43,19 @@ for d in agents skills patterns; do
   mkdir -p "$PROD/backend/$d"
   rsync -a --ignore-existing "$REPO/backend/$d/" "$PROD/backend/$d/"
 done
-# Одиночные файлы. bases.conf/search-maps.conf копируются только при отсутствии:
-# они могут быть отредактированы на хосте (hot-reload) — деплой не перезаписывает.
-[ -f "$PROD/backend/bases.conf" ] || cp "$REPO/backend/bases.conf" "$PROD/backend/bases.conf"
-[ -f "$PROD/backend/search-maps.conf" ] || cp "$REPO/backend/search-maps.conf" "$PROD/backend/search-maps.conf"
+# Одиночные hot-reload файлы. Копируются только при отсутствии: их правят на
+# хосте, деплой не перезаписывает. Если путь существует, но это КАТАЛОГ (былый
+# случай: search-maps.conf в prod создан как пустой каталог) — не трогаем и
+# предупреждаем: бэкенд тогда читает мапу как отсутствующую (OSError) и фильтр
+# search-серверов по базам не применяется.
+for f in bases.conf search-maps.conf; do
+  dst="$PROD/backend/$f"
+  if [ -d "$dst" ]; then
+    echo "WARN: $dst — каталог, а не файл; пропускаю (мапа не применяется)" >&2
+  elif [ ! -e "$dst" ]; then
+    cp "$REPO/backend/$f" "$dst"
+  fi
+done
 cp "$REPO/backend/Dockerfile" "$PROD/backend/Dockerfile"
 mkdir -p "$PROD/backend/alembic"
 rsync -a --delete "$REPO/backend/alembic/" "$PROD/backend/alembic/"
