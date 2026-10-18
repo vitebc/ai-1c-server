@@ -141,19 +141,20 @@ def test_scope_registry_for_agent_filters_servers() -> None:
     assert any(r.startswith("nope") for r in rejected)
 
 
-def test_repo_analyst_sources_follow_mcp_field() -> None:
-    """Конфиг агента в репозитории: `mcp` — источник правды.
+def test_repo_agents_mcp_entries_have_tools() -> None:
+    """Инвариант конфигурации агентов из репозитория.
 
-    `search-ka-update__*` в `tools` остались от прежней редакции агента, но
-    сервера `search-ka-update` в `mcp` больше нет — `scope_registry_for_agent`
-    такие тулзы отбрасывает (см. test_scope_registry_for_agent_filters_servers),
-    поэтому проверяем именно это, а не наличие сервера в mcp.
+    Контент — зеркало prod (см. `scripts/sync_from_prod.sh`), поэтому проверяем
+    не конкретные списки (они меняются правками в проде), а согласованность:
+    каждый подсервер из `mcp` реально используется — в `tools` есть хотя бы
+    один его тулз. Обратное (тулз сервера, которого нет в `mcp`) — не ошибка
+    формата, а «сервер отключён у агента»: `scope_registry_for_agent` такие
+    тулзы отбрасывает (см. test_scope_registry_for_agent_filters_servers).
     """
     repo = Path(__file__).resolve().parent.parent / "agents"
-    analyst = AgentRegistry.load(repo).get("analyst")
-    assert analyst is not None
-    assert set(analyst.mcp_servers) == {"default", "rlm"}
-    assert len([t for t in analyst.tools if t.startswith("rlm__")]) == 6
-    dropped = [t for t in analyst.tools if t.startswith("search-ka-update__")]
-    assert dropped, "в tools остались тулзы search-ka-update"
-    assert "search-ka-update" not in analyst.mcp_servers
+    registry = AgentRegistry.load(repo)
+    assert registry.agents, "в репозитории нет ни одного агента"
+    for agent in registry.agents:
+        servers = {t.split("__", 1)[0] for t in agent.tools if "__" in t}
+        unused = [s for s in agent.mcp_servers if s != "default" and s not in servers]
+        assert not unused, f"агент {agent.name}: в mcp есть серверы без единого тулза {unused}"

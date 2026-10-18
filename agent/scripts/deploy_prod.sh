@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
-# Накатка prod: build образа из main + синхронизация runtime-файлов в prod-директорию.
-# Prod — /home/test/.config/ai-1c-server/1c-chat (не git): только backend + postgres.
+# Накатка prod: build образа из кода монорепо + синхронизация runtime-файлов в
+# prod-директорию. Prod — /home/test/.config/ai-1c-server/1c-chat.
+#
+# Контент (backend/agents, backend/skills, backend/patterns) деплой НЕ трогает:
+# прод — источник истины, файлы правятся прод-админкой и коммитятся в git
+# прода. Dev-контент в prod не попадает. Обновление dev из prod — отдельно,
+# по команде: scripts/sync_from_prod.sh.
 #
 # Использование:
 #   scripts/deploy_prod.sh          # из master после git push
+#   SYNC_AGENT_CONTENT=1 scripts/deploy_prod.sh   # аварийно: rsync новых файлов контента
 #
-# Не трогает .env и БД prod. Откат: docker compose up -d --no-build в старой копии
-# (обратный rsync не нужен — runtime-файлы пересинхронизируются при следующем deploy).
+# Не трогает .env и БД prod. Откат: docker compose up -d --no-build в старой копии.
 
 set -euo pipefail
 
@@ -35,19 +40,26 @@ echo "== Build образа из main (no-cache: src/ обязана быть с
   docker tag "${BACKEND_IMAGE:-1c-ai-agent-backend}:dev" "${BACKEND_IMAGE:-1c-ai-agent-backend}:latest")
 
 echo "== Синхронизация runtime-файлов в $PROD =="
-# --ignore-existing: существующие файлы в prod НЕ обновляются и НЕ удаляются —
-# только добавляются новые (из git, которых ещё нет в prod). Локальные правки
-# и скилы, сгенерированные через чат, полностью изолированы от деплоя.
-# Чтобы обновить файл в prod: вручную скопировать из git или перезаписать.
-for d in agents skills patterns; do
-  mkdir -p "$PROD/backend/$d"
-  rsync -a --ignore-existing "$REPO/backend/$d/" "$PROD/backend/$d/"
-done
-# Одиночные hot-reload файлы. Копируются только при отсутствии: их правят на
-# хосте, деплой не перезаписывает. Если путь существует, но это КАТАЛОГ (былый
-# случай: search-maps.conf в prod создан как пустой каталог) — не трогаем и
-# предупреждаем: бэкенд тогда читает мапу как отсутствующую (OSError) и фильтр
-# search-серверов по базам не применяется.
+# Контент (agents/skills/patterns) НЕ синхронизируется: прод — источник
+# истины, его файлы правятся прод-админкой и коммитятся в git прода.
+# Dev-контент в prod не попадает вообще. Обратное направление (prod → dev) —
+# отдельно, по команде: scripts/sync_from_prod.sh.
+#
+# Аварийный флаг SYNC_AGENT_CONTENT=1 возвращает старое поведение
+# (rsync --ignore-existing: в prod доезжают только НОВЫЕ файлы).
+if [ "${SYNC_AGENT_CONTENT:-0}" = "1" ]; then
+  echo "WARN: SYNC_AGENT_CONTENT=1 — добавляю новые файлы контента из dev в prod" >&2
+  for d in agents skills patterns; do
+    mkdir -p "$PROD/backend/$d"
+    rsync -a --ignore-existing "$REPO/backend/$d/" "$PROD/backend/$d/"
+  done
+fi
+
+# Одиночные hot-reload файлы окружения. Копируются только при отсутствии:
+# их правят на хосте, деплой не перезаписывает. Если путь существует, но это
+# КАТАЛОГ (былый случай: search-maps.conf в prod создан как пустой каталог) —
+# не трогаем и предупреждаем: бэкенд читает мапу как отсутствующую (OSError)
+# и фильтр search-серверов по базам не применяется.
 for f in bases.conf search-maps.conf; do
   dst="$PROD/backend/$f"
   if [ -d "$dst" ]; then
