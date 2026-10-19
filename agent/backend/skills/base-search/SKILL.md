@@ -13,3 +13,4 @@ tools: [get_configuration_info]
  - если база ca2_td, ca2_td_otchet* - используешь mcp search-ka-td 
  - если база erpupp, erpupp_otchet* - используешь mcp search-erp 
  - если база upp, upp_otchet* - используешь mcp search-upp
+если базы нет из перечисленных, mcp для поиска по выгрузкам конфигурации не используешь
