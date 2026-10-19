@@ -26,7 +26,7 @@ use tokio::sync::broadcast;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 
 use super::AppState;
-use crate::mcp::{JsonRpcRequest, McpError};
+use crate::mcp::{clean_schema, JsonRpcRequest, McpError};
 
 static MCP_CHANNEL: once_cell::sync::Lazy<broadcast::Sender<String>> =
     once_cell::sync::Lazy::new(|| {
@@ -97,7 +97,9 @@ pub async fn aggregated_tools(State(state): State<Arc<AppState>>) -> Json<Value>
                         "name": tname,
                         "full_name": full,
                         "description": t.get("description").cloned().unwrap_or(Value::Null),
-                        "inputSchema": t.get("inputSchema").cloned().unwrap_or(Value::Null),
+                        // Чистим схему на границе «JSON → 1С»: форма читает её
+                        // через ПрочитатьJSON в Структуру, а ключи с `$` ей недопустимы.
+                        "inputSchema": clean_schema(t.get("inputSchema").unwrap_or(&Value::Null)),
                     }));
                 }
             }
@@ -139,7 +141,20 @@ pub async fn server_tools(
         }
     };
     match state.mcp.list_tools(&sid).await {
-        Ok(list) => Json(json!({ "id": sid, "name": name, "tools": list })).into_response(),
+        Ok(list) => {
+            // Чистим схемы на границе «JSON → 1С» (как в aggregated_tools).
+            let cleaned: Vec<Value> = list
+                .into_iter()
+                .map(|t| {
+                    let mut t = t;
+                    if let Some(schema) = t.get_mut("inputSchema") {
+                        *schema = clean_schema(schema);
+                    }
+                    t
+                })
+                .collect();
+            Json(json!({ "id": sid, "name": name, "tools": cleaned })).into_response()
+        }
         Err(e) => (StatusCode::BAD_GATEWAY, Json(json!({ "error": e.to_string() }))).into_response(),
     }
 }
