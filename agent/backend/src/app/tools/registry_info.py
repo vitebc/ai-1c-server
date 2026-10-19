@@ -21,7 +21,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from app.agent.tools import ToolContext, ToolDefinition
+from app.agent.tools import ToolContext, ToolDefinition, clean_parameters
 
 log = logging.getLogger("agent1c.registry_info")
 
@@ -55,7 +55,9 @@ def _dump(payload: dict[str, Any]) -> str:
 
 
 def _tools_payload(
-    names: list[str], descriptions: dict[str, str], servers: dict[str, str],
+    names: list[str],
+    descriptions: dict[str, str],
+    servers: dict[str, str],
     schemas: dict[str, Any] | None,
 ) -> dict[str, Any]:
     """Список тулз с сервером и описанием; схемы — по include_schemas."""
@@ -116,7 +118,8 @@ def make_list_registry_tool(
             descriptions = {t.name: t.description for t in registry.tools if t.description}
             schemas = None
             if args.include_schemas:
-                schemas = {t.name: t.openai_schema["function"]["parameters"] for t in registry.tools}
+                # Граница «JSON → BSL»: схемы без $-ключей/title (1С ПрочитатьJSON).
+                schemas = {t.name: clean_parameters(t.openai_schema["function"]["parameters"]) for t in registry.tools}
             payload = _tools_payload(names, descriptions, servers, schemas)
             payload["total"] = len(all_names)
             payload["hint"] = (

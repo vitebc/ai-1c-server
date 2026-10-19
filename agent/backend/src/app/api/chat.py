@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from app.agent import SYSTEM_PROMPT, AgentResult, ToolRegistry, run_agent
-from app.agent.tools import ToolDefinition
+from app.agent.tools import ToolDefinition, clean_parameters
 from app.agents import Agent, AgentRegistry
 from app.auth.jwt import extract_bearer_token, validate_hs256
 from app.config import settings
@@ -442,7 +442,8 @@ async def list_tools(
                     "name": t.name,
                     "server": t.server,
                     "description": t.description,
-                    "parameters": t.openai_schema["function"]["parameters"],
+                    # Граница «JSON → BSL»: без $-ключей/title (ПрочитатьJSON в 1С).
+                    "parameters": clean_parameters(t.openai_schema["function"]["parameters"]),
                 }
                 for t in registry.tools
             ],

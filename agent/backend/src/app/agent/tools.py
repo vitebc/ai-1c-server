@@ -14,6 +14,72 @@ from typing import Any
 from pydantic import BaseModel
 
 
+def clean_parameters(schema: dict[str, Any] | None) -> dict[str, Any]:
+    """JSON Schema без `$`-ключей и `title` — для границы «JSON → BSL / Структура 1С».
+
+    Форма 1С читает схемы тулзов через `ПрочитатьJSON` в `Структура`, а ключи с `$`
+    (`$schema`, `$defs`, …) для неё недопустимы («Недопустимое имя свойства»).
+    Применяется ТОЛЬКО там, где схемы уходят наружу (REST-инвентарь `GET /tools`,
+    тулза `list_registry`) — не в LLM-схемы (`openai_schema`), где `$defs`/`$ref`
+    легальны. Правила зеркалят Rust `src/mcp/clean.rs`:
+
+    - удаляются ключи, начинающиеся с `$` (любой глубины);
+    - `title` — убирается;
+    - при удалении `$defs`/`definitions` ссылки `$ref: "#/$defs/X"` разворачиваются
+      в сами определения (защита от циклов — ссылка просто пропадает).
+    """
+    if schema is None:
+        return {"type": "object", "properties": {}}
+
+    def resolve_ref(v: Any, defs: dict[str, Any], in_progress: set[str]) -> dict[str, Any] | None:
+        path = v if isinstance(v, str) else ""
+        rest = path.removeprefix("#/$defs/").removeprefix("#/definitions/")
+        if not path.startswith(("#/$defs/", "#/definitions/")) or rest == path:
+            return None
+        current: Any = defs
+        for part in rest.split("/"):
+            if not isinstance(current, dict) or part not in current:
+                return None
+            current = current[part]
+        if not isinstance(current, dict):
+            return None
+        return _clean_obj(current, 0, defs, in_progress)
+
+    def _clean_obj(m: dict[str, Any], depth: int, defs: dict[str, Any], in_progress: set[str]) -> dict[str, Any]:
+        if depth >= 32:
+            return {k: v for k, v in m.items() if not str(k).startswith("$") and k != "title"}
+        local_defs = m.get("$defs") or m.get("definitions")
+        if not isinstance(local_defs, dict):
+            local_defs = defs
+        out: dict[str, Any] = {}
+        for k, v in m.items():
+            if k == "$ref":
+                ref_path = v if isinstance(v, str) else ""
+                if ref_path not in in_progress:
+                    child_in_progress = in_progress | {ref_path}
+                    resolved = resolve_ref(ref_path, local_defs, child_in_progress)
+                    if resolved is not None:
+                        for rk, rv in resolved.items():
+                            out.setdefault(rk, rv)
+                continue
+            if str(k).startswith("$") or k == "title":
+                continue
+            if isinstance(v, (dict, list)):
+                out[k] = _clean_value(v, depth + 1, local_defs, in_progress)
+            else:
+                out[k] = v
+        return out
+
+    def _clean_value(v: Any, depth: int, defs: dict[str, Any], in_progress: set[str]) -> Any:
+        if isinstance(v, dict):
+            return _clean_obj(v, depth, defs, in_progress)
+        if isinstance(v, list):
+            return [_clean_value(it, depth + 1, defs, in_progress) for it in v]
+        return v
+
+    return _clean_obj(schema, 0, {}, set())
+
+
 @dataclass(frozen=True)
 class ToolContext:
     user_id: str  # идентификатор пользователя 1С из токена сессии
