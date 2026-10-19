@@ -5,7 +5,6 @@ description: генерация AGENT.md, SKILL.md и паттернов по п
 tools: [search_knowledge_base, get_pattern, list_registry, get_agent, get_skill]
 skills: []
 mcp: [default]
-restricted: true
 bases: []
 users: []
 model: qwen3.8
