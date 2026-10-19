@@ -11,4 +11,5 @@ tools: [get_configuration_info]
 Выполни get_configuration_info получи имя базы
  - если база ca2, ca2_otchet* - используешь mcp search-ka-rs 
  - если база ca2_td, ca2_td_otchet* - используешь mcp search-ka-td 
- - если база erpupp, erpupp_otchet* - используешь mcp search-erp
+ - если база erpupp, erpupp_otchet* - используешь mcp search-erp 
+ - если база upp, upp_otchet* - используешь mcp search-upp
