@@ -20,14 +20,14 @@
 
 | Роль | Секции по умолчанию | Право записи |
 |---|---|---|
-| `admin` | все 19 (не настраивается) | везде |
+| `admin` | все 20 (не настраивается) | везде |
 | `operator` | все, кроме `users`, `auth-manage` | везде в рамках секций |
 | `prompter` | как `viewer` | только `agent-files/agents`, `agent-files/skills`, `agent-files/patterns` |
-| `viewer` | 12 read-only секций | только свой пароль |
+| `viewer` | 13 read-only секций | только свой пароль |
 
-- Секции (19): `dashboard, mcp-servers, models, agent-studio, agent-agents,
-  agent-skills, agent-patterns, agent-backend, skills, bsl-ls, configs,
-  client-versions, clients, logs, settings, fs, env, users, auth-manage`.
+- Секции (20): `dashboard, mcp-servers, models, agent-studio, agent-agents,
+  agent-skills, agent-patterns, agent-changes, agent-backend, skills, bsl-ls,
+  configs, client-versions, clients, logs, settings, fs, env, users, auth-manage`.
 - Дефолты ролей переопределяются админом: `server_settings.role_sections`
   → `GET/PUT /api/admin/users/roles`. Ключи — только `operator|viewer|prompter`.
 - Per-user `sections` — **только вычитание** из секций своей роли. Чтобы выдать
@@ -161,8 +161,10 @@ CRUD: `GET/POST /model-providers`, `GET/PUT/DELETE /model-providers/{id}` — `{
 | GET | `/agent-files` | overview: `{root, root_exists, agents[], skills[], patterns[]}` — фильтруется по подсекциям |
 | GET | `/agent-files/tools` | статический список известных тулзов (строки), для подсказок в редакторе |
 | GET | `/agent-files/mcp-options` | `{servers: [{name, running}]}` включённых MCP для мультиселекта редактора (без команд/URL, секция `__agent_files_any`) |
+| GET | `/agent-files/base-users?base=` | уникальные пользователи 1С базы через её тулзу `get_users` (Basic из `MCP_ONEC_USERNAME/PASSWORD` .env). Ответ `{base, cached, users[]}`. Резолв: имя из `bases.conf` → `ONEC_BASES` из .env → прямой URL. Кэш 5 мин (по имени и по URL). Ошибка базы/`.env` → 400 |
 | POST | `/agent-files/agents\|skills\|patterns` | создать (имя `^[a-z0-9-]+$`, max 64) |
 | PUT/DELETE | `/agent-files/agents/{name}`, `.../skills/{name}`, `.../patterns/{name}` | изменить / удалить (переименование = перемещение папки) |
+| POST | `/agent-files/patterns/{name}/toggle` | включить/выключить паттерн (`enabled:` во frontmatter), возвращает обновлённый `PatternItem` |
 
 - Подсекции: `agent-agents`, `agent-skills`, `agent-patterns`.
 - Тела: агент `{name, title, description, tools[], skills[], mcp[], restricted?, bases[], users[], model?, provider?, body}`; скилл `{name, description, tools[], body}`; паттерн `{name, description, body}`.
@@ -219,6 +221,24 @@ Authorization: Bearer <JWT HS256, sub = onec_id>
 
 Это позволяет диагностировать проблемы с доступностью по журналу без изменения кода.
 
+### История правок Agent Studio (`/agent-changes`)
+
+Каждая create/update/delete через `/agent-files/*` коммитится в git проекта агента
+(корень ищется выше `agent/`, так что в монорепо это коммит в
+`ai-1c-server`) и пишется в таблицу `agent_changes`. Секция `agent-changes`.
+Команды git с таймаутом 30 с; упавший коммит не ломает API — файл уже на диске,
+а строка аудита просто не появляется (warning в лог).
+
+| Метод | Путь | Описание |
+|---|---|---|
+| GET | `/agent-changes` | постраничная история `{items[], total}`. Фильтры: `user_id`, `entity_type` (`agent\|skill\|pattern`), `entity_name` (LIKE), `action` (`create\|update\|delete\|revert`), `from`, `to` (ISO), `limit` (≤200, дефолт 50), `offset`. Сортировка `timestamp DESC, id DESC` |
+| GET | `/agent-changes/distinct` | `{users[], entities: [[type, name], ...]}` — значения для фильтров UI |
+| GET | `/agent-changes/{id}/diff` | `{commit, diff}` — unified diff коммита (только изменённые строки) |
+| POST | `/agent-changes/{id}/revert` | `git revert` выбранного коммита → **новый** коммит + новая строка аудита с `action: revert` → `{ok, commit}`. Откат удаления восстанавливает объект, откат создания — удаляет |
+| DELETE | `/agent-changes/purge?days=` | удалить строки старше N дней (1–365, дефолт 30) → `{ok, deleted}` |
+
+Запись аудита: `{id, timestamp, user_id, username, entity_type, entity_name, action, git_commit_hash, diff_summary}`.
+
 ### Agent Backend (docker compose)
 
 | Метод | Путь | Описание |
@@ -226,9 +246,44 @@ Authorization: Bearer <JWT HS256, sub = onec_id>
 | GET | `/agent-backend/status` | `{services[], profiles[], backend_url, project_root, ...}` (секция `agent-backend`) |
 | POST | `/agent-backend/up` | `{services[]?, profiles[]?}` — сервисы из allowlist `postgres, backend, tei, mcp-proxy`, профили `rag, onec`; прочее → 400 |
 | POST | `/agent-backend/stop`, `/agent-backend/restart` | те же тела |
-| GET | `/agent-backend/logs?service=&tail=&timestamps=&grep=` | compose-логи; `grep` — регистронезависимый фильтр подстроки |
-| GET/PUT | `/agent-backend/env` | `.env` по allowlist (~30 ключей), секреты маскируются на чтении; запись — секция `env` |
-| GET | `/agent-backend/live/agents\|skills[?agent=]\|tools` | живое состояние бэкенда: `{reachable, data}` / `{reachable, error}`; секция `__agent_files_any` |
+| GET | `/agent-backend/logs?service=&tail=&timestamps=&grep=` | compose-логи; `tail` 1–2000 (дефолт 200), `grep` — регистронезависимый фильтр подстроки |
+| GET/PUT | `/agent-backend/env` | `.env` по allowlist (32 ключа), секреты массируются на чтении; запись — секция `env` |
+| GET | `/agent-backend/live/agents\|skills[?agent=]\|tools[?base_url=]` | живое состояние бэкенда: `{reachable, data}` / `{reachable, error}`; секция `__agent_files_any`. JWT админки пробрасывается в бэкенд (единый `JWT_SECRET`) — без него защищённые бэкенд-эндпоинты отдают 401 |
+| GET | `/agent-backend/live/onec-tools` | проба публикации 1С из `MCP_ONEC_URL`: JSON-RPC `tools/list` напрямую, Basic из `.env` → `{ok, url, tools_count}` либо `{ok: false, error}`. `405/401/403` считаются «online» (`tools_count: null`, `note: "online"`) — Streamable HTTP требует handshake; красная только при connection-level ошибке |
+| GET | `/agent-backend/bases` | `{source: "bases.conf"\|"env", bases: [{name, url}]}` — активная мапа `ONEC_BASES` (секция `env`) |
+| PUT | `/agent-backend/bases` | `{name, url}` — добавить/обновить базу; `name` — латиница/цифры/`_`, `url` — `http(s)://…`. Hot-reload бэкенда ≤2 с, рестарт не нужен |
+| PUT | `/agent-backend/bases/{old_name}` | `{name, url}` — переименовать/обновить (ищет по `old_name`, иначе по `name`) |
+| DELETE | `/agent-backend/bases/{name}` | убрать базу из мапы; нет такой → 400 |
+| GET | `/agent-backend/stats/requests\|summary\|distinct` | прокси к бэкенду `/stats/*` → `{ok, data}` / `{ok: false, error}`; секция `dashboard`. Query пробрасываются как есть (фильтры `user_id`, `base_name`, `agent`, `skill`, `status`, `from`, `to`, `limit`, `offset`) |
+
+`bases.conf` — единственное место, где правятся базы вручную; бэкенд
+перечитывает его по mtime (TTL 2 с). Файл отсутствует → fallback на `ONEC_BASES`
+из `.env` (тогда правки через API недоступны, 400).
+
+Секции: `/agent-backend/{status,up,stop,restart,logs}` → `agent-backend`;
+`/agent-backend/env`, `/agent-backend/bases*` → `env`; `/agent-backend/stats*`
+→ `dashboard`; `/agent-backend/live/*` → `__agent_files_any`.
+
+### Собственный API бэкенда агента (Python, `agent/`)
+
+Админка ходит в бэкенд агента (FastAPI) не напрямую, а через
+`/agent-backend/live/*` и `/agent-backend/stats/*`. Сам бэкенд — отдельный
+HTTP-сервис (dev `:8001`, prod `:8000`), его контракт описан в
+[`agent/backend/API.md`](agent/backend/API.md): `GET /health`, `GET /tools`,
+`GET /agents`, `GET /skills`, `POST /chat` (SSE или `?background=true` +
+`GET /chat/result/{job_id}`), `GET /stats/{requests,summary,distinct,onec}`.
+
+```bash
+# dev-бэкенд напрямую (без JWT — dev без per-user RLS)
+curl -s 'http://localhost:8001/agents?base_name=ca2_ai' | python3 -m json.tool
+curl -s -X POST 'http://localhost:8001/chat' -H 'Content-Type: application/json' \
+  -d '{"message":"покажи остатки","user_id":"ИвановИИ","base_name":"ca2_ai","base_url":"http://192.168.0.69:81/ca2_ai"}'
+```
+
+**Контент — источник истины в prod.** Файлы `backend/{agents,skills,patterns}`
+правятся прод-админкой; деплой кода их в prod не переносит. Dev — зеркало,
+обновляется только по команде `agent/scripts/sync_from_prod.sh --apply`.
+Бэкенд перечитывает файлы на каждый запрос — рестарт контейнера не нужен.
 
 ## Коды ошибок
 
