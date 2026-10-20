@@ -46,9 +46,20 @@ router = APIRouter(prefix="/rag", tags=["rag"])
 
 
 def _kb_root() -> Path:
-    """Корень папки с корпусом (на хосте это agent/kb, в контейнере /app/kb)."""
+    """Корень папки с корпусом.
+
+    В контейнере — /app/kb (папка примонтирована compose'ом). На хосте (запуск
+    вне контейнера, напр. uv run в backend/) — kb рядом с backend/. Явная
+    настройка KB_DIR важнее обоих вариантов.
+    """
     raw = settings.kb_dir.strip()
-    return Path(raw).resolve() if raw else Path("/app/kb").resolve()
+    if raw:
+        return Path(raw).resolve()
+    container = Path("/app/kb")
+    if container.is_dir():
+        return container
+    # backend/src/app/api/rag.py -> agent/kb (родитель backend/)
+    return (Path(__file__).resolve().parents[4] / "kb").resolve()
 
 
 def _embeddings() -> Embeddings:
@@ -244,14 +255,21 @@ async def search(body: SearchIn) -> dict[str, object]:
 
 @router.post("/reingest")
 async def reingest(body: ReingestIn) -> dict[str, object]:
-    """Переинжест коллекции из папки корпуса (KB_DIR)."""
+    """Переинжест коллекции из папки корпуса (KB_DIR).
+
+    Каждая коллекция — своя подпапка в корне корпуса. Если её нет —
+    ошибка: молчаливый переход в корень залил бы весь корпус (и занял бы
+    минуты эмбеддинга).
+    """
     root = _kb_root()
     if not root.is_dir():
         raise HTTPException(status_code=400, detail=f"папка корпуса не найдена: {root}")
     collection_dir = root / body.collection
     if not collection_dir.is_dir():
-        # Коллекция может лежать прямо в корне (без подпапки).
-        collection_dir = root
+        raise HTTPException(
+            status_code=400,
+            detail=f"папка коллекции не найдена: {collection_dir}",
+        )
     result = await ingest_collection(
         collection_dir,
         collection=body.collection,

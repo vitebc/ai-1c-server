@@ -9,9 +9,13 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import delete
 
+from app.config import settings
 from app.db.models import Chunk, Document
 from app.db.session import SessionFactory
 from app.main import app
@@ -44,7 +48,8 @@ def _seed(client: TestClient) -> int:
             return doc.id
 
     with client._portal_factory() as portal:
-        return portal.call(go)
+        result: int = portal.call(go)
+        return result
 
 
 def _cleanup(client: TestClient) -> None:
@@ -141,14 +146,44 @@ def test_search_returns_fragments() -> None:
             _cleanup(client)
 
 
-def test_reingest_reports_result() -> None:
-    """Переинжест коллекции: папки нет — 400 с понятным сообщением."""
+def test_reingest_uses_collection_folder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Переинжест берёт папку коллекции и заливает её документы.
+
+    Папка — временная, с одним файлом: полный корпус эмбеддится минутами,
+    а тесту нужен контракт, а не прогон всего корпуса.
+    """
+    monkeypatch.setattr(settings, "kb_dir", str(tmp_path))
+    collection_dir = tmp_path / "test_coll"
+    collection_dir.mkdir()
+    (collection_dir / "doc.md").write_text(
+        "# Тестовый документ коллекции\n\nMARKER_REINGEST_ содержание для проверки.\n",
+        encoding="utf-8",
+    )
+    with TestClient(app) as client:
+        r = client.post("/rag/reingest", json={"collection": "test_coll", "replace": True})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["ok"] is True
+        assert body["documents"] == 1
+        assert body["chunks"] >= 1
+        assert body["errors"] == []
+
+        # Документ появился в корпусе и находится пробным поиском.
+        r = client.post("/rag/search", json={"query": "MARKER_REINGEST_", "top_k": 3})
+        assert r.status_code == 200, r.text
+        assert r.json()["found"] is True
+
+        r = client.delete("/rag/collections/test_coll")
+        assert r.status_code == 200, r.text
+        assert r.json()["removed"] == 1
+
+
+def test_reingest_missing_folder_400() -> None:
+    """Нет папки коллекции — 400, а не молчаливый переход в корень корпуса."""
     with TestClient(app) as client:
         r = client.post("/rag/reingest", json={"collection": "нет-такой-папки"})
-        # Либо папка есть (тогда 200), либо её нет (400) — не 500.
-        assert r.status_code in (200, 400), r.text
-        if r.status_code == 400:
-            assert "папка корпуса" in r.json()["detail"]
+        assert r.status_code == 400, r.text
+        assert "не найдена" in r.json()["detail"]
 
 
 def test_delete_collection_removes_documents() -> None:

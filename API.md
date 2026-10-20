@@ -261,7 +261,7 @@ Authorization: Bearer <JWT HS256, sub = onec_id>
 | POST | `/agent-backend/rag/documents` | загрузить документ: `{title, content, collection?, access_profile?, agent_name?, filename?}` → чистка, нарезка, эмбеддинг |
 | DELETE | `/agent-backend/rag/documents/{id}` | удалить документ с чанками |
 | POST | `/agent-backend/rag/search` | пробный поиск `{query, top_k?, min_score?}` — ровно то, что увидит агент (та же выдача и тот же порог отсечения) |
-| POST | `/agent-backend/rag/reingest` | переинжест коллекции `{collection?, replace?, profile?, agent?, limit?}` из папки корпуса; ответ — счётчики (`documents`, `chunks`, `removed`, `skipped`, `errors`) |
+| POST | `/agent-backend/rag/reingest` | переинжест коллекции `{collection?, replace?, profile?, agent?, limit?}` из подпапки `KB_DIR/<collection>`; нет подпапки — 400 (в корень корпуса не переходим: залился бы весь корпус). Ответ — счётчики (`documents`, `chunks`, `removed`, `skipped`, `errors`) |
 | DELETE | `/agent-backend/rag/collections/{name}` | удалить коллекцию целиком (документы и чанки) |
 
 `bases.conf` — единственное место, где правятся базы вручную; бэкенд
