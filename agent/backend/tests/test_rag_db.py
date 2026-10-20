@@ -70,6 +70,61 @@ def test_ingest_and_retrieve_with_rights() -> None:
     asyncio.run(_scenario())
 
 
+def test_header_chunk_expands_to_article_content() -> None:
+    """Служебный чанк-заголовок разворачивается в содержание статьи.
+
+    Номер версии есть только в заголовке, поэтому запрос «что нового в версии
+    X» находит именно служебный чанк. Отдать его — значит отдать название без
+    содержания, поэтому retrieval разворачивает его в содержательные чанки
+    той же статьи.
+
+    Служебный чанк кладёт scripts/ingest_kb.py (заголовок статьи отдельным
+    чанком), поэтому здесь собираем документ вручную.
+    """
+    title = "Тестовая статья про версию 9.9.9"
+    body = "MARKER_ПЕРВОЕ_ содержание статьи про версию."
+    section = "MARKER_ВТОРОЕ_ содержание раздела."
+
+    async def scenario() -> None:
+        emb = FakeEmbeddings()
+        async with SessionFactory() as s:
+            await s.execute(delete(Document).where(Document.source == "/tmp/test_rag_header.md"))
+            await s.commit()
+        async with SessionFactory() as s:
+            doc = Document(title=title, source="/tmp/test_rag_header.md", access_profile="all")
+            s.add(doc)
+            await s.flush()
+            for position, text in enumerate((title, body, section)):
+                s.add(
+                    Chunk(
+                        document_id=doc.id,
+                        position=position,
+                        text=text,
+                        embedding=(await emb.embed([text]))[0],
+                    )
+                )
+            await s.commit()
+        try:
+            rows = await retrieve(
+                session_factory=SessionFactory,
+                embeddings=emb,
+                query=title,
+                access_profile="all",
+                top_k=5,
+            )
+            assert rows, "заголовок не найден"
+            texts = [r["text"] for r in rows]
+            # Вместе с заголовком пришло содержание той же статьи.
+            assert any("MARKER_ПЕРВОЕ_" in t for t in texts), texts
+            assert not all(t == title for t in texts), "вернулся только заголовок"
+        finally:
+            async with SessionFactory() as s:
+                await s.execute(delete(Document).where(Document.source == "/tmp/test_rag_header.md"))
+                await s.commit()
+
+    asyncio.run(scenario())
+
+
 def test_retrieve_min_score_filters_irrelevant() -> None:
     """min_score отсекает нерелевантное: у реальной модели косинус «просто
     русского текста» ~0.4-0.6, и без порога агент получал бы «мусор».
