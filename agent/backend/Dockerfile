@@ -1,6 +1,8 @@
-FROM python:3.12-slim
+ARG UV_IMAGE=ghcr.io/astral-sh/uv:latest
+FROM ${UV_IMAGE} AS uvstage
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+FROM python:3.12-slim
+COPY --from=uvstage /uv /bin/uv
 
 WORKDIR /app
 ENV UV_SYSTEM_PYTHON=1 \
