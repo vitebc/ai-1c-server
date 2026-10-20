@@ -17,6 +17,9 @@ COPY alembic.ini ./
 COPY skills ./skills
 COPY agents ./agents
 COPY patterns ./patterns
+# Скрипты запуска из контейнера: scripts/ingest_kb.py (инжест базы знаний),
+# scripts/smoke_tools.py (смоук function calling).
+COPY scripts ./scripts
 
 EXPOSE 8000
 CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--app-dir", "src"]
