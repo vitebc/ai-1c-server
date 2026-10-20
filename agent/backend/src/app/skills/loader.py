@@ -19,6 +19,15 @@ log = logging.getLogger("agent1c.skills")
 
 _NAME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
+#: Instruct-префикс для подбора скила. Задача другая, чем у retrieval по базе
+#: знаний, — нужен свой префикс. На реальной модели симметричное сравнение
+#: (запрос↔описание без префикса) не разделяет: у любых двух русских текстов
+#: косинус ~0.4-0.6, и порог не отличит «свой скил» от «шум».
+SKILL_INSTRUCTION = (
+    "Instruct: Given a user request in Russian for the 1C:Enterprise AI assistant, "
+    "retrieve the skill that should handle it\nQuery: "
+)
+
 
 class SkillFormatError(ValueError):
     """SKILL.md не соответствует формату из backend/skills/SKILL.md."""
@@ -89,18 +98,19 @@ class SkillRegistry:
     async def match_all(self, query: str, embeddings: Embeddings) -> list[tuple[Skill, float]]:
         """Все скиллы с косинусной близостью запроса к description, по убыванию score.
 
+        Асимметрично: запрос эмбеддится с instruct-префиксом (задача —
+        подобрать скил), описания — как есть.
+
         Пусто/невалидный запрос — пустой список. Вызыватель сам решает порог
         (match) и логирует кандидатов для диагностики автоподбора.
         """
         if not self.skills or not query.strip():
             return []
-        vecs = await embeddings.embed([query, *(s.description for s in self.skills)])
-        if len(vecs) != len(self.skills) + 1:
-            return []
-        query_vec = _normalized(vecs[0])
+        query_vec = _normalized(await embeddings.embed_query(query, SKILL_INSTRUCTION))
+        desc_vecs = await embeddings.embed([s.description for s in self.skills])
         scored = [
             (skill, sum(a * b for a, b in zip(query_vec, _normalized(vec), strict=False)))
-            for skill, vec in zip(self.skills, vecs[1:], strict=True)
+            for skill, vec in zip(self.skills, desc_vecs, strict=True)
         ]
         return sorted(scored, key=lambda pair: pair[1], reverse=True)
 

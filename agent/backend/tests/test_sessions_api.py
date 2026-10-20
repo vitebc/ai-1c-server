@@ -16,7 +16,7 @@ def _seed(client: TestClient) -> tuple[int, int]:
     поэтому и сид, и cleanup идут через client.portal_factory (см. conftest.py).
     """
 
-    async def go() -> tuple[int, int]:
+    async def go() -> tuple[int, int, int]:
         async with SessionFactory() as s:
             user = User(onec_id="sess-test-u1", display_name="Тест Сессий")
             s.add(user)
@@ -33,7 +33,7 @@ def _seed(client: TestClient) -> tuple[int, int]:
                 ]
             )
             await s.commit()
-            return user.id, sess_a.id
+            return user.id, sess_a.id, sess_b.id
 
     with client._portal_factory() as portal:
         return portal.call(go)
@@ -53,7 +53,7 @@ def _cleanup(client: TestClient, user_pk: int) -> None:
 
 def test_list_sessions_and_messages() -> None:
     with TestClient(app) as client:
-        user_pk, sess_a = _seed(client)
+        user_pk, sess_a, sess_b = _seed(client)
         try:
             r = client.get("/sessions")
             assert r.status_code == 200, r.text
@@ -73,10 +73,14 @@ def test_list_sessions_and_messages() -> None:
             r = client.get("/sessions", params={"user_id": "nobody"})
             assert r.json()["total"] == 0
 
-            # Фильтр по базе.
+            # Фильтр по базе. В БД могут быть чужие сессии с той же базой
+            # (реальные пользователи), поэтому проверяем состав выдачи, а не
+            # абсолютное количество.
             r = client.get("/sessions", params={"base_name": "doc3_test"})
             items = r.json()["items"]
-            assert len(items) == 1 and items[0]["base_name"] == "doc3_test"
+            assert items, "сессия с базой doc3_test не найдена"
+            assert all(it["base_name"] == "doc3_test" for it in items)
+            assert sess_b in [it["id"] for it in items]
 
             # История диалога: роль, порядок, контент.
             r = client.get(f"/sessions/{sess_a}/messages")
@@ -95,7 +99,7 @@ def test_list_sessions_and_messages() -> None:
 
 def test_messages_limit_returns_last_n() -> None:
     with TestClient(app) as client:
-        user_pk, sess_a = _seed(client)
+        user_pk, sess_a, sess_b = _seed(client)
         try:
             # В сессию A докидываем ещё сообщения — limit=2 даст только последние.
 

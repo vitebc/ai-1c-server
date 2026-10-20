@@ -20,7 +20,6 @@ from app.db.session import SessionFactory
 from app.rag import FakeEmbeddings, ingest_file, retrieve
 
 MARKER = "TEST_RAG_UNIKALNAYA_STROKA_42"
-TITLE = "TEST_doc"
 
 
 async def _scenario() -> None:
@@ -29,7 +28,7 @@ async def _scenario() -> None:
     try:
         emb = FakeEmbeddings()
         async with SessionFactory() as s:
-            await s.execute(delete(Document).where(Document.title == TITLE))
+            await s.execute(delete(Document).where(Document.source == str(path)))
             await s.commit()
         doc_id = await ingest_file(path, access_profile="sales", session_factory=SessionFactory, embeddings=emb)
         assert doc_id > 0
@@ -62,10 +61,59 @@ async def _scenario() -> None:
             assert (n or 0) >= 1
     finally:
         async with SessionFactory() as s:
-            await s.execute(delete(Document).where(Document.title == TITLE))
+            await s.execute(delete(Document).where(Document.source == str(path)))
             await s.commit()
         path.unlink(missing_ok=True)
 
 
 def test_ingest_and_retrieve_with_rights() -> None:
     asyncio.run(_scenario())
+
+
+def test_retrieve_min_score_filters_irrelevant() -> None:
+    """min_score отсекает нерелевантное: у реальной модели косинус «просто
+    русского текста» ~0.4-0.6, и без порога агент получал бы «мусор».
+    """
+    path = Path("/tmp/test_rag_threshold.md")
+    path.write_text(f"# Тест\n\n{MARKER} находится именно здесь.\n", encoding="utf-8")
+
+    async def scenario() -> None:
+        emb = FakeEmbeddings()
+        async with SessionFactory() as s:
+            await s.execute(delete(Document).where(Document.source == str(path)))
+            await s.commit()
+        doc_id = await ingest_file(
+            path, access_profile="all", session_factory=SessionFactory, embeddings=emb
+        )
+        try:
+            async with SessionFactory() as s:
+                chunk_text = (
+                    (await s.execute(select(Chunk.text).where(Chunk.document_id == doc_id)))
+                    .scalars()
+                    .first()
+                )
+            assert chunk_text
+
+            async def search(min_score: float, query: str) -> list[dict[str, str]]:
+                return await retrieve(
+                    session_factory=SessionFactory,
+                    embeddings=emb,
+                    query=query,
+                    access_profile="all",
+                    top_k=5,
+                    min_score=min_score,
+                )
+
+            # Точный текст чанка: distance 0 → similarity 1.0, проходит любой порог.
+            assert await search(0.99, chunk_text)
+            # Посторонний текст: similarity ниже 0.9 → отсекается.
+            assert not await search(0.99, "совершенно другой текст про апельсины")
+            # Без порога (0) отсечки нет — возвращается лучший кандидат.
+            assert await search(0.0, "совершенно другой текст про апельсины")
+        finally:
+            async with SessionFactory() as s:
+                await s.execute(delete(Document).where(Document.source == str(path)))
+                await s.commit()
+            path.unlink(missing_ok=True)
+
+    asyncio.run(scenario())

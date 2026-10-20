@@ -51,7 +51,7 @@ async def main() -> int:
         repetition_penalty=settings.llm_repetition_penalty,
         enable_thinking=settings.llm_enable_thinking,
     )
-    embeddings = build_embeddings(settings.embeddings_provider, settings.tei_base_url)
+    embeddings = build_embeddings(settings.embeddings_provider, settings.embeddings_url, settings.embeddings_model)
     kb_tool = make_kb_search(SessionFactory, embeddings)
     if args.replay:
         fixture = json.loads(Path(args.replay).read_text(encoding="utf-8"))

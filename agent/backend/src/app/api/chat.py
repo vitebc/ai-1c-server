@@ -245,10 +245,14 @@ def _local_tools() -> list[ToolDefinition]:
     build_registry_for_root зовут эту функцию. Добавлять тулзу надо сюда —
     иначе она не доедет до чата (был такой баг с дублирующимся списком).
     """
-    embeddings = build_embeddings(settings.embeddings_provider, settings.tei_base_url)
+    embeddings = build_embeddings(
+        settings.embeddings_provider,
+        settings.embeddings_url,
+        settings.embeddings_model,
+    )
     pattern_tool = make_pattern_tool(settings.patterns_dir)
     return [
-        make_kb_search(SessionFactory, embeddings),
+        make_kb_search(SessionFactory, embeddings, settings.kb_min_score_value),
         make_ext_freshness_tool(),
         make_list_registry_tool(),
         make_get_agent_tool(),
@@ -706,7 +710,11 @@ async def chat(
                 chat_session.skill_name = None  # файл удалён или скил чужого агента — отвязываем
                 skill = None
         if skill is None and req.skill is None:
-            embeddings = build_embeddings(settings.embeddings_provider, settings.tei_base_url)
+            embeddings = build_embeddings(
+                settings.embeddings_provider,
+                settings.embeddings_url,
+                settings.embeddings_model,
+            )
             scoped = (
                 SkillRegistry(skills=list(skills.skills))
                 if agent_spec.allows_all_skills
@@ -714,11 +722,11 @@ async def chat(
             )
             scored = await scoped.match_all(req.message, embeddings)
             skill, _ = (None, 0.0)
-            if scored and scored[0][1] > settings.skill_match_threshold:
+            if scored and scored[0][1] > settings.skill_match_threshold_value:
                 skill, _ = scored[0]
             log.info(
                 "авто-матчинг скила: порог=%.2f лучший=%s score=%.3f top3=[%s] итог=%s",
-                settings.skill_match_threshold,
+                settings.skill_match_threshold_value,
                 scored[0][0].name if scored else "-",
                 scored[0][1] if scored else 0.0,
                 ", ".join(f"{s.name}={v:.3f}" for s, v in scored[:3]),

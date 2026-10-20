@@ -1,4 +1,4 @@
-"""Тесты эмбеддингов: TEI-клиент на mock-транспорте, fake — детерминированность."""
+"""Тесты эмбеддингов: llamacpp/TEI-клиенты на mock-транспорте, fake — детерминированность."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from typing import Any
 
 import httpx
 
-from app.rag import FakeEmbeddings, TEIEmbeddings
+from app.rag import FakeEmbeddings, LlamaCppEmbeddings, TEIEmbeddings
 
 
 def _run[T](coro: Coroutine[Any, Any, T]) -> T:
@@ -38,6 +38,74 @@ def test_tei_single_vector_unwrapped() -> None:
 
     client = TEIEmbeddings("http://tei:80", transport=httpx.MockTransport(handler))
     assert _run(client.embed(["a"])) == [[0.5, 0.6]]
+    assert _run(client.embed([])) == []
+
+
+def test_llamacpp_batch_sorted_by_index() -> None:
+    """Батч может вернуться не в исходном порядке — сортируем по index."""
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        seen["body"] = json.loads(request.content.decode())
+        # Ответ с обратным порядком index: клиент обязан восстановить исходный.
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"index": 1, "embedding": [0.3, 0.4]},
+                    {"index": 0, "embedding": [0.1, 0.2]},
+                ]
+            },
+        )
+
+    client = LlamaCppEmbeddings("http://llama:12700/v1", transport=httpx.MockTransport(handler))
+    vecs = _run(client.embed(["a", "b"]))
+    assert seen["path"] == "/v1/embeddings"
+    assert seen["body"] == {"input": ["a", "b"]}
+    assert vecs == [[0.1, 0.2], [0.3, 0.4]]
+
+
+def test_llamacpp_model_sent_when_set() -> None:
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content.decode())
+        return httpx.Response(200, json={"data": [{"index": 0, "embedding": [0.5]}]})
+
+    client = LlamaCppEmbeddings("http://llama:12700/v1", model="qwen3", transport=httpx.MockTransport(handler))
+    assert _run(client.embed(["a"])) == [[0.5]]
+    assert seen["body"] == {"input": ["a"], "model": "qwen3"}
+
+
+def test_llamacpp_query_has_instruct_prefix() -> None:
+    """Запрос retrieval эмбеддится асимметрично — с instruct-префиксом."""
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content.decode())
+        return httpx.Response(200, json={"data": [{"index": 0, "embedding": [0.5, 0.6]}]})
+
+    client = LlamaCppEmbeddings("http://llama:12700/v1", transport=httpx.MockTransport(handler))
+    assert _run(client.embed_query("цифровой рубль", "Instruct: найди\nQuery: ")) == [0.5, 0.6]
+    assert seen["body"]["input"] == ["Instruct: найди\nQuery: цифровой рубль"]
+
+
+def test_llamacpp_query_without_instruction_is_plain() -> None:
+    """Без инструкции запрос эмбеддится как обычный текст."""
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content.decode())
+        return httpx.Response(200, json={"data": [{"index": 0, "embedding": [0.5]}]})
+
+    client = LlamaCppEmbeddings("http://llama:12700/v1", transport=httpx.MockTransport(handler))
+    assert _run(client.embed_query("цифровой рубль")) == [0.5]
+    assert seen["body"]["input"] == ["цифровой рубль"]
+
+
+def test_llamacpp_empty_input() -> None:
+    client = LlamaCppEmbeddings("http://llama:12700/v1", transport=httpx.MockTransport(lambda r: httpx.Response(500)))
     assert _run(client.embed([])) == []
 
 

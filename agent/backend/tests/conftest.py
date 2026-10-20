@@ -41,3 +41,17 @@ def _no_jwt_in_tests(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
     monkeypatch.setattr(settings, "jwt_secret", "")
     yield
+
+
+@pytest.fixture(autouse=True)
+def _fake_embeddings_in_tests(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Тесты не ходят в эмбеддинг-сервис: провайдер — fake.
+
+    Иначе тесты зависели бы от живой модели (её доступности и качества):
+    в .env разработчика провайдер может быть 'llamacpp'. Fake даёт
+    детерминированные вектора — сборка тестов не ходит в сеть.
+    """
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "embeddings_provider", "fake")
+    yield

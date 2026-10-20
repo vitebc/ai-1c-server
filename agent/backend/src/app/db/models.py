@@ -10,7 +10,11 @@ from sqlalchemy import Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-EMBEDDING_DIM = 1024  # deepvk/USER-bge-m3; fake-эмбеддинги той же размерности
+# Размерность вектора эмбеддингов. Qwen3-Embedding-4B (llama.cpp-server) — 2560.
+# Внимание: pgvector не строит HNSW/IVFFlat-индекс на vector(N) при N > 2000,
+# поэтому поиск идёт точным сканом (cosine) — на текущем объёме (тысячи чанков)
+# это быстрее, чем штраф за fp16-потерю halfvec.
+EMBEDDING_DIM = 2560
 
 
 class Base(DeclarativeBase):
