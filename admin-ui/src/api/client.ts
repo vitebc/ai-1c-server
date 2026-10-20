@@ -222,6 +222,12 @@ export const api = {
     request<{ ok: boolean; name: string; url: string }>(oldName ? `/agent-backend/bases/${encodeURIComponent(oldName)}` : '/agent-backend/bases', { method: 'PUT', body: JSON.stringify({ name, url }) }),
   deleteAgentBase: (name: string) =>
     request<{ ok: boolean; name: string }>(`/agent-backend/bases/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  getSearchMaps: () =>
+    request<{ source: string; bases: { name: string; servers: string[] }[]; warnings?: string[] }>('/agent-backend/search-maps'),
+  putSearchMapBase: (base: string, servers: string[]) =>
+    request<{ ok: boolean; name: string; servers: string[] }>(`/agent-backend/search-maps/${encodeURIComponent(base)}`, { method: 'PUT', body: JSON.stringify({ servers }) }),
+  deleteSearchMap: (base: string) =>
+    request<{ ok: boolean; name: string }>(`/agent-backend/search-maps/${encodeURIComponent(base)}`, { method: 'DELETE' }),
   getStatsRequests: (params: Record<string, string>) => {
     const qs = Object.entries(params).filter(([, v]) => v).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
     return request<{ ok: boolean; data?: { total: number; items: StatsRequest[] }; error?: string }>(`/agent-backend/stats/requests${qs ? `?${qs}` : ''}`);

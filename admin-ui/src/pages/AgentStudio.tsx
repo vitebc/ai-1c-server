@@ -7,7 +7,7 @@ import { t } from '../i18n';
 import { errText } from '../errors';
 import { PageHeader, Card, CardBody, Btn, IconBtn, Badge, TableShell, Th, Td, Row, Field, TextInput, TextArea, Select, Modal as UiModal, Alert, Segmented, Confirm } from '../components/ui';
 
-type Tab = 'agents' | 'skills' | 'patterns' | 'backend' | 'bases' | 'env';
+type Tab = 'agents' | 'skills' | 'patterns' | 'backend' | 'bases' | 'searchmaps' | 'env';
 
 const TAB_SECTION: Record<Tab, string> = {
   agents: 'agent-agents',
@@ -15,6 +15,7 @@ const TAB_SECTION: Record<Tab, string> = {
   patterns: 'agent-patterns',
   backend: 'agent-backend',
   bases: 'env',
+  searchmaps: 'env',
   env: 'env',
 };
 
@@ -76,13 +77,14 @@ export default function AgentStudio({ me }: { me: Me | null }) {
     { key: 'patterns', label: t.studio.patterns },
     { key: 'backend', label: t.studio.backend },
     { key: 'bases', label: t.studio.basesTab },
+    { key: 'searchmaps', label: t.studio.searchMapsTab },
     { key: 'env', label: t.studio.env },
   ];
   const tabs = allTabs.filter(x => !me || me.sections.includes(TAB_SECTION[x.key]));
 
   useEffect(() => {
     if (me && !me.sections.includes(TAB_SECTION[tab])) {
-      const first = (['agents', 'skills', 'patterns', 'backend', 'bases', 'env'] as Tab[])
+      const first = (['agents', 'skills', 'patterns', 'backend', 'bases', 'searchmaps', 'env'] as Tab[])
         .find(x => me.sections.includes(TAB_SECTION[x]));
       if (first) setTab(first);
     }
@@ -116,6 +118,7 @@ export default function AgentStudio({ me }: { me: Me | null }) {
       {tab === 'patterns' && ov && <PatternsTab ov={ov} onChanged={load} />}
       {tab === 'backend' && <BackendTab />}
       {tab === 'bases' && <BasesTab onChanged={loadBaseUrls} />}
+      {tab === 'searchmaps' && <SearchMapsTab onChanged={loadBaseUrls} />}
       {tab === 'env' && <EnvTab />}
       {browseRoot && (
         <FileBrowser
@@ -1318,6 +1321,181 @@ function BasesTab({ onChanged }: { onChanged: () => void }) {
 
       {delBase && (
         <Confirm title={t.studio.baseDeleteConfirm(delBase)} confirmLabel="Выключить" danger
+          onClose={() => setDelBase(null)}
+          onConfirm={() => doDelete(delBase)} />
+      )}
+    </div>
+  );
+}
+
+// ─── Search-maps tab ───
+
+type SearchMapEntry = { name: string; servers: string[] };
+
+function SearchMapsTab({ onChanged }: { onChanged: () => void }) {
+  const [maps, setMaps] = useState<SearchMapEntry[]>([]);
+  const [source, setSource] = useState<string>('file');
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [baseNames, setBaseNames] = useState<string[]>([]);
+  const [editing, setEditing] = useState<{ name: string; serversText: string } | null>(null);
+  const [newName, setNewName] = useState('');
+  const [newServers, setNewServers] = useState('');
+  const [msg, setMsg] = useState('');
+  const [err, setErr] = useState('');
+  const [delBase, setDelBase] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const r = await api.getSearchMaps();
+      setMaps(r.bases || []);
+      setSource(r.source || 'file');
+      setWarnings(r.warnings || []);
+    } catch (e) {
+      setErr(errText(e, 'Ошибка загрузки мапы'));
+    }
+    // Известные базы не критичны для мапы — тихо пытаемся подтянуть.
+    try {
+      const r = await api.getAgentBases();
+      setBaseNames((r.bases || []).map(b => b.name.toLowerCase()));
+    } catch { /* без списка баз таблица строится по мапе */ }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const parseServers = (s: string) => s.split(',').map(x => x.trim()).filter(Boolean);
+  // Объединение имён: запись мапы может быть для базы, которой больше нет в bases.conf.
+  const names = Array.from(new Set([...maps.map(m => m.name), ...baseNames])).sort();
+  const mapFor = (n: string) => maps.find(m => m.name === n) || null;
+
+  function statusBadge(entry: SearchMapEntry | null) {
+    if (!entry) {
+      return <Badge tone="neutral">{t.studio.searchMapUnfiltered}</Badge>;
+    }
+    if (entry.servers.length === 0) {
+      return <Badge tone="red">{t.studio.searchMapBlocked}</Badge>;
+    }
+    return <Badge tone="green">{t.studio.searchMapAllowed(entry.servers.length)}</Badge>;
+  }
+
+  async function doSave(entry: { name: string; serversText: string }) {
+    try {
+      await api.putSearchMapBase(entry.name, parseServers(entry.serversText));
+      setEditing(null);
+      setMsg(t.studio.searchMapSaved);
+      await load();
+      onChanged();
+    } catch (e) {
+      setErr(errText(e, 'Ошибка сохранения'));
+    }
+  }
+
+  async function doAdd() {
+    const name = newName.trim().toLowerCase();
+    if (!name) { setErr('Укажите имя базы'); return; }
+    try {
+      await api.putSearchMapBase(name, parseServers(newServers));
+      setNewName(''); setNewServers('');
+      setMsg(t.studio.searchMapSaved);
+      await load();
+      onChanged();
+    } catch (e) {
+      setErr(errText(e, 'Ошибка сохранения'));
+    }
+  }
+
+  async function doDelete(name: string) {
+    try {
+      await api.deleteSearchMap(name);
+      setDelBase(null);
+      setMsg(t.studio.searchMapDeleted);
+      await load();
+      onChanged();
+    } catch (e) {
+      setErr(errText(e, 'Ошибка'));
+    }
+  }
+
+  return (
+    <div>
+      <p className="text-xs text-slate-500 mb-3">{t.studio.searchMapsHint}</p>
+      {source === 'absent' && (
+        <div className="mb-3"><Alert tone="amber">{t.studio.searchMapsAbsent}</Alert></div>
+      )}
+      {warnings.map((w, i) => (
+        <div key={i} className="mb-3"><Alert tone="amber">{w}</Alert></div>
+      ))}
+      {msg && <div className="mb-3"><Alert tone="blue">{msg}</Alert></div>}
+      {err && <div className="mb-3"><Alert tone="red">{err}</Alert></div>}
+
+      <TableShell
+        colSpan={4}
+        empty={names.length === 0 ? { text: 'Записей нет — все базы без фильтрации' } : null}
+        head={<>
+          <Th>{t.studio.baseName}</Th>
+          <Th>{t.studio.searchMapServers}</Th>
+          <Th>Статус</Th>
+          <Th right>{t.common.actions}</Th>
+        </>}
+      >
+        {names.map(n => {
+          const entry = mapFor(n);
+          return editing && editing.name === n ? (
+            <Row key={n}>
+              <Td><span className="font-mono text-xs font-medium text-slate-800 dark:text-slate-100">{n}</span></Td>
+              <Td><TextInput
+                value={editing.serversText}
+                onChange={e => setEditing({ ...editing, serversText: e.target.value })}
+                placeholder="search-ka-update, search-ka-rs"
+                mono
+                className="text-xs"
+              /></Td>
+              <Td><Badge tone="blue">редактирование</Badge></Td>
+              <Td className="text-right whitespace-nowrap">
+                <IconBtn title="Сохранить" onClick={() => doSave(editing)}><Check size={15} /></IconBtn>
+                <IconBtn title="Отмена" onClick={() => setEditing(null)}><X size={15} /></IconBtn>
+              </Td>
+            </Row>
+          ) : (
+            <Row key={n}>
+              <Td><span className="font-mono text-xs font-medium text-slate-800 dark:text-slate-100">{n}</span></Td>
+              <Td>
+                {entry ? (
+                  <span className="font-mono text-[11px] text-slate-500 break-all">
+                    {entry.servers.length ? entry.servers.join(', ') : '— (блок)'}
+                  </span>
+                ) : <span className="text-[11px] text-slate-400">—</span>}
+              </Td>
+              <Td>{statusBadge(entry)}</Td>
+              <Td className="text-right whitespace-nowrap">
+                <IconBtn
+                  title={entry ? 'Редактировать серверы' : 'Добавить в мапу'}
+                  onClick={() => setEditing({ name: n, serversText: entry ? entry.servers.join(', ') : '' })}
+                >
+                  <Pencil size={14} />
+                </IconBtn>
+                {entry && (
+                  <IconBtn title="Удалить из мапы (вернётся «без фильтрации»)" onClick={() => setDelBase(n)} className="hover:!text-red-600">
+                    <Trash2 size={14} />
+                  </IconBtn>
+                )}
+              </Td>
+            </Row>
+          );
+        })}
+      </TableShell>
+
+      <div className="mt-4 border-t border-slate-200 dark:border-slate-800 pt-3">
+        <p className="text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">{t.studio.addSearchMap}</p>
+        <p className="text-xs text-slate-500 mb-2">{t.studio.searchMapAddHint}</p>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <TextInput value={newName} onChange={e => setNewName(e.target.value)} placeholder="имя базы (НРег)" mono className="sm:max-w-[200px]" />
+          <TextInput value={newServers} onChange={e => setNewServers(e.target.value)} placeholder="search-ka-update, search-ka-rs" mono className="flex-1" />
+          <Btn variant="primary" onClick={doAdd}><Plus size={14} /> {t.common.add}</Btn>
+        </div>
+      </div>
+
+      {delBase && (
+        <Confirm title={t.studio.searchMapDeleteConfirm(delBase)} confirmLabel="Удалить" danger
           onClose={() => setDelBase(null)}
           onConfirm={() => doDelete(delBase)} />
       )}
