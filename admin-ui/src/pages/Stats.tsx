@@ -1,9 +1,134 @@
 import { useCallback, useEffect, useState } from 'react';
-import { BarChart3, Users, Database, Bot, Clock, Zap, RefreshCw } from 'lucide-react';
+import { BarChart3, Users, Database, Bot, Clock, Zap, RefreshCw, X } from 'lucide-react';
+import Markdown from 'react-markdown';
 import { api } from '../api/client';
-import type { StatsRequest, StatsSummary } from '../types';
+import type { StatsRequest, StatsSummary, ChatSessionItem, ChatSessionDetail } from '../types';
 import { t } from '../i18n';
-import { PageHeader, Card, CardBody, CardTitle, Badge, Btn, Select } from '../components/ui';
+import { PageHeader, Card, CardBody, CardTitle, Badge, Btn, Select, Segmented, IconBtn } from '../components/ui';
+
+type ViewTab = 'requests' | 'dialogs';
+
+function DialogsView({ fUser, fBase, fAgent }: { fUser: string; fBase: string; fAgent: string }) {
+  const [items, setItems] = useState<ChatSessionItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
+  const pageSize = 50;
+  const [loading, setLoading] = useState(false);
+  const [detail, setDetail] = useState<ChatSessionDetail | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params: Record<string, string> = { limit: String(pageSize), offset: String(page * pageSize) };
+      if (fUser) params.user_id = fUser;
+      if (fBase) params.base_name = fBase;
+      if (fAgent) params.agent = fAgent;
+      const r = await api.getSessions(params);
+      if (r.ok && r.data) {
+        setItems(r.data.items || []);
+        setTotal(r.data.total || 0);
+      }
+    } catch { /* ignore */ }
+    setLoading(false);
+  }, [fUser, fBase, fAgent, page]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const openDialog = async (id: number) => {
+    try {
+      const r = await api.getSessionMessages(id);
+      if (r.ok && r.data) setDetail(r.data);
+    } catch { /* ignore */ }
+  };
+
+  return (
+    <>
+      <Card>
+        <CardBody className="overflow-x-auto">
+          <CardTitle right={loading ? <RefreshCw size={14} className="animate-spin text-slate-400" /> : undefined}>
+            {t.stats.sessionsTable} ({total})
+          </CardTitle>
+          {items.length === 0 ? (
+            <p className="text-[13px] text-slate-400 dark:text-slate-500 p-4">{t.stats.dialogEmpty}</p>
+          ) : (
+            <table className="w-full text-[12px]">
+              <thead>
+                <tr className="text-left text-slate-400 dark:text-slate-500 border-b border-slate-200 dark:border-slate-700">
+                  <th className="px-3 py-2">{t.stats.sessionUser}</th>
+                  <th className="px-3 py-2">{t.stats.base}</th>
+                  <th className="px-3 py-2">{t.stats.agent}</th>
+                  <th className="px-3 py-2">{t.stats.sessionTitle}</th>
+                  <th className="px-3 py-2 text-right">{t.stats.messagesCol}</th>
+                  <th className="px-3 py-2">{t.stats.lastMessage}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map(s => (
+                  <tr key={s.id} onClick={() => openDialog(s.id)}
+                    className="border-b border-slate-100 dark:border-slate-800 hover:bg-blue-50/60 dark:hover:bg-blue-950/30 cursor-pointer">
+                    <td className="px-3 py-2 font-mono">{s.display_name || s.user_id}</td>
+                    <td className="px-3 py-2 font-mono">{s.base_name || '—'}</td>
+                    <td className="px-3 py-2 font-mono">{s.agent_name || '—'}</td>
+                    <td className="px-3 py-2 max-w-[280px] truncate" title={s.title || ''}>{s.title || '—'}</td>
+                    <td className="px-3 py-2 text-right font-mono">{s.message_count}</td>
+                    <td className="px-3 py-2 whitespace-nowrap font-mono text-[11px]">
+                      {s.last_message_at ? new Date(s.last_message_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </CardBody>
+      </Card>
+
+      {total > pageSize && (
+        <div className="flex items-center justify-between mt-3">
+          <Btn variant="ghost" disabled={page === 0} onClick={() => setPage(p => p - 1)} className="!text-xs">← {t.stats.prevPage}</Btn>
+          <span className="text-[12px] text-slate-400 dark:text-slate-500">Стр. {page + 1} из {Math.ceil(total / pageSize)}</span>
+          <Btn variant="ghost" disabled={(page + 1) * pageSize >= total} onClick={() => setPage(p => p + 1)} className="!text-xs">{t.stats.nextPage} →</Btn>
+        </div>
+      )}
+
+      {/* Drawer с историей диалога */}
+      {detail && (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setDetail(null)} />
+          <div className="relative w-full max-w-2xl h-full bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-700 shadow-xl flex flex-col">
+            <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-slate-200 dark:border-slate-700">
+              <div className="min-w-0">
+                <p className="text-[14px] font-semibold text-slate-800 dark:text-slate-100 truncate">{detail.session.title || `Диалог #${detail.session.id}`}</p>
+                <p className="text-[12px] text-slate-500 dark:text-slate-400 mt-0.5 font-mono">
+                  {detail.session.display_name || detail.session.user_id} · {detail.session.base_name || '—'} · {detail.session.agent_name || '—'}
+                </p>
+              </div>
+              <IconBtn title="Закрыть" onClick={() => setDetail(null)}><X size={16} /></IconBtn>
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+              {detail.messages.length === 0 ? (
+                <p className="text-[13px] text-slate-400 dark:text-slate-500">{t.stats.noMessages}</p>
+              ) : detail.messages.map((m, i) => (
+                <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[85%] rounded-xl px-3.5 py-2.5 text-[13px] leading-relaxed ${
+                    m.role === 'user'
+                      ? 'bg-blue-600 text-white dark:bg-blue-500'
+                      : 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200'
+                  }`}>
+                    {m.role === 'user' ? (
+                      <span>{m.content}</span>
+                    ) : (
+                      <div className="md-preview"><Markdown>{m.content || ''}</Markdown></div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
 
 function daysAgo(n: number): string {
   const d = new Date();
@@ -12,6 +137,8 @@ function daysAgo(n: number): string {
 }
 
 export default function Stats() {
+  const [tab, setTab] = useState<ViewTab>('requests');
+
   // Фильтры
   const [fUser, setFUser] = useState('');
   const [fBase, setFBase] = useState('');
@@ -80,9 +207,14 @@ export default function Stats() {
     { label: t.stats.totalTokens, value: (summary?.total_tokens ?? 0).toLocaleString(), icon: Zap, chip: 'bg-purple-50 text-purple-600 dark:bg-purple-950 dark:text-purple-300' },
   ];
 
+  const isDialogs = tab === 'dialogs';
+
   return (
     <div>
-      <PageHeader title={t.stats.title} />
+      <PageHeader title={t.stats.title} right={<Segmented value={tab} onChange={setTab} options={[
+        { key: 'requests', label: t.stats.tabRequests },
+        { key: 'dialogs', label: t.stats.tabDialogs },
+      ]} />} />
 
       {/* Фильтры */}
       <Card className="mb-4">
@@ -109,16 +241,20 @@ export default function Stats() {
                 {agents.map(a => <option key={a} value={a}>{a}</option>)}
               </Select>
             </div>
-            <div>
-              <label className="block text-[12px] font-medium text-slate-500 dark:text-slate-400 mb-1">{t.stats.filterFrom}</label>
-              <input type="date" value={fFrom} onChange={e => { setFFrom(e.target.value); setPage(0); }}
-                className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-[13px] text-slate-700 dark:text-slate-200" />
-            </div>
-            <div>
-              <label className="block text-[12px] font-medium text-slate-500 dark:text-slate-400 mb-1">{t.stats.filterTo}</label>
-              <input type="date" value={fTo} onChange={e => { setFTo(e.target.value); setPage(0); }}
-                className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-[13px] text-slate-700 dark:text-slate-200" />
-            </div>
+            {!isDialogs && (
+              <div>
+                <label className="block text-[12px] font-medium text-slate-500 dark:text-slate-400 mb-1">{t.stats.filterFrom}</label>
+                <input type="date" value={fFrom} onChange={e => { setFFrom(e.target.value); setPage(0); }}
+                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-[13px] text-slate-700 dark:text-slate-200" />
+              </div>
+            )}
+            {!isDialogs && (
+              <div>
+                <label className="block text-[12px] font-medium text-slate-500 dark:text-slate-400 mb-1">{t.stats.filterTo}</label>
+                <input type="date" value={fTo} onChange={e => { setFTo(e.target.value); setPage(0); }}
+                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-[13px] text-slate-700 dark:text-slate-200" />
+              </div>
+            )}
           </div>
           <div className="flex items-center justify-end gap-2 mt-3 pt-3 border-t border-slate-200 dark:border-slate-800">
             <Btn variant="ghost" onClick={resetFilters} className="!text-xs">{t.stats.reset}</Btn>
@@ -132,6 +268,10 @@ export default function Stats() {
         </CardBody>
       </Card>
 
+      {isDialogs ? (
+        <DialogsView fUser={fUser} fBase={fBase} fAgent={fAgent} />
+      ) : (
+        <>
       {/* Сводные карточки */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
         {statCards.map(c => (
@@ -268,6 +408,8 @@ export default function Stats() {
             {t.stats.nextPage} →
           </Btn>
         </div>
+      )}
+        </>
       )}
     </div>
   );

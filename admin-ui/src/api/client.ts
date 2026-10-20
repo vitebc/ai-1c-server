@@ -232,6 +232,12 @@ export const api = {
   },
   getStatsDistinct: () =>
     request<{ ok: boolean; data?: { user_ids: string[]; base_names: string[]; agents: string[] }; error?: string }>('/agent-backend/stats/distinct'),
+  getSessions: (params: Record<string, string>) => {
+    const qs = Object.entries(params).filter(([, v]) => v).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+    return request<{ ok: boolean; data?: { total: number; items: import('../types').ChatSessionItem[] }; error?: string }>(`/agent-backend/sessions${qs ? `?${qs}` : ''}`);
+  },
+  getSessionMessages: (id: number, limit = 200) =>
+    request<{ ok: boolean; data?: import('../types').ChatSessionDetail; error?: string }>(`/agent-backend/sessions/${id}/messages?limit=${limit}`),
 
   getAgentChanges: (params: Record<string, string>) => {
     const qs = Object.entries(params).filter(([, v]) => v).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');

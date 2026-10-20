@@ -185,6 +185,10 @@ export const t = {
     tokens: 'Токены', elapsed: 'Время, с', tools: 'Тулзы',
     prevPage: 'Назад', nextPage: 'Вперёд',
     noData: 'Нет данных за выбранный период',
+    tabRequests: 'Запросы', tabDialogs: 'Диалоги',
+    sessionsTable: 'Диалоги', sessionUser: 'Пользователь', sessionTitle: 'Тема',
+    messagesCol: 'Сообщений', lastMessage: 'Последнее сообщение', openDialog: 'Открыть диалог',
+    dialogEmpty: 'Нет диалогов по выбранным фильтрам', noMessages: 'Нет сообщений',
   },
   theme: { light: 'Светлая тема', dark: 'Тёмная тема' },
 };

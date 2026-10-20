@@ -286,6 +286,24 @@ export interface StatsSummary {
   by_agent: { agent: string; count: number }[];
 }
 
+export interface ChatSessionItem {
+  id: number;
+  user_id: string;
+  display_name: string;
+  base_name: string | null;
+  agent_name: string | null;
+  skill_name: string | null;
+  title: string | null;
+  created_at: string | null;
+  last_message_at: string | null;
+  message_count: number;
+}
+
+export interface ChatSessionDetail {
+  session: ChatSessionItem;
+  messages: { role: 'user' | 'assistant'; content: string; created_at: string | null }[];
+}
+
 export interface AgentChange {
   id: number;
   timestamp: string;
