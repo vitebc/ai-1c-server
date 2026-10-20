@@ -1341,9 +1341,11 @@ function SearchMapsTab({ onChanged }: { onChanged: () => void }) {
   const [source, setSource] = useState<string>('file');
   const [warnings, setWarnings] = useState<string[]>([]);
   const [baseNames, setBaseNames] = useState<string[]>([]);
-  const [editing, setEditing] = useState<{ name: string; serversText: string } | null>(null);
+  // Чипы мультивыбора: search-серверы из реестра MCP Servers (см. tab «MCP Servers»).
+  const [serverOptions, setServerOptions] = useState<string[]>([]);
+  const [editing, setEditing] = useState<{ name: string; servers: string[] } | null>(null);
   const [newName, setNewName] = useState('');
-  const [newServers, setNewServers] = useState('');
+  const [newServers, setNewServers] = useState<string[]>([]);
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
   const [delBase, setDelBase] = useState<string | null>(null);
@@ -1362,11 +1364,54 @@ function SearchMapsTab({ onChanged }: { onChanged: () => void }) {
       const r = await api.getAgentBases();
       setBaseNames((r.bases || []).map(b => b.name.toLowerCase()));
     } catch { /* без списка баз таблица строится по мапе */ }
+    // Опции чипов: search-серверы реестра MCP Servers; не критичны для таблицы.
+    try {
+      const all = await api.getMcpServers();
+      setServerOptions(all.filter(s => s.name.startsWith('search-')).map(s => s.name).sort());
+    } catch { /* пустой список опций — покажем подсказку */ }
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
-  const parseServers = (s: string) => s.split(',').map(x => x.trim()).filter(Boolean);
+  // Тоггл сервера: добавление в конец списка (порядок выбора сохраняется).
+  const toggleServer = (list: string[], s: string) =>
+    list.includes(s) ? list.filter(x => x !== s) : [...list, s];
+
+  // Чипы кнопки выбора search-серверов. Опции: реестр search-* + серверы,
+  // уже записанные в мапу, но в реестре не найденные (помечены), — чтобы
+  // сохранение не потеряло их молча.
+  function ServerChips({ selected, onToggle }: { selected: string[]; onToggle: (s: string) => void }) {
+    const all = [...new Set([...serverOptions, ...selected])].sort((a, b) => {
+      const ka = selected.includes(a) ? 0 : 1;
+      const kb = selected.includes(b) ? 0 : 1;
+      return ka - kb || a.localeCompare(b);
+    });
+    if (all.length === 0) {
+      return <span className="text-xs text-slate-500">{t.studio.searchMapRegistryEmpty}</span>;
+    }
+    return (
+      <div className="flex flex-wrap gap-1.5" role="group" aria-label={t.studio.searchMapServers}>
+        {all.map(s => {
+          const on = selected.includes(s);
+          const missing = !serverOptions.includes(s);
+          return (
+            <button
+              key={s}
+              type="button"
+              aria-pressed={on}
+              onClick={() => onToggle(s)}
+              className={on
+                ? 'rounded-full px-2.5 py-1 text-xs font-medium border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 dark:hover:bg-emerald-900'
+                : 'rounded-full px-2.5 py-1 text-xs font-medium border border-slate-300 text-slate-500 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800'}
+            >
+              {s}
+              {missing && <span className="ml-1 opacity-70">{t.studio.searchMapNotInRegistry}</span>}
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
   // Объединение имён: запись мапы может быть для базы, которой больше нет в bases.conf.
   const names = Array.from(new Set([...maps.map(m => m.name), ...baseNames])).sort();
   const mapFor = (n: string) => maps.find(m => m.name === n) || null;
@@ -1381,9 +1426,9 @@ function SearchMapsTab({ onChanged }: { onChanged: () => void }) {
     return <Badge tone="green">{t.studio.searchMapAllowed(entry.servers.length)}</Badge>;
   }
 
-  async function doSave(entry: { name: string; serversText: string }) {
+  async function doSave(entry: { name: string; servers: string[] }) {
     try {
-      await api.putSearchMapBase(entry.name, parseServers(entry.serversText));
+      await api.putSearchMapBase(entry.name, entry.servers);
       setEditing(null);
       setMsg(t.studio.searchMapSaved);
       await load();
@@ -1397,8 +1442,8 @@ function SearchMapsTab({ onChanged }: { onChanged: () => void }) {
     const name = newName.trim().toLowerCase();
     if (!name) { setErr('Укажите имя базы'); return; }
     try {
-      await api.putSearchMapBase(name, parseServers(newServers));
-      setNewName(''); setNewServers('');
+      await api.putSearchMapBase(name, newServers);
+      setNewName(''); setNewServers([]);
       setMsg(t.studio.searchMapSaved);
       await load();
       onChanged();
@@ -1446,12 +1491,9 @@ function SearchMapsTab({ onChanged }: { onChanged: () => void }) {
           return editing && editing.name === n ? (
             <Row key={n}>
               <Td><span className="font-mono text-xs font-medium text-slate-800 dark:text-slate-100">{n}</span></Td>
-              <Td><TextInput
-                value={editing.serversText}
-                onChange={e => setEditing({ ...editing, serversText: e.target.value })}
-                placeholder="search-ka-update, search-ka-rs"
-                mono
-                className="text-xs"
+              <Td><ServerChips
+                selected={editing.servers}
+                onToggle={s => setEditing(e => e && { ...e, servers: toggleServer(e.servers, s) })}
               /></Td>
               <Td><Badge tone="blue">редактирование</Badge></Td>
               <Td className="text-right whitespace-nowrap">
@@ -1473,7 +1515,7 @@ function SearchMapsTab({ onChanged }: { onChanged: () => void }) {
               <Td className="text-right whitespace-nowrap">
                 <IconBtn
                   title={entry ? 'Редактировать серверы' : 'Добавить в мапу'}
-                  onClick={() => setEditing({ name: n, serversText: entry ? entry.servers.join(', ') : '' })}
+                  onClick={() => setEditing({ name: n, servers: entry ? [...entry.servers] : [] })}
                 >
                   <Pencil size={14} />
                 </IconBtn>
@@ -1491,10 +1533,21 @@ function SearchMapsTab({ onChanged }: { onChanged: () => void }) {
       <div className="mt-4 border-t border-slate-200 dark:border-slate-800 pt-3">
         <p className="text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">{t.studio.addSearchMap}</p>
         <p className="text-xs text-slate-500 mb-2">{t.studio.searchMapAddHint}</p>
-        <div className="flex flex-col sm:flex-row gap-2">
-          <TextInput value={newName} onChange={e => setNewName(e.target.value)} placeholder="имя базы (НРег)" mono className="sm:max-w-[200px]" />
-          <TextInput value={newServers} onChange={e => setNewServers(e.target.value)} placeholder="search-ka-update, search-ka-rs" mono className="flex-1" />
-          <Btn variant="primary" onClick={doAdd}><Plus size={14} /> {t.common.add}</Btn>
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-col sm:flex-row gap-2">
+            <TextInput
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              placeholder="имя базы (НРег)"
+              mono
+              className="sm:max-w-[200px]"
+            />
+            <Btn variant="primary" onClick={doAdd}><Plus size={14} /> {t.common.add}</Btn>
+          </div>
+          <ServerChips
+            selected={newServers}
+            onToggle={s => setNewServers(l => toggleServer(l, s))}
+          />
         </div>
       </div>
 
