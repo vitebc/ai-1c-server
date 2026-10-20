@@ -1003,3 +1003,11 @@ pub async fn session_messages(
 ) -> Json<Value> {
     proxy_backend_path(&state, &format!("sessions/{session_id}/messages"), &qs).await
 }
+
+pub async fn session_rounds(
+    State(state): State<Arc<AppState>>,
+    Path(session_id): Path<u64>,
+    Query(qs): Query<HashMap<String, String>>,
+) -> Json<Value> {
+    proxy_backend_path(&state, &format!("sessions/{session_id}/rounds"), &qs).await
+}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import Float, ForeignKey, Integer, String, Text, func
@@ -74,6 +75,31 @@ class Chunk(Base):
     position: Mapped[int] = mapped_column(default=0)
     text: Mapped[str] = mapped_column(Text)
     embedding: Mapped[Vector] = mapped_column(Vector(EMBEDDING_DIM))
+
+
+class AgentRound(Base):
+    """Один шаг агентской петли (раунд LLM или вызов инструмента).
+
+    Заполняется по ходу run_agent (app/agent/loop.py) для просмотра в админке.
+    request_id ставится после записи chat_requests; NULL — запрос не записан
+    (тестовый пользователь) или запись статистики упала.
+    """
+
+    __tablename__ = "agent_rounds"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    session_id: Mapped[int] = mapped_column(index=True)
+    request_id: Mapped[int | None] = mapped_column(default=None)
+    # Номер раунда петли (1..N); step — порядок шага внутри раунда.
+    round_no: Mapped[int] = mapped_column()
+    step: Mapped[int] = mapped_column(default=0)
+    # assistant — шаг LLM (текст + вызовы), tool — ответ инструмента.
+    role: Mapped[str] = mapped_column(String(16))
+    tool_name: Mapped[str | None] = mapped_column(String(256), default=None)
+    tool_args: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None)
+    content: Mapped[str] = mapped_column(Text, default="")
+    is_error: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
 class ChatRequestLog(Base):

@@ -311,4 +311,8 @@ pub fn routes() -> Router<Arc<AppState>> {
             "/agent-backend/sessions/{session_id}/messages",
             get(agent_backend::session_messages),
         )
+        .route(
+            "/agent-backend/sessions/{session_id}/rounds",
+            get(agent_backend::session_rounds),
+        )
 }

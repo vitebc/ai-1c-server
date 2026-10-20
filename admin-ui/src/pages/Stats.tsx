@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { BarChart3, Users, Database, Bot, Clock, Zap, RefreshCw, X } from 'lucide-react';
+import { BarChart3, Users, Database, Bot, Clock, Zap, RefreshCw, X, AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { api } from '../api/client';
-import type { StatsRequest, StatsSummary, ChatSessionItem, ChatSessionDetail } from '../types';
+import type { StatsRequest, StatsSummary, ChatSessionItem, ChatSessionDetail, AgentRoundStep } from '../types';
 import { t } from '../i18n';
 import { PageHeader, Card, CardBody, CardTitle, Badge, Btn, Select, Segmented, IconBtn } from '../components/ui';
 
@@ -15,6 +15,9 @@ function DialogsView({ fUser, fBase, fAgent }: { fUser: string; fBase: string; f
   const pageSize = 50;
   const [loading, setLoading] = useState(false);
   const [detail, setDetail] = useState<ChatSessionDetail | null>(null);
+  // Трасс раундов сессии (agent_rounds): пусто для старых запросов.
+  const [rounds, setRounds] = useState<AgentRoundStep[] | null>(null);
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -35,10 +38,22 @@ function DialogsView({ fUser, fBase, fAgent }: { fUser: string; fBase: string; f
   useEffect(() => { load(); }, [load]);
 
   const openDialog = async (id: number) => {
+    setDetail(null);
+    setRounds(null);
+    setExpanded(new Set());
     try {
-      const r = await api.getSessionMessages(id);
-      if (r.ok && r.data) setDetail(r.data);
+      const [m, r] = await Promise.all([api.getSessionMessages(id), api.getSessionRounds(id)]);
+      if (m.ok && m.data) setDetail(m.data);
+      if (r.ok && r.data) setRounds(r.data.steps || []);
     } catch { /* ignore */ }
+  };
+
+  const toggleRound = (no: number) => {
+    setExpanded(prev => {
+      const next = new Set(prev);
+      if (next.has(no)) next.delete(no); else next.add(no);
+      return next;
+    });
   };
 
   return (
@@ -123,6 +138,55 @@ function DialogsView({ fUser, fBase, fAgent }: { fUser: string; fBase: string; f
                 </div>
               ))}
             </div>
+
+            {/* Трасс раундов: шаги LLM + вызовы инструментов (agent_rounds) */}
+            {rounds && rounds.length > 0 && (
+              <div className="border-t border-slate-200 dark:border-slate-700 max-h-[45%] overflow-y-auto px-5 py-3">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-2">
+                  {t.stats.roundsTrace} ({rounds.length})
+                </p>
+                <div className="space-y-1.5">
+                  {groupRounds(rounds).map(g => (
+                    <div key={g.round_no}>
+                      <button onClick={() => toggleRound(g.round_no)}
+                        className="w-full flex items-center gap-2 text-left text-[12px] font-mono px-2 py-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800">
+                        {expanded.has(g.round_no) ? <ChevronDown size={13} className="text-slate-400 shrink-0" /> : <ChevronRight size={13} className="text-slate-400 shrink-0" />}
+                        <span className="font-semibold text-slate-600 dark:text-slate-300">{t.stats.roundLabel} {g.round_no}</span>
+                        <span className="text-slate-400 truncate">
+                          {g.steps.filter(s => s.role === 'tool').map(s => s.tool_name).join(', ') || t.stats.roundsNoTools}
+                        </span>
+                      </button>
+                      {expanded.has(g.round_no) && (
+                        <div className="ml-4 border-l-2 border-slate-200 dark:border-slate-700 pl-3 py-1 space-y-1.5">
+                          {g.steps.map((s, j) => (
+                            <div key={j} className={`rounded-md px-2.5 py-2 text-[12px] ${
+                              s.is_error
+                                ? 'bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900'
+                                : s.role === 'assistant'
+                                  ? 'bg-slate-50 dark:bg-slate-800/60'
+                                  : 'bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/60'
+                            }`}>
+                              <div className="flex items-center gap-1.5 mb-1">
+                                {s.is_error && <AlertTriangle size={12} className="text-red-500 shrink-0" />}
+                                <span className={`font-semibold ${s.role === 'assistant' ? 'text-slate-600 dark:text-slate-300' : 'text-emerald-700 dark:text-emerald-400'}`}>
+                                  {s.role === 'assistant' ? t.stats.roundStepLlm : s.tool_name}
+                                </span>
+                              </div>
+                              {s.role === 'tool' && s.tool_args && Object.keys(s.tool_args).length > 0 && (
+                                <pre className="text-[11px] font-mono text-slate-500 dark:text-slate-400 whitespace-pre-wrap break-all mb-1 max-h-24 overflow-y-auto">
+                                  {JSON.stringify(s.tool_args, null, 1)}
+                                </pre>
+                              )}
+                              <pre className="text-[12px] text-slate-700 dark:text-slate-300 whitespace-pre-wrap break-words max-h-48 overflow-y-auto">{s.content}</pre>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -134,6 +198,20 @@ function daysAgo(n: number): string {
   const d = new Date();
   d.setDate(d.getDate() - n);
   return d.toISOString().slice(0, 10);
+}
+
+/** Группировка шагов трасса по номерам раундов (вход — хронологический список). */
+function groupRounds(steps: AgentRoundStep[]): { round_no: number; steps: AgentRoundStep[] }[] {
+  const out: { round_no: number; steps: AgentRoundStep[] }[] = [];
+  for (const s of steps) {
+    let g = out[out.length - 1];
+    if (!g || g.round_no !== s.round_no) {
+      g = { round_no: s.round_no, steps: [] };
+      out.push(g);
+    }
+    g.steps.push(s);
+  }
+  return out;
 }
 
 export default function Stats() {

@@ -238,6 +238,8 @@ export const api = {
   },
   getSessionMessages: (id: number, limit = 200) =>
     request<{ ok: boolean; data?: import('../types').ChatSessionDetail; error?: string }>(`/agent-backend/sessions/${id}/messages?limit=${limit}`),
+  getSessionRounds: (id: number, limit = 500) =>
+    request<{ ok: boolean; data?: import('../types').AgentRoundsDetail; error?: string }>(`/agent-backend/sessions/${id}/rounds?limit=${limit}`),
 
   getAgentChanges: (params: Record<string, string>) => {
     const qs = Object.entries(params).filter(([, v]) => v).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');

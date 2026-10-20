@@ -28,7 +28,7 @@ from app.agent.tools import ToolDefinition, clean_parameters
 from app.agents import Agent, AgentRegistry
 from app.auth.jwt import extract_bearer_token, validate_hs256
 from app.config import settings
-from app.db.models import ChatRequestLog, ChatSession, Message, User
+from app.db.models import AgentRound, ChatRequestLog, ChatSession, Message, User
 from app.db.session import SessionFactory
 from app.llm import ChatLLM, OpenAICompatibleLLM
 from app.llm.client import build_user_content
@@ -65,6 +65,35 @@ _TEST_USER_PREFIXES = ("test-", "agent-u", "skill-u")
 
 def _is_test_user(user_id: str) -> bool:
     return any(user_id.startswith(p) for p in _TEST_USER_PREFIXES)
+
+
+async def _save_rounds(session_id: int | None, result: AgentResult | None) -> None:
+    """Запись шагов петли (раунды + вызовы инструментов) в agent_rounds.
+
+    Просмотр — GET /sessions/{id}/rounds (админка). request_id не ставится:
+    запись chat_requests идёт параллельно, а связь по времени/сессии очевидна.
+    Ошибка записи не ломает чат (тот же паттерн, что в _record_request).
+    """
+    if session_id is None or result is None or not result.round_steps:
+        return
+    try:
+        async with SessionFactory() as s:
+            for st in result.round_steps:
+                s.add(
+                    AgentRound(
+                        session_id=session_id,
+                        round_no=st.round_no,
+                        step=st.step,
+                        role=st.role,
+                        tool_name=st.tool_name,
+                        tool_args=st.tool_args,
+                        content=st.content[:20000],
+                        is_error=st.is_error,
+                    )
+                )
+            await s.commit()
+    except Exception:  # noqa: BLE001
+        log.warning("не удалось записать agent_rounds", exc_info=True)
 
 
 async def _record_request(
@@ -786,6 +815,7 @@ async def chat(
                     await s.commit()
                 elapsed_bg = round(time.monotonic() - started, 1)
                 _background_jobs[job_id].update({"status": "done", "elapsed_s": elapsed_bg, "result": result})
+                await _save_rounds(session_id, result)
                 await _record_request(
                     user_id=req.user_id,
                     session_id=session_id,
@@ -851,10 +881,11 @@ async def chat(
         await session.commit()
 
     elapsed_s = round(time.monotonic() - started, 1)
-    # Статистика: пишем до отдачи SSE (быстро, не блокирует стриминг).
+    # Статистика и трасс раундов: пишем до отдачи SSE (быстро, не блокирует стриминг).
     err_str = None
     if result.rounds == 0 and result.tool_errors > 0 and "Ошибка обращения" in (result.answer or ""):
         err_str = result.answer[:500]
+    await _save_rounds(session_id, result)
     await _record_request(
         user_id=req.user_id,
         session_id=session_id,

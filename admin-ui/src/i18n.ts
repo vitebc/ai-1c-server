@@ -189,6 +189,8 @@ export const t = {
     sessionsTable: 'Диалоги', sessionUser: 'Пользователь', sessionTitle: 'Тема',
     messagesCol: 'Сообщений', lastMessage: 'Последнее сообщение', openDialog: 'Открыть диалог',
     dialogEmpty: 'Нет диалогов по выбранным фильтрам', noMessages: 'Нет сообщений',
+    roundsTrace: 'Трасс раундов', roundLabel: 'Раунд', roundsNoTools: 'без инструментов',
+    roundStepLlm: 'LLM',
   },
   theme: { light: 'Светлая тема', dark: 'Тёмная тема' },
 };

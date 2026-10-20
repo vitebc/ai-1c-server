@@ -52,10 +52,29 @@ SYSTEM_PROMPT = (
 
 
 @dataclass
+class RoundStep:
+    """Один шаг петли для записи в agent_rounds (просмотр в админке).
+
+    role: "assistant" — ответ LLM (content + вызовы), "tool" — результат
+    инструмента (tool_name/tool_args обязательны, content — feedback).
+    """
+
+    round_no: int
+    step: int
+    role: str
+    content: str = ""
+    tool_name: str | None = None
+    tool_args: dict[str, Any] | None = None
+    is_error: bool = False
+
+
+@dataclass
 class AgentResult:
     answer: str
     rounds: int
     tool_calls: list[str] = field(default_factory=list)
+    # Шаги петли (раунды + вызовы инструментов) для записи в agent_rounds.
+    round_steps: list[RoundStep] = field(default_factory=list)
     # Сколько раз модели вернули ERROR-фидбэк (невалидные аргументы, неизвестный
     # инструмент, падение обработчика). 0 = чисто с первой попытки.
     tool_errors: int = 0
@@ -106,6 +125,22 @@ def _full_assistant_text(msg: AssistantMessage) -> str:
     return f"{text}\nTOOL_CALLS: {calls}" if calls else text
 
 
+def _assistant_text(content: str | list[dict[str, Any]] | None) -> str:
+    """Текст assistant-шага (content может быть multimodal-списком)."""
+    if isinstance(content, list):
+        return " ".join(str(p.get("text", "")) for p in content if isinstance(p, dict) and p.get("type") == "text")
+    return content or ""
+
+
+def _args_dict(arguments: str) -> dict[str, Any] | None:
+    """Аргументы tool call как JSON-объект (сырой текст — в строку)."""
+    try:
+        parsed = json.loads(arguments)
+        return parsed if isinstance(parsed, dict) else {"raw": arguments}
+    except ValueError:
+        return {"raw": str(arguments)}
+
+
 async def _finish_with_final_answer(
     *,
     llm: ChatLLM,
@@ -116,6 +151,7 @@ async def _finish_with_final_answer(
     errors: int,
     prompt_tokens: int,
     completion_tokens: int,
+    round_steps: list[RoundStep] | None = None,
 ) -> AgentResult:
     """Предохранитель сработал: дать модели ОДИН шанс ответить из того, что уже есть.
 
@@ -139,6 +175,8 @@ async def _finish_with_final_answer(
             ),
         },
     ]
+    steps = list(round_steps or [])
+    final_round = max([st.round_no for st in steps], default=0) + 1
     try:
         resp = await llm.complete(final_messages, [])
     except Exception as e:  # noqa: BLE001 — LLM упал: отдаём заготовку, петлю не роняем
@@ -150,6 +188,7 @@ async def _finish_with_final_answer(
             tool_errors=errors,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
+            round_steps=steps,
         )
     if resp.usage is not None:
         prompt_tokens += resp.usage.prompt_tokens
@@ -162,6 +201,7 @@ async def _finish_with_final_answer(
     )
     if not text or text.startswith(("Стоп:", "Я не могу вызвать")):
         text = fallback
+    steps.append(RoundStep(round_no=final_round, step=1, role="assistant", content=text))
     return AgentResult(
         answer=text,
         rounds=len(called),
@@ -169,6 +209,7 @@ async def _finish_with_final_answer(
         tool_errors=errors,
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
+        round_steps=steps,
     )
 
 
@@ -225,6 +266,8 @@ async def run_agent(
     last_empty_tool = ""
     prompt_tokens = 0
     completion_tokens = 0
+    # Шаги петли для записи в agent_rounds (просмотр раундов в админке).
+    round_steps: list[RoundStep] = []
     started = time.monotonic()
     base = base_name or "-"
     skill = skill_name or "-"
@@ -238,6 +281,12 @@ async def run_agent(
             completion_tokens += resp.usage.completion_tokens
         messages.append(_assistant_message(resp))
         log.info("user=%s round=%d assistant: %s", user_id, round_no, _full_assistant_text(resp))
+        # Шаг LLM в трасс: текст + вызовы инструментов (аргументы) — для админки.
+        step_calls = "; ".join(f"{c.name}({_preview(c.arguments, 300)})" for c in resp.tool_calls)
+        step_content = _assistant_text(resp.content).strip()
+        if step_calls:
+            step_content = f"{step_content}\nTOOL_CALLS: {step_calls}".strip()
+        round_steps.append(RoundStep(round_no=round_no, step=1, role="assistant", content=step_content))
         if not resp.tool_calls:
             elapsed = time.monotonic() - started
             log.info(
@@ -259,6 +308,7 @@ async def run_agent(
                 tool_errors=errors,
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
+                round_steps=round_steps,
             )
         for call in resp.tool_calls:
             called.append(call.name)
@@ -301,6 +351,19 @@ async def run_agent(
                 call.arguments,
                 feedback,
             )
+            # Ответ инструмента в трасс: имя + аргументы + результат (результат —
+            # компактный, как в 1С; data-URI не попадают сюда).
+            round_steps.append(
+                RoundStep(
+                    round_no=round_no,
+                    step=len(resp.tool_calls) + 2,
+                    role="tool",
+                    tool_name=call.name,
+                    tool_args=_args_dict(call.arguments),
+                    content=feedback,
+                    is_error=consec_errors > 0,
+                )
+            )
             messages.append({"role": "tool", "tool_call_id": call.id, "content": feedback})
             # Проверяем повтор только пока остались раунды: если раунды всё равно
             # кончились, честнее сказать про лимит раундов, а не про повтор.
@@ -331,6 +394,7 @@ async def run_agent(
                     errors=errors,
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
+                    round_steps=round_steps,
                 )
             if rounds_left and consec_errors == 0 and 0 < max_repeat_calls <= repeat_calls[repeat_key]:
                 log.warning(
@@ -359,6 +423,7 @@ async def run_agent(
                     errors=errors,
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
+                    round_steps=round_steps,
                 )
             if 0 < max_consecutive_errors <= consec_errors:
                 log.warning(
@@ -382,6 +447,7 @@ async def run_agent(
                     tool_errors=errors,
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
+                    round_steps=round_steps,
                 )
 
     log.warning(
@@ -401,6 +467,7 @@ async def run_agent(
         tool_errors=errors,
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
+        round_steps=round_steps,
     )
 
 

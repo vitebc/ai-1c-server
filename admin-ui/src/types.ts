@@ -304,6 +304,23 @@ export interface ChatSessionDetail {
   messages: { role: 'user' | 'assistant'; content: string; created_at: string | null }[];
 }
 
+/** Один шаг агентской петли (раунд LLM или вызов инструмента) — GET /sessions/{id}/rounds. */
+export interface AgentRoundStep {
+  round_no: number;
+  step: number;
+  role: 'assistant' | 'tool';
+  tool_name: string | null;
+  tool_args: Record<string, unknown> | null;
+  content: string;
+  is_error: boolean;
+  created_at: string | null;
+}
+
+export interface AgentRoundsDetail {
+  session_id: number;
+  steps: AgentRoundStep[];
+}
+
 export interface AgentChange {
   id: number;
   timestamp: string;

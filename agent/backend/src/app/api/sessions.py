@@ -16,7 +16,7 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import desc, func, select
 
-from app.db.models import ChatSession, Message, User
+from app.db.models import AgentRound, ChatSession, Message, User
 from app.db.session import SessionFactory
 
 router = APIRouter(tags=["sessions"])
@@ -147,3 +147,48 @@ async def session_messages(
         },
         "messages": messages,
     }
+
+
+@router.get("/sessions/{session_id}/rounds")
+async def session_rounds(
+    session_id: int,
+    limit: int = Query(default=500, ge=1, le=2000),
+) -> dict:
+    """Трасс раундов сессии: шаги LLM + вызовы инструментов (админка).
+
+    Источник — таблица agent_rounds, заполняется бэкендом по ходу агентской
+    петли. Пусто для старых запросов (до введения таблицы) и тестовых юзеров.
+    limit — последние N шагов; 404 — сессия не найдена.
+    """
+    async with SessionFactory() as s:
+        sess = await s.get(ChatSession, session_id)
+        if sess is None:
+            raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+
+        rows = (
+            (
+                await s.execute(
+                    select(AgentRound)
+                    .where(AgentRound.session_id == session_id)
+                    .order_by(AgentRound.id.desc())
+                    .limit(limit)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        steps = [
+            {
+                "round_no": r.round_no,
+                "step": r.step,
+                "role": r.role,
+                "tool_name": r.tool_name,
+                "tool_args": r.tool_args,
+                "content": r.content,
+                "is_error": r.is_error,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in reversed(rows)
+        ]
+
+    return {"session_id": session_id, "steps": steps}
