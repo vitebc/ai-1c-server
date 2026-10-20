@@ -1,7 +1,7 @@
 ---
 name: code-substring-search
 description: Найти где в коде 1С (конфигурации, расширения, обработки) встречается произвольная подстрока — например "price", "СуммаНДС", "Отчет". Испольуй когда пользователь просит найти все вхождения слова/символа/подстроки в коде, посмотреть где что-то используется по тексту, поиск по коду конфигурации или расширений.
-tools: [search-erp__search_code, search-ka-market__search_code, search-ka-rs__search_code, search-ka-td__search_code, search-obrabotki__search_code, search-upp__search_code, search-ka-update__search_code]
+tools: [search-erp__search_code, search-ka-market__search_code, search-ka-rs__search_code, search-ka-td__search_code, search-obrabotki__search_code, search-upp__search_code]
 ---
 
 ## Назначение
