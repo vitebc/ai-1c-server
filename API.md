@@ -255,6 +255,14 @@ Authorization: Bearer <JWT HS256, sub = onec_id>
 | PUT | `/agent-backend/bases/{old_name}` | `{name, url}` — переименовать/обновить (ищет по `old_name`, иначе по `name`) |
 | DELETE | `/agent-backend/bases/{name}` | убрать базу из мапы; нет такой → 400 |
 | GET | `/agent-backend/stats/requests\|summary\|distinct` | прокси к бэкенду `/stats/*` → `{ok, data}` / `{ok: false, error}`; секция `dashboard`. Query пробрасываются как есть (фильтры `user_id`, `base_name`, `agent`, `skill`, `status`, `from`, `to`, `limit`, `offset`) |
+| GET | `/agent-backend/rag/status` | состояние базы знаний: провайдер эмбеддингов, размерность, число документов/чанков, коллекции, пороги; секция `agent-backend` |
+| GET | `/agent-backend/rag/documents?q=&collection=&limit=&offset=` | список документов корпуса с числом чанков; `q` — поиск по названию, `collection` — по коллекции |
+| GET | `/agent-backend/rag/documents/{id}` | документ с чанками (предпросмотр того, что уходит в вектор); `chunks[].is_header` — служебный чанк-заголовок |
+| POST | `/agent-backend/rag/documents` | загрузить документ: `{title, content, collection?, access_profile?, agent_name?, filename?}` → чистка, нарезка, эмбеддинг |
+| DELETE | `/agent-backend/rag/documents/{id}` | удалить документ с чанками |
+| POST | `/agent-backend/rag/search` | пробный поиск `{query, top_k?, min_score?}` — ровно то, что увидит агент (та же выдача и тот же порог отсечения) |
+| POST | `/agent-backend/rag/reingest` | переинжест коллекции `{collection?, replace?, profile?, agent?, limit?}` из папки корпуса; ответ — счётчики (`documents`, `chunks`, `removed`, `skipped`, `errors`) |
+| DELETE | `/agent-backend/rag/collections/{name}` | удалить коллекцию целиком (документы и чанки) |
 
 `bases.conf` — единственное место, где правятся базы вручную; бэкенд
 перечитывает его по mtime (TTL 2 с). Файл отсутствует → fallback на `ONEC_BASES`

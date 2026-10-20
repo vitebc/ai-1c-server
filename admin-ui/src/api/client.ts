@@ -3,6 +3,7 @@ import type {
   AgentItem, SkillFileItem, PatternItem, AgentOverview,
   AgentBackendStatus, EnvEntry, LiveAgents, LiveSkills, LiveTools,
   Me, UserDto,
+  RagDocumentDetail, RagDocumentItem, RagReingestResult, RagSearchResult, RagStatus,
 } from '../types';
 
 const BASE = import.meta.env.VITE_API_BASE || '';
@@ -246,6 +247,30 @@ export const api = {
     request<{ ok: boolean; data?: import('../types').ChatSessionDetail; error?: string }>(`/agent-backend/sessions/${id}/messages?limit=${limit}`),
   getSessionRounds: (id: number, limit = 500) =>
     request<{ ok: boolean; data?: import('../types').AgentRoundsDetail; error?: string }>(`/agent-backend/sessions/${id}/rounds?limit=${limit}`),
+
+  // ─── База знаний (RAG) ───
+  getRagStatus: () => request<RagStatus & { error?: string }>('/agent-backend/rag/status'),
+  getRagDocuments: (params: { q?: string; collection?: string; limit?: number; offset?: number }) => {
+    const qs = new URLSearchParams();
+    if (params.q) qs.set('q', params.q);
+    if (params.collection) qs.set('collection', params.collection);
+    if (params.limit) qs.set('limit', String(params.limit));
+    if (params.offset) qs.set('offset', String(params.offset));
+    const s = qs.toString();
+    return request<{ total: number; items: RagDocumentItem[]; error?: string }>(`/agent-backend/rag/documents${s ? `?${s}` : ''}`);
+  },
+  getRagDocument: (id: number) =>
+    request<RagDocumentDetail & { error?: string }>(`/agent-backend/rag/documents/${id}`),
+  deleteRagDocument: (id: number) =>
+    request<{ ok: boolean; error?: string }>(`/agent-backend/rag/documents/${id}`, { method: 'DELETE' }),
+  uploadRagDocument: (data: { title: string; content: string; collection?: string; access_profile?: string; agent_name?: string | null; filename?: string | null }) =>
+    request<{ ok: boolean; id?: number; chunks?: number; title?: string; error?: string }>('/agent-backend/rag/documents', { method: 'POST', body: JSON.stringify(data) }),
+  searchRag: (data: { query: string; top_k?: number; min_score?: number | null }) =>
+    request<RagSearchResult & { error?: string }>('/agent-backend/rag/search', { method: 'POST', body: JSON.stringify(data) }),
+  reingestRag: (data: { collection?: string; replace?: boolean; profile?: string; agent?: string | null; limit?: number | null }) =>
+    request<RagReingestResult & { error?: string }>('/agent-backend/rag/reingest', { method: 'POST', body: JSON.stringify(data) }),
+  deleteRagCollection: (name: string) =>
+    request<{ ok: boolean; removed?: number; error?: string }>(`/agent-backend/rag/collections/${encodeURIComponent(name)}`, { method: 'DELETE' }),
 
   getAgentChanges: (params: Record<string, string>) => {
     const qs = Object.entries(params).filter(([, v]) => v).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');

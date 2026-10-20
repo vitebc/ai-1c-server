@@ -1245,3 +1245,135 @@ pub async fn session_rounds(
 ) -> Json<Value> {
     proxy_backend_path(&state, &format!("sessions/{session_id}/rounds"), &qs).await
 }
+
+// ─── База знаний (RAG) ───
+//
+// Прокси к /rag/* бэкенда: состояние корпуса, список и просмотр документов,
+// пробный поиск, переинжест. Без JWT — эндпоинты бэкенда читающие (закрытый
+// контур, как остальные), а запись идёт через тот же локальный API.
+
+/// POST/DELETE с телом — в отличие от proxy_get, ждёт ответа бэкенда и
+/// отдаёт его как есть (ошибки бэкенда — с его кодом статуса).
+async fn proxy_backend_send(
+    state: &Arc<AppState>,
+    method: reqwest::Method,
+    path: &str,
+    body: Option<Value>,
+) -> Json<Value> {
+    let url = {
+        let db = state.db.lock().await;
+        let root = project_root(&db);
+        format!("{}/{}", backend_url(&db, &root), path)
+    };
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(600))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => return Json(json!({ "ok": false, "error": e.to_string() })),
+    };
+    let mut req = client.request(method, &url);
+    if let Some(b) = body {
+        req = req.json(&b);
+    }
+    let resp = match req.send().await {
+        Ok(r) => r,
+        Err(e) => return Json(json!({ "ok": false, "error": format!("backend unreachable: {e}") })),
+    };
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    match serde_json::from_str::<Value>(&text) {
+        Ok(v) => Json(v),
+        Err(_) => Json(json!({
+            "ok": false,
+            "error": format!("backend returned {status}"),
+            "detail": text.chars().take(500).collect::<String>(),
+        })),
+    }
+}
+
+/// GET к бэкенду — тело ответа как есть (без обёртки {ok,data}):
+/// у RAG-эндпоинтов форма ответа уже содержит ok/ошибку.
+async fn proxy_backend_raw(
+    state: &Arc<AppState>,
+    path: &str,
+    qs: &HashMap<String, String>,
+) -> Json<Value> {
+    let url = {
+        let db = state.db.lock().await;
+        let root = project_root(&db);
+        let mut url = format!("{}/{}", backend_url(&db, &root), path);
+        let params: Vec<String> = qs
+            .iter()
+            .filter(|(_, v)| !v.is_empty())
+            .map(|(k, v)| format!("{}={}", urlencoding(k), urlencoding(v)))
+            .collect();
+        if !params.is_empty() {
+            url.push_str(&format!("?{}", params.join("&")));
+        }
+        url
+    };
+    match proxy_get(&url).await {
+        Ok(v) => Json(v),
+        Err(e) => Json(json!({ "ok": false, "error": e })),
+    }
+}
+
+pub async fn rag_status(State(state): State<Arc<AppState>>) -> Json<Value> {
+    proxy_backend_raw(&state, "rag/status", &HashMap::new()).await
+}
+
+pub async fn rag_documents(
+    State(state): State<Arc<AppState>>,
+    Query(qs): Query<HashMap<String, String>>,
+) -> Json<Value> {
+    proxy_backend_raw(&state, "rag/documents", &qs).await
+}
+
+pub async fn rag_document(
+    State(state): State<Arc<AppState>>,
+    Path(document_id): Path<u64>,
+) -> Json<Value> {
+    proxy_backend_raw(&state, &format!("rag/documents/{document_id}"), &HashMap::new()).await
+}
+
+pub async fn rag_document_delete(
+    State(state): State<Arc<AppState>>,
+    Path(document_id): Path<u64>,
+) -> Json<Value> {
+    proxy_backend_send(&state, reqwest::Method::DELETE, &format!("rag/documents/{document_id}"), None).await
+}
+
+pub async fn rag_document_upload(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    proxy_backend_send(&state, reqwest::Method::POST, "rag/documents", Some(body)).await
+}
+
+pub async fn rag_search(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    proxy_backend_send(&state, reqwest::Method::POST, "rag/search", Some(body)).await
+}
+
+pub async fn rag_reingest(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    proxy_backend_send(&state, reqwest::Method::POST, "rag/reingest", Some(body)).await
+}
+
+pub async fn rag_collection_delete(
+    State(state): State<Arc<AppState>>,
+    Path(name): Path<String>,
+) -> Json<Value> {
+    proxy_backend_send(
+        &state,
+        reqwest::Method::DELETE,
+        &format!("rag/collections/{}", urlencoding(&name)),
+        None,
+    )
+    .await
+}

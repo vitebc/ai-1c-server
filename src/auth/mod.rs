@@ -151,6 +151,7 @@ pub const SECTIONS: &[&str] = &[
     "agent-patterns",
     "agent-changes",
     "agent-backend",
+    "agent-rag",
     "skills",
     "bsl-ls",
     "configs",
@@ -186,6 +187,7 @@ fn base_sections(role: &str) -> Vec<String> {
             "agent-patterns",
             "agent-changes",
             "agent-backend",
+            "agent-rag",
             "skills",
             "bsl-ls",
             "configs",
@@ -579,6 +581,10 @@ fn section_for(path: &str) -> Option<&'static str> {
         "dashboard"
     } else if rest.starts_with("agent-backend/env") {
         "env"
+    } else if rest.starts_with("agent-backend/rag") {
+        // База знаний: отдельная секция — управление корпусом (загрузка,
+        // переинжест, удаление) привилегированнее просмотра.
+        "agent-rag"
     } else if rest.starts_with("agent-backend") {
         "agent-backend"
     } else if rest.starts_with("skills") {

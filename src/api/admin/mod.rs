@@ -317,4 +317,17 @@ pub fn routes() -> Router<Arc<AppState>> {
             "/agent-backend/sessions/{session_id}/rounds",
             get(agent_backend::session_rounds),
         )
+        // База знаний (RAG): состояние корпуса, документы, поиск, переинжест.
+        .route("/agent-backend/rag/status", get(agent_backend::rag_status))
+        .route("/agent-backend/rag/documents", get(agent_backend::rag_documents).post(agent_backend::rag_document_upload))
+        .route(
+            "/agent-backend/rag/documents/{document_id}",
+            get(agent_backend::rag_document).delete(agent_backend::rag_document_delete),
+        )
+        .route("/agent-backend/rag/search", post(agent_backend::rag_search))
+        .route("/agent-backend/rag/reingest", post(agent_backend::rag_reingest))
+        .route(
+            "/agent-backend/rag/collections/{name}",
+            delete(agent_backend::rag_collection_delete),
+        )
 }

@@ -21,6 +21,7 @@ const SECTION_GROUPS: { title: string; items: { key: string; label: string }[] }
       { key: 'agent-skills', label: 'agent-skills — Agent Skills tab' },
       { key: 'agent-patterns', label: 'agent-patterns — Patterns tab' },
       { key: 'agent-backend', label: 'agent-backend — Backend tab (start/stop/logs)' },
+      { key: 'agent-rag', label: 'agent-rag — Knowledge Base tab (загрузка/переинжест)' },
       { key: 'env', label: 'env — Agent Studio Config (.env) tab' },
     ],
   },
@@ -48,7 +49,7 @@ const ALL_SECTIONS = SECTION_GROUPS.flatMap(g => g.items.map(i => i.key));
 
 const ROLE_BASE: Record<string, string[]> = {
   admin: ALL_SECTIONS,
-  operator: ['dashboard', 'mcp-servers', 'models', 'agent-studio', 'agent-agents', 'agent-skills', 'agent-patterns', 'agent-backend', 'skills', 'bsl-ls', 'configs', 'client-versions', 'clients', 'logs', 'settings', 'fs', 'env'],
+  operator: ['dashboard', 'mcp-servers', 'models', 'agent-studio', 'agent-agents', 'agent-skills', 'agent-patterns', 'agent-backend', 'agent-rag', 'skills', 'bsl-ls', 'configs', 'client-versions', 'clients', 'logs', 'settings', 'fs', 'env'],
   viewer: ['dashboard', 'mcp-servers', 'models', 'agent-agents', 'agent-skills', 'agent-patterns', 'skills', 'bsl-ls', 'configs', 'client-versions', 'clients', 'logs'],
   prompter: ['dashboard', 'mcp-servers', 'models', 'agent-agents', 'agent-skills', 'agent-patterns', 'skills', 'bsl-ls', 'configs', 'client-versions', 'clients', 'logs'],
 };

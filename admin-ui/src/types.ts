@@ -337,3 +337,68 @@ export interface AgentChangesPage {
   items: AgentChange[];
   total: number;
 }
+
+// ─── База знаний (RAG) ───
+
+export interface RagStatus {
+  provider: string;
+  base_url: string;
+  model: string;
+  embedding_dim: number;
+  kb_dir: string;
+  kb_dir_exists: boolean;
+  skill_match_threshold: number;
+  kb_min_score: number;
+  documents: number;
+  chunks: number;
+  collections: { name: string; documents: number; chunks: number }[];
+}
+
+export interface RagDocumentItem {
+  id: number;
+  title: string;
+  source: string;
+  access_profile: string;
+  agent_name: string | null;
+  chunks: number;
+}
+
+export interface RagChunkItem {
+  id: number;
+  position: number;
+  text: string;
+  is_header: boolean;
+}
+
+export interface RagDocumentDetail {
+  id: number;
+  title: string;
+  source: string;
+  access_profile: string;
+  agent_name: string | null;
+  created_at: string | null;
+  chunks: RagChunkItem[];
+}
+
+export interface RagFragment {
+  title: string;
+  text: string;
+}
+
+export interface RagSearchResult {
+  query: string;
+  min_score: number;
+  found: boolean;
+  fragments: RagFragment[];
+}
+
+export interface RagReingestResult {
+  ok: boolean;
+  collection: string;
+  files: number;
+  documents: number;
+  chunks: number;
+  removed: number;
+  skipped: string[];
+  errors: string[];
+}
