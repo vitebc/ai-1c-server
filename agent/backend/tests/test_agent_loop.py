@@ -359,3 +359,11 @@ def test_quoted_error_counts_as_error() -> None:
     res = asyncio.run(run_agent(llm=llm, registry=reg, user_message="тест", max_rounds=15, max_consecutive_errors=2))
     assert res.tool_calls == ["boom"] * 2
     assert res.tool_errors == 2
+
+
+def test_system_prompt_has_anti_hallucination_rule() -> None:
+    # Антигаллюцинационное правило (живой случай: модель выдумала результаты
+    # поиска, не вызвав ни одного search_code) — обязано быть в базовом промпте.
+    from app.agent.loop import SYSTEM_PROMPT
+
+    assert "выдумывать результаты инструментов" in SYSTEM_PROMPT

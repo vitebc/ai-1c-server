@@ -86,25 +86,35 @@ class SkillRegistry:
     def names(self) -> list[str]:
         return [s.name for s in self.skills]
 
+    async def match_all(self, query: str, embeddings: Embeddings) -> list[tuple[Skill, float]]:
+        """Все скиллы с косинусной близостью запроса к description, по убыванию score.
+
+        Пусто/невалидный запрос — пустой список. Вызыватель сам решает порог
+        (match) и логирует кандидатов для диагностики автоподбора.
+        """
+        if not self.skills or not query.strip():
+            return []
+        vecs = await embeddings.embed([query, *(s.description for s in self.skills)])
+        if len(vecs) != len(self.skills) + 1:
+            return []
+        query_vec = _normalized(vecs[0])
+        scored = [
+            (skill, sum(a * b for a, b in zip(query_vec, _normalized(vec), strict=False)))
+            for skill, vec in zip(self.skills, vecs[1:], strict=True)
+        ]
+        return sorted(scored, key=lambda pair: pair[1], reverse=True)
+
     async def match(self, query: str, embeddings: Embeddings, *, min_score: float = 0.0) -> tuple[Skill | None, float]:
         """Top-1 по косинусной близости запроса к description. Возвращает (скил, score).
 
         Пусто/ниже порога — (None, лучший score): слабый матч скил не включает,
         модель работает полным набором тулзов агента.
         """
-        if not self.skills or not query.strip():
+        scored = await self.match_all(query, embeddings)
+        if not scored:
             return None, 0.0
-        vecs = await embeddings.embed([query, *(s.description for s in self.skills)])
-        if len(vecs) != len(self.skills) + 1:
-            return None, 0.0
-        query_vec = _normalized(vecs[0])
-        best: Skill | None = None
-        best_score = 0.0
-        for skill, vec in zip(self.skills, vecs[1:], strict=True):
-            score = sum(a * b for a, b in zip(query_vec, _normalized(vec), strict=False))
-            if score > best_score:
-                best, best_score = skill, score
-        if best is None or best_score <= min_score:
+        best, best_score = scored[0]
+        if best_score <= min_score:
             return None, best_score
         return best, best_score
 

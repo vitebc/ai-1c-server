@@ -122,6 +122,17 @@ def test_match_threshold_filters_weak() -> None:
     assert score < 0.99
 
 
+def test_match_all_sorted_descending() -> None:
+    reg = SkillRegistry()
+    reg.skills.append(Skill(name="a-orders", description="заказы клиента контрагент", tools=("x",), prompt=""))
+    reg.skills.append(Skill(name="b-stock", description="остатки товаров на складах", tools=("y",), prompt=""))
+    scored = asyncio.run(reg.match_all("покажи последние заказы клиента", FakeEmbeddings()))
+    assert [s.name for s, _ in scored] == ["a-orders", "b-stock"]
+    assert all(scored[0][1] >= s[1] for s in scored[1:])
+    # Пустой запрос — пустой список (для диагностики автоподбора).
+    assert asyncio.run(reg.match_all("   ", FakeEmbeddings())) == []
+
+
 def test_subset_keeps_order_and_drops_unknown() -> None:
     reg = ToolRegistry(MOCK_ONEC_TOOLS)
     sub = reg.subset(["get_counterparty", "nope", "get_stock_balance"])
