@@ -6,13 +6,13 @@
 //! Compose commands are an allowlist: `ps`, `up`, `stop`, `restart`, `logs`.
 //! All commands run with `--project-directory <root>` and a timeout.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use std::collections::HashMap;
 
 use axum::{
-    extract::{Query, Request, State},
+    extract::{Path, Query, Request, State},
     Json,
 };
 use serde::{Deserialize, Serialize};
@@ -965,4 +965,41 @@ pub async fn stats_distinct(
         Ok(v) => Json(json!({ "ok": true, "data": v })),
         Err(e) => Json(json!({ "ok": false, "error": e })),
     }
+}
+
+/// Прозрачный GET-прокси на эндпоинт бэкенда (path + query-string как есть).
+async fn proxy_backend_path(state: &Arc<AppState>, path: &str, qs: &HashMap<String, String>) -> Json<Value> {
+    let url = {
+        let db = state.db.lock().await;
+        let root = project_root(&db);
+        let mut url = format!("{}/{}", backend_url(&db, &root), path);
+        let params: Vec<String> = qs
+            .iter()
+            .filter(|(_, v)| !v.is_empty())
+            .map(|(k, v)| format!("{}={}", urlencoding(k), urlencoding(v)))
+            .collect();
+        if !params.is_empty() {
+            url.push_str(&format!("?{}", params.join("&")));
+        }
+        url
+    };
+    match proxy_get(&url).await {
+        Ok(v) => Json(json!({ "ok": true, "data": v })),
+        Err(e) => Json(json!({ "ok": false, "error": e })),
+    }
+}
+
+pub async fn sessions_list(
+    State(state): State<Arc<AppState>>,
+    Query(qs): Query<HashMap<String, String>>,
+) -> Json<Value> {
+    proxy_backend_path(&state, "sessions", &qs).await
+}
+
+pub async fn session_messages(
+    State(state): State<Arc<AppState>>,
+    Path(session_id): Path<u64>,
+    Query(qs): Query<HashMap<String, String>>,
+) -> Json<Value> {
+    proxy_backend_path(&state, &format!("sessions/{session_id}/messages"), &qs).await
 }

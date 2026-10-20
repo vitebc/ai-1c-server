@@ -306,4 +306,9 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/agent-backend/stats/requests", get(agent_backend::stats_requests))
         .route("/agent-backend/stats/summary", get(agent_backend::stats_summary))
         .route("/agent-backend/stats/distinct", get(agent_backend::stats_distinct))
+        .route("/agent-backend/sessions", get(agent_backend::sessions_list))
+        .route(
+            "/agent-backend/sessions/{session_id}/messages",
+            get(agent_backend::session_messages),
+        )
 }
