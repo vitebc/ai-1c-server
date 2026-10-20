@@ -1011,3 +1011,49 @@ pub async fn token_handler(
     }))
     .into_response()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rag_routes_map_to_agent_rag_section() {
+        // Управление корпусом — привилегированная операция, отдельная секция.
+        assert_eq!(
+            section_for("/api/admin/agent-backend/rag/status"),
+            Some("agent-rag")
+        );
+        assert_eq!(
+            section_for("/api/admin/agent-backend/rag/documents"),
+            Some("agent-rag")
+        );
+        assert_eq!(
+            section_for("/api/admin/agent-backend/rag/reingest"),
+            Some("agent-rag")
+        );
+    }
+
+    #[test]
+    fn other_agent_backend_routes_keep_their_sections() {
+        // Соседние маршруты не должны уехать в секцию RAG.
+        assert_eq!(
+            section_for("/api/admin/agent-backend/status"),
+            Some("agent-backend")
+        );
+        assert_eq!(section_for("/api/admin/agent-backend/env"), Some("env"));
+        assert_eq!(
+            section_for("/api/admin/agent-backend/stats/summary"),
+            Some("dashboard")
+        );
+    }
+
+    #[test]
+    fn agent_rag_is_a_known_section() {
+        assert!(SECTIONS.contains(&"agent-rag"));
+        // Секция в базе оператора — по умолчанию.
+        assert!(base_sections(ROLE_OPERATOR).contains(&"agent-rag".to_string()));
+        // Viewer и prompter корпусом не управляют.
+        assert!(!base_sections(ROLE_VIEWER).contains(&"agent-rag".to_string()));
+        assert!(!base_sections(ROLE_PROMPTER).contains(&"agent-rag".to_string()));
+    }
+}
