@@ -123,6 +123,9 @@ class Settings(BaseSettings):
     agents_dir: str = str(Path(__file__).resolve().parent.parent.parent / "agents")
     # Папка паттернов ленивой подгрузки (backend/patterns/*.md). Тоже на каждый запрос.
     patterns_dir: str = str(Path(__file__).resolve().parent.parent.parent / "patterns")
+    # Корень папки базы знаний (agent/kb). Отсюда HTTP-API /rag/reingest берёт
+    # документы для переинжеста; в контейнере путь иной (/app/kb).
+    kb_dir: str = ""
     # Агент по умолчанию (явный дропдаун 1С; пусто в запросе = этот).
     default_agent: str = "assistant"
 
