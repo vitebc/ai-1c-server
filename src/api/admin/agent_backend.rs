@@ -908,6 +908,238 @@ fn write_bases_conf(path: &std::path::Path, entries: &[(String, String)]) -> Res
     Ok(())
 }
 
+// ─── search-maps.conf (мапа база -> разрешённые search-серверы агрегатора) ───
+
+const SEARCH_MAPS_HEADER: &str = "# Мапа база -> разрешённые search-серверы агрегатора (hot-reload, TTL 2с).\n\
+# Управляется из админки (Agent Studio › Search-мапа), ручные правки на хосте переживают деплой.\n\
+# Формат записи: «база=сервер1,сервер2», записи разделены точкой с запятой. Базы нет в файле —\n\
+# без фильтрации, пустое значение — база заблокирована (кодовые тулзы не выдаются вовсе). Имя — НРег.\n";
+
+/// Эффективный путь мапы: SEARCH_MAPS_FILE из agent/.env (если задан), иначе
+/// root/backend/search-maps.conf — зеркало search_maps_file() бэкенда.
+fn search_maps_conf_path(root: &std::path::Path) -> PathBuf {
+    let custom = parse_dotenv(&root.join(".env"))
+        .into_iter()
+        .find(|(k, _)| *k == "SEARCH_MAPS_FILE")
+        .map(|(_, v)| v);
+    match custom.as_deref().map(str::trim) {
+        Some(v) if !v.is_empty() => PathBuf::from(v),
+        _ => root.join("backend").join("search-maps.conf"),
+    }
+}
+
+fn search_map_name_ok(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
+/// Разобрать мапу (зеркало parse_search_maps бэкенда: чанки по ';', чанк
+/// начинается с '#' — пропуск, «база=» — валидный пустой список). Последняя
+/// запись с тем же именем побеждает, как в бэкенде. Некорректные имена
+/// отбрасываются (в найденном тексте они собирают строки комментариев).
+fn parse_search_maps(raw: &str) -> Vec<(String, Vec<String>)> {
+    let mut out: Vec<(String, Vec<String>)> = Vec::new();
+    for chunk in raw.split(';') {
+        let chunk = chunk.trim();
+        if chunk.is_empty() || chunk.starts_with('#') {
+            continue;
+        }
+        if let Some((name, servers)) = chunk.split_once('=') {
+            let name = name.trim().to_lowercase();
+            if name.is_empty() || !search_map_name_ok(&name) {
+                continue;
+            }
+            let servers: Vec<String> = servers
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            if let Some(e) = out.iter_mut().find(|e| e.0 == name) {
+                e.1 = servers;
+            } else {
+                out.push((name, servers));
+            }
+        }
+    }
+    out
+}
+
+/// Сериализовать записи (без заголовка): первая строка — технический ';'
+/// (отрезает заголовок от первой записи), далее каждая запись на своей
+/// строке с хвостовым ';'. У ЗАГОЛОВКА внутри '; нет, значит чанк
+/// до первого ';' — целиком заголовок и начинается с '#' — бэкенд
+/// пропускает его целиком, первая запись в него не попадает.
+fn serialize_search_maps(entries: &[(String, Vec<String>)]) -> String {
+    let mut out = String::new();
+    for (n, servers) in entries {
+        out.push(';');
+        out.push('\n');
+        out.push_str(n);
+        out.push('=');
+        out.push_str(&servers.join(","));
+    }
+    out
+}
+
+/// Записать файл мапы — строго in-place (как write_bases_conf): файл
+/// bind-смонтирован в контейнер бэкенда ПО ФАЙЛУ, tmp+rename сменил бы inode,
+/// и бэкенд продолжил бы читать старую копию до пересоздания контейнера.
+fn write_search_maps(
+    path: &std::path::Path,
+    entries: &[(String, Vec<String>)],
+) -> Result<(), axum::response::Response> {
+    use axum::response::IntoResponse;
+    let body = format!(
+        "{SEARCH_MAPS_HEADER}\n{entries}",
+        entries = serialize_search_maps(entries)
+    );
+    if let Err(e) = std::fs::write(path, body) {
+        return Err(super::AppError::msg(format!("write search-maps.conf: {e}")).into_response());
+    }
+    Ok(())
+}
+
+#[derive(Debug, Serialize)]
+pub struct SearchMapEntry {
+    pub name: String,
+    pub servers: Vec<String>,
+}
+
+/// GET /agent-backend/search-maps — мапа база -> search-серверы для UI.
+/// Битый файл не роняет GET: некорректные записи пропускаются с warning.
+pub async fn search_maps_get(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let root = {
+        let db = state.db.lock().await;
+        project_root(&db)
+    };
+    let path = search_maps_conf_path(&root);
+    let mut warnings: Vec<String> = Vec::new();
+    let entries: Vec<(String, Vec<String>)> = if path.is_file() {
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        // Показываем только валидные имена; «съеденные» комментарием записи
+        // (баг старого заголовка с ';') видны в warnings, а чинятся записью из UI.
+        let parsed = parse_search_maps(&text);
+        for chunk in text.split(';') {
+            let chunk = chunk.trim();
+            if chunk.is_empty() || chunk.starts_with('#') {
+                continue;
+            }
+            if let Some((name, _)) = chunk.split_once('=') {
+                let name = name.trim().to_lowercase();
+                if name.is_empty() || !search_map_name_ok(&name) {
+                    let head: String = chunk.chars().take(40).collect();
+                    warnings.push(format!(
+                        "запись с некорректным именем пропущена (начинается с {head:?}) — сохраните мапу из UI, чтобы файл был перезаписан канонично"
+                    ));
+                }
+            } else {
+                let head: String = chunk.chars().take(40).collect();
+                warnings.push(format!("запись без '=' пропущена: {head:?}"));
+            }
+        }
+        parsed
+    } else {
+        Vec::new()
+    };
+    let bases: Vec<SearchMapEntry> = entries
+        .into_iter()
+        .map(|(name, servers)| SearchMapEntry { name, servers })
+        .collect();
+    let source = if path.is_file() { "file" } else { "absent" };
+    Json(json!({ "source": source, "bases": bases, "warnings": warnings }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SearchMapPut {
+    pub servers: Vec<String>,
+}
+
+/// PUT /agent-backend/search-maps/{base} — создать/заменить запись.
+/// Пустой список серверов разрешён и означает «блок»: базе не выдаётся
+/// ни одна search-тулза (в бэкенде — запись «база=»).
+pub async fn search_maps_put(
+    State(state): State<Arc<AppState>>,
+    Path(base): Path<String>,
+    Json(body): Json<SearchMapPut>,
+) -> Result<Json<Value>, axum::response::Response> {
+    use axum::response::IntoResponse;
+    let name = base.trim().to_lowercase();
+    if !search_map_name_ok(&name) {
+        return Err(super::BadRequest("некорректное имя базы (латиница, цифры, _, -)".into()).into_response());
+    }
+    let mut servers: Vec<String> = Vec::new();
+    for s in body.servers {
+        let s = s.trim().to_string();
+        if s.is_empty() {
+            continue;
+        }
+        if !s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.') {
+            return Err(super::BadRequest(format!(
+                "некорректное имя search-сервера: {s:?} (латиница, цифры, _, -, .)"
+            ))
+            .into_response());
+        }
+        if !servers.contains(&s) {
+            servers.push(s);
+        }
+    }
+    let root = {
+        let db = state.db.lock().await;
+        project_root(&db)
+    };
+    let path = search_maps_conf_path(&root);
+    let mut entries = if path.is_file() {
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        parse_search_maps(&text)
+    } else {
+        Vec::new()
+    };
+    if let Some(e) = entries.iter_mut().find(|e| e.0 == name) {
+        e.1 = servers.clone();
+    } else {
+        entries.push((name.clone(), servers.clone()));
+    }
+    write_search_maps(&path, &entries)?;
+    tracing::info!(
+        "agent-backend: search-maps.conf обновлён — база {name} ({} сервер(ов), hot-reload ≤2с)",
+        servers.len()
+    );
+    Ok(Json(json!({ "ok": true, "name": name, "servers": servers })))
+}
+
+/// DELETE /agent-backend/search-maps/{base} — удалить запись; база переходит
+/// в «без фильтрации» (видит все search-серверы, разрешённые её агентом).
+pub async fn search_maps_delete(
+    State(state): State<Arc<AppState>>,
+    Path(base): Path<String>,
+) -> Result<Json<Value>, axum::response::Response> {
+    use axum::response::IntoResponse;
+    let name = base.trim().to_lowercase();
+    let root = {
+        let db = state.db.lock().await;
+        project_root(&db)
+    };
+    let path = search_maps_conf_path(&root);
+    if !path.is_file() {
+        return Err(super::BadRequest(
+            "search-maps.conf не найден — удалять нечего (все базы и так без фильтрации)".into(),
+        )
+        .into_response());
+    }
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    let mut entries = parse_search_maps(&text);
+    let before = entries.len();
+    entries.retain(|e| e.0 != name);
+    if entries.len() == before {
+        return Err(super::BadRequest(format!("база {name:?} не найдена в search-maps.conf")).into_response());
+    }
+    write_search_maps(&path, &entries)?;
+    tracing::info!("agent-backend: search-maps.conf — запись {name} удалена (hot-reload ≤2с)");
+    Ok(Json(json!({ "ok": true, "name": name })))
+}
+
 // ─── stats (прокси к бэкенду /stats/*) ───
 
 fn build_stats_url(base: &str, path: &str, qs: &HashMap<String, String>) -> String {

@@ -573,6 +573,8 @@ fn section_for(path: &str) -> Option<&'static str> {
         "agent-changes"
     } else if rest.starts_with("agent-backend/bases") {
         "env"
+    } else if rest.starts_with("agent-backend/search-maps") {
+        "env"
     } else if rest.starts_with("agent-backend/stats") {
         "dashboard"
     } else if rest.starts_with("agent-backend/env") {

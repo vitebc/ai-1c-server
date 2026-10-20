@@ -303,6 +303,8 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/agent-backend/live/onec-tools", get(agent_backend::onec_tools))
         .route("/agent-backend/bases", get(agent_backend::bases_list).put(agent_backend::bases_put))
         .route("/agent-backend/bases/{name}", put(agent_backend::bases_put_named).delete(agent_backend::bases_delete))
+        .route("/agent-backend/search-maps", get(agent_backend::search_maps_get))
+        .route("/agent-backend/search-maps/{base}", put(agent_backend::search_maps_put).delete(agent_backend::search_maps_delete))
         .route("/agent-backend/stats/requests", get(agent_backend::stats_requests))
         .route("/agent-backend/stats/summary", get(agent_backend::stats_summary))
         .route("/agent-backend/stats/distinct", get(agent_backend::stats_distinct))
