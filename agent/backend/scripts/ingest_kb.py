@@ -141,6 +141,13 @@ async def ingest_one(
         return 0, 0
     source = f"{collection}/{path.relative_to(root).as_posix()}"
 
+    # Заголовок статьи (с номером версии) — в начало каждого чанка. Без него
+    # запрос «что нового в версии 2.6.1.64» находит соседние релизы: номер
+    # версии есть только в заголовке, а в остальных чанках статьи его нет.
+    # Замер: с заголовком top1 указывает на нужную статью, без — мимо.
+    if title:
+        chunks = [f"{title}\n\n{c}" for c in chunks]
+
     vectors: list[list[float]] = []
     for i in range(0, len(chunks), batch_size):
         vectors.extend(await embeddings.embed(chunks[i : i + batch_size]))

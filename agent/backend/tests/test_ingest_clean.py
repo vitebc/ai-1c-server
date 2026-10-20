@@ -93,3 +93,16 @@ def test_metadata_only_chunk_detected() -> None:
 
 def test_content_chunk_not_metadata_only() -> None:
     assert not is_metadata_only("## Казначейство\n\nСчет 53 добавлен в план счетов.", TITLE)
+
+
+def test_title_prefix_puts_version_into_every_chunk() -> None:
+    """Заголовок (с номером версии) должен быть в каждом чанке статьи.
+
+    Иначе запрос «что нового в версии X» находит соседние релизы: номер
+    версии есть только в заголовке, а в остальных чанках статьи его нет.
+    """
+    title = "1С:Комплексная автоматизация 2. Новое в версии 2.6.1.64"
+    chunk = "Счет 53 добавлен в план счетов."
+    prefixed = f"{title}\n\n{chunk}"
+    assert "2.6.1.64" in prefixed
+    assert prefixed.endswith(chunk)
