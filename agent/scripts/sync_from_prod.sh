@@ -60,8 +60,9 @@ echo "== prod → dev: $SRC_ROOT → $DST_ROOT (prod@$PROD_SHA) =="
 echo "   каталоги: ${DIRS[*]}"
 
 # Страховка: незакоммиченные правки контента в dev не затираем молча.
-DIRTY="$(git -C "$MONO" status --porcelain -- "agent/backend/${DIRS[0]}" \
-  "agent/backend/${DIRS[1]}" "agent/backend/${DIRS[2]}" 2>/dev/null | grep -v '^??' || true)"
+GIT_PATHS=()
+for d in "${DIRS[@]}"; do GIT_PATHS+=("agent/backend/$d"); done
+DIRTY="$(git -C "$MONO" status --porcelain -- "${GIT_PATHS[@]}" 2>/dev/null | grep -v '^??' || true)"
 if [ -n "$DIRTY" ]; then
   echo "ERR: в dev есть незакоммиченные правки контента — закоммить или откати перед синком:" >&2
   echo "$DIRTY" >&2
@@ -102,7 +103,7 @@ if [ "$COMMIT" = "0" ]; then
 fi
 
 MSG="sync: prod 1c-chat@${PROD_SHA} → agent/backend (${DIRS[*]})"
-git -C "$MONO" add -A -- "agent/backend/${DIRS[0]}" "agent/backend/${DIRS[1]}" "agent/backend/${DIRS[2]}"
+git -C "$MONO" add -A -- "${GIT_PATHS[@]}"
 if git -C "$MONO" diff --cached --name-only | grep -q .; then
   git -C "$MONO" commit -q -m "$MSG"
   echo "COMMIT: $(git -C "$MONO" rev-parse --short HEAD) — $MSG"
