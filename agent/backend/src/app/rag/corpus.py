@@ -27,6 +27,10 @@ from app.rag.embeddings import Embeddings
 
 log = logging.getLogger("agent1c.rag.corpus")
 
+#: Ключ advisory-lock в Postgres: защита от параллельных инжестов.
+#: Два одновременных --replace вытесняют документы друг друга.
+_LOCK_ID = 80231
+
 #: Расширения, которые грузим. PDF/DOCX — через Docling (отложено).
 TEXT_SUFFIXES = {".md", ".markdown", ".txt"}
 
@@ -206,33 +210,48 @@ async def ingest_collection(
 
     replace=True — сначала удаляет прежние документы коллекции (повторный
     прогон не плодит дубли).
+
+    Параллельные прогоны заблокированы: без этого два одновременных
+    --replace вытесняют документы друг друга и на выходе остаётся каша.
     """
     result = IngestResult(collection=collection)
     files = collect_files(root, limit)
     result.files = len(files)
-    if replace:
-        result.removed = await purge_collection(session_factory, collection)
-    for path in files:
+    async with session_factory() as session:
+        # pg_advisory_lock — блокировка на уровне БД: держим её до конца
+        # инжеста. Блокировка привязана к СОЕДИНЕНИЮ, а не к транзакции, и
+        # переживает commit — поэтому берём отдельное соединение из пула и
+        # держим его открытым: иначе соединение вернулось бы в пул вместе
+        # с блокировкой и она «залипла» бы на чужом сеансе.
+        connection = await session.connection()
         try:
-            chunks, docs = await ingest_document(
-                path,
-                root=root,
-                collection=collection,
-                access_profile=access_profile,
-                agent_name=agent_name,
-                session_factory=session_factory,
-                embeddings=embeddings,
-                batch_size=batch_size,
-            )
-        except Exception as e:  # noqa: BLE001 — один битый файл не роняет папку
-            log.warning("ошибка инжеста %s: %s", path, e)
-            result.errors.append(f"{path.name}: {e}")
-            continue
-        if not docs:
-            result.skipped.append(path.name)
-            continue
-        result.chunks += chunks
-        result.documents += docs
+            await connection.execute(select(func.pg_advisory_lock(_LOCK_ID)))
+            if replace:
+                result.removed = await purge_collection(session_factory, collection)
+            for path in files:
+                try:
+                    chunks, docs = await ingest_document(
+                        path,
+                        root=root,
+                        collection=collection,
+                        access_profile=access_profile,
+                        agent_name=agent_name,
+                        session_factory=session_factory,
+                        embeddings=embeddings,
+                        batch_size=batch_size,
+                    )
+                except Exception as e:  # noqa: BLE001 — один битый файл не роняет папку
+                    log.warning("ошибка инжеста %s: %s", path, e)
+                    result.errors.append(f"{path.name}: {e}")
+                    continue
+                if not docs:
+                    result.skipped.append(path.name)
+                    continue
+                result.chunks += chunks
+                result.documents += docs
+        finally:
+            await connection.execute(select(func.pg_advisory_unlock(_LOCK_ID)))
+            await connection.close()
     return result
 
 

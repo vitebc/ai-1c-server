@@ -34,6 +34,9 @@ Thumbs.db
 # Data / models (never commit)
 data/
 models/
+# Корпус базы знаний: обновляется скрапером, лежит вне репозитория
+# (/home/test/.config/ai-1c-server/kb, обновление — scripts/sync_kb.sh).
+kb/
 *.gguf
 *.bin
 *.safetensors

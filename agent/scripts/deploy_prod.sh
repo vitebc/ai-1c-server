@@ -73,12 +73,10 @@ mkdir -p "$PROD/backend/alembic"
 rsync -a --delete "$REPO/backend/alembic/" "$PROD/backend/alembic/"
 cp "$REPO/backend/alembic.ini" "$PROD/backend/alembic.ini"
 
-# Корпус базы знаний (agent/kb/) — источник для scripts/ingest_kb.py.
-# В prod едет как есть: это выгрузка статей, а не ручной контент.
-if [ -d "$REPO/kb" ]; then
-  mkdir -p "$PROD/kb"
-  rsync -a --delete "$REPO/kb/" "$PROD/kb/"
-fi
+# Корпус базы знаний в prod НЕ едет: он лежит вне репозитория
+# (KB_HOST_DIR, по умолчанию /home/test/.config/ai-1c-server/kb) — общий
+# для dev и prod, обновляется скрапером. В compose он примонтирован
+# только на чтение.
 
 echo "== Перезапуск backend (force-recreate: гарантируем новый образ) =="
 (cd "$PROD" && docker compose up -d --force-recreate backend)

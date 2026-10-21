@@ -98,7 +98,7 @@ EOF
 
 ```bash
 # dev (хост; DATABASE_URL из ../.env — порт 5435)
-uv run python scripts/ingest_kb.py --dir ../kb/updinfo --collection updinfo --replace
+uv run python scripts/ingest_kb.py --dir /home/test/.config/ai-1c-server/kb/updinfo --collection updinfo --replace
 
 # в контейнере (папка kb примонтирована в /app/kb)
 docker compose exec backend uv run python scripts/ingest_kb.py \
@@ -108,7 +108,7 @@ docker compose exec backend uv run python scripts/ingest_kb.py \
 Ключи: `--profile` (access_profile, по умолчанию `all`), `--agent`
 (agent_name для RAG-изоляции), `--batch-size`, `--limit`.
 
-Коллекция — подпапка в корне корпуса (`kb/updinfo/`). В HTTP-API `/rag/reingest`
+Коллекция — подпапка в корне корпуса (`<KB_DIR>/updinfo/`). В HTTP-API `/rag/reingest`
 нет такой подпапки → 400: молчаливый переход в корень залил бы весь корпус.
 
 Тот же корпус виден в админке: **AI Agent Studio → вкладка «База знаний»**
@@ -127,8 +127,10 @@ docker compose exec backend uv run python scripts/ingest_kb.py \
 из 300 статей: top1 0.641 против 0.605 у варианта «заголовок в каждом чанке»,
 разных статей в top-5 — 5/5 против 4/5).
 
-Путь `kb/updinfo/` — статьи «Новое в версии» с its.1c.ru, наскрапленные
-скрапером `mcp/scraping_its` и синхронизированные в репо.
+Корпус лежит **вне репозитория** — `/home/test/.config/ai-1c-server/kb/`
+(общий для dev и prod, примонтирован в контейнер как `/app/kb`, путь на хосте
+задаётся `KB_HOST_DIR`). Обновляется скрапером `mcp/scraping_its`: скрипт
+`scripts/sync_kb.sh` забирает свежие статьи и переинжестит их.
 
 Запрос и документ эмбеддятся **асимметрично**: к запросу добавляется
 instruct-префикс (задача поиска), документ — как есть. Префикс свой у каждой

@@ -18,11 +18,6 @@ services:
       ONEC_MCP_URL: ${ONEC_MCP_URL_COMPOSE:-http://mcp-proxy:8000}
       # Публикация 1С для дашборда GET /stats/onec (тот же MCP_ONEC_URL, что у mcp-proxy).
       MCP_ONEC_URL: ${MCP_ONEC_URL:-}
-      # Эмбеддинги: llama.cpp-server с Qwen3-Embedding-4B (2560 измерений).
-      # Провайдер 'tei' берёт свой адрес (TEI_BASE_URL), 'llamacpp' — этот.
-      EMBEDDINGS_PROVIDER: ${EMBEDDINGS_PROVIDER:-fake}
-      EMBEDDINGS_BASE_URL: ${EMBEDDINGS_BASE_URL:-}
-      EMBEDDINGS_MODEL: ${EMBEDDINGS_MODEL:-}
       # Полный лог петли (каждый раунд: assistant-контент + tool args/results) — файл.
       LOOP_LOG_FILE: /app/logs/agent-loop.log
     ports:
@@ -40,9 +35,11 @@ services:
       - ./backend/bases.conf:/app/bases.conf:ro
       - ./backend/search-maps.conf:/app/search-maps.conf:ro
       # Папка документов базы знаний — источник для scripts/ingest_kb.py
-      # (инжест запускается внутри контейнера: docker compose exec backend
+      # (инжест внутри контейнера: docker compose exec backend
       # uv run python scripts/ingest_kb.py --dir /app/kb/updinfo --replace).
-      - ./kb:/app/kb:ro
+      # Корпус лежит ВНЕ репозитория (обновляется скрапером): путь задаётся
+      # KB_HOST_DIR, по умолчанию — общий для dev и prod.
+      - "${KB_HOST_DIR:-/home/test/.config/ai-1c-server/kb}:/app/kb:ro"
       # Файл полного лога петли — на хост, чтобы пережил рестарты контейнера.
       - ./logs/agent-loop.log:/app/logs/agent-loop.log
     depends_on:
