@@ -9,7 +9,7 @@
 					<v8:content>ИИ Ассистент</v8:content>
 				</v8:item>
 			</Synonym>
-			<Comment>Корневая подсистема: имя содержит mcp_MCPСервер — движок ядра находит её при обходе.</Comment>
+			<Comment/>
 			<IncludeHelpInContents>true</IncludeHelpInContents>
 			<IncludeInCommandInterface>true</IncludeInCommandInterface>
 			<UseOneCommand>true</UseOneCommand>

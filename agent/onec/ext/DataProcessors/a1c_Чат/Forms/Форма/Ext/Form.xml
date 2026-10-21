@@ -11,51 +11,62 @@
 		<Autofill>false</Autofill>
 	</AutoCommandBar>
 	<Events>
+		<Event name="OnOpen">ПриОткрытии</Event>
 		<Event name="BeforeClose">ПередЗакрытием</Event>
 		<Event name="OnCreateAtServer">ПриСозданииНаСервере</Event>
 	</Events>
 	<ChildItems>
 		<UsualGroup name="Группа1" id="95">
+			<HorizontalStretch>true</HorizontalStretch>
+			<Group>Vertical</Group>
 			<ShowTitle>false</ShowTitle>
 			<ExtendedTooltip name="Группа1РасширеннаяПодсказка" id="96"/>
 			<ChildItems>
-				<RadioButtonField name="Агент" id="92">
-					<DataPath>Агент</DataPath>
-					<Title>
-						<v8:item>
-							<v8:lang>ru</v8:lang>
-							<v8:content>Агент</v8:content>
-						</v8:item>
-					</Title>
-					<RadioButtonType>Tumbler</RadioButtonType>
-					<ContextMenu name="АгентКонтекстноеМеню" id="93"/>
-					<ExtendedTooltip name="АгентРасширеннаяПодсказка" id="94"/>
-					<Events>
-						<Event name="OnChange">АгентПриИзменении</Event>
-					</Events>
-				</RadioButtonField>
-				<InputField name="АдресБэкенда" id="1">
-					<DataPath>АдресБэкенда</DataPath>
-					<Visible>false</Visible>
-					<Title>
-						<v8:item>
-							<v8:lang>ru</v8:lang>
-							<v8:content>Бэкенд</v8:content>
-						</v8:item>
-					</Title>
-					<InputHint>
-						<v8:item>
-							<v8:lang>ru</v8:lang>
-							<v8:content>http://localhost:8000</v8:content>
-						</v8:item>
-					</InputHint>
-					<ContextMenu name="АдресБэкендаКонтекстноеМеню" id="2"/>
-					<ExtendedTooltip name="АдресБэкендаРасширеннаяПодсказка" id="3"/>
-					<Events>
-						<Event name="OnChange">АдресБэкендаПриИзменении</Event>
-					</Events>
-				</InputField>
+				<UsualGroup name="Группа5" id="113">
+					<Representation>None</Representation>
+					<ShowTitle>false</ShowTitle>
+					<ExtendedTooltip name="Группа5РасширеннаяПодсказка" id="114"/>
+					<ChildItems>
+						<RadioButtonField name="Агент" id="92">
+							<DataPath>Агент</DataPath>
+							<Title>
+								<v8:item>
+									<v8:lang>ru</v8:lang>
+									<v8:content>Агент</v8:content>
+								</v8:item>
+							</Title>
+							<RadioButtonType>Tumbler</RadioButtonType>
+							<ContextMenu name="АгентКонтекстноеМеню" id="93"/>
+							<ExtendedTooltip name="АгентРасширеннаяПодсказка" id="94"/>
+							<Events>
+								<Event name="OnChange">АгентПриИзменении</Event>
+							</Events>
+						</RadioButtonField>
+						<InputField name="АдресБэкенда" id="1">
+							<DataPath>АдресБэкенда</DataPath>
+							<Enabled>false</Enabled>
+							<Title>
+								<v8:item>
+									<v8:lang>ru</v8:lang>
+									<v8:content>Бэкенд</v8:content>
+								</v8:item>
+							</Title>
+							<InputHint>
+								<v8:item>
+									<v8:lang>ru</v8:lang>
+									<v8:content>http://localhost:8000</v8:content>
+								</v8:item>
+							</InputHint>
+							<ContextMenu name="АдресБэкендаКонтекстноеМеню" id="2"/>
+							<ExtendedTooltip name="АдресБэкендаРасширеннаяПодсказка" id="3"/>
+							<Events>
+								<Event name="OnChange">АдресБэкендаПриИзменении</Event>
+							</Events>
+						</InputField>
+					</ChildItems>
+				</UsualGroup>
 				<LabelDecoration name="ПредупреждениеБазы" id="97">
+					<HorizontalStretch>true</HorizontalStretch>
 					<Title formatted="false">
 						<v8:item>
 							<v8:lang>ru</v8:lang>
@@ -73,26 +84,6 @@
 			<ShowTitle>false</ShowTitle>
 			<ExtendedTooltip name="Группа2РасширеннаяПодсказка" id="100"/>
 			<ChildItems>
-				<UsualGroup name="Группа3" id="106">
-					<Visible>false</Visible>
-					<Group>Vertical</Group>
-					<Representation>None</Representation>
-					<ShowTitle>false</ShowTitle>
-					<ExtendedTooltip name="Группа3РасширеннаяПодсказка" id="107"/>
-					<ChildItems>
-						<RadioButtonField name="Агенты" id="103">
-							<DataPath>Агент</DataPath>
-							<TitleLocation>None</TitleLocation>
-							<RadioButtonType>RadioButtons</RadioButtonType>
-							<ColumnsCount>1</ColumnsCount>
-							<ContextMenu name="АгентыКонтекстноеМеню" id="104"/>
-							<ExtendedTooltip name="АгентыРасширеннаяПодсказка" id="105"/>
-							<Events>
-								<Event name="OnChange">АгентПриИзменении</Event>
-							</Events>
-						</RadioButtonField>
-					</ChildItems>
-				</UsualGroup>
 				<UsualGroup name="Группа4" id="108">
 					<Representation>None</Representation>
 					<ShowTitle>false</ShowTitle>

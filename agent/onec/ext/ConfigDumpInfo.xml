@@ -7,7 +7,8 @@
 		<Metadata name="CommonModule.a1c_ЧатФоновый.Module" id="3cc9b771-3762-4951-9098-ccf65d49ae5d.0" configVersion="92e5536b4e9a6d9168f02fe7ceaec353e4113f01"/>
 		<Metadata name="CommonPicture.a1c_Лого" id="2f6e59ce-029b-48dd-b6a2-6a3a6d413abc" configVersion="1d0e6df1ac5b57fee431dc94607bb8fa39efbd4c"/>
 		<Metadata name="CommonPicture.a1c_Лого.Picture" id="2f6e59ce-029b-48dd-b6a2-6a3a6d413abc.0" configVersion="ad59bf2b2fe909752516bc77f65ac7d27162f8c1"/>
-		<Metadata name="Configuration.A1C_Инструменты" id="c34d6742-d748-4cee-854a-a3c50b91e65c" configVersion="1c08076385567788f92796042da636b62c966af8"/>
+		<Metadata name="Configuration.A1C_Инструменты" id="c34d6742-d748-4cee-854a-a3c50b91e65c" configVersion="bcf48770c6b552efb08003137d5177a9e3405d48"/>
+		<Metadata name="Configuration.A1C_Инструменты.CommandInterface" id="856ac2ab-1d6e-4872-b736-cdf1a0b69f42.a" configVersion="c767257db73da1f79508369930c919d4884e8731"/>
 		<Metadata name="Configuration.A1C_Инструменты.ManagedApplicationModule" id="856ac2ab-1d6e-4872-b736-cdf1a0b69f42.6" configVersion="1be74ad2943442d195a76835b0aaf52009e91e78"/>
 		<Metadata name="Configuration.A1C_Инструменты.SessionModule" id="856ac2ab-1d6e-4872-b736-cdf1a0b69f42.7" configVersion="774d43251d3609288c3336aa382e3edee451e249"/>
 		<Metadata name="DataProcessor.a1c_ИнструментДерево" id="48a6f040-41a8-4541-b761-c0abf24fe265" configVersion="7fed03a08bb38e29fa69b7b6ea9c72b6ba96e043"/>
@@ -28,7 +29,7 @@
 		<Metadata name="DataProcessor.a1c_ИнструментПрава.ManagerModule" id="dfc4cd13-0730-42f7-af65-287d88efe103.2" configVersion="cc2f3bd32d00a205ef7f024000a40a4ceba53d60"/>
 		<Metadata name="DataProcessor.a1c_Чат" id="a870ecee-7bad-482e-acb4-edf6377b7d36" configVersion="38af9de9c0010caa8bd3b87db6f52304fca3509c"/>
 		<Metadata name="DataProcessor.a1c_Чат.Form.Форма" id="983cd566-8d13-4447-9203-babbf4f3a17d" configVersion="4e84cbb1166aa7973099d5705c6fd47c83904a98"/>
-		<Metadata name="DataProcessor.a1c_Чат.Form.Форма.Form" id="983cd566-8d13-4447-9203-babbf4f3a17d.0" configVersion="d340dd45f268997a1be5763a8fb3bec166b7738b"/>
+		<Metadata name="DataProcessor.a1c_Чат.Form.Форма.Form" id="983cd566-8d13-4447-9203-babbf4f3a17d.0" configVersion="1eee0aac54c81929609a0992cf760ced6bc9433b"/>
 		<Metadata name="DataProcessor.a1c_Чат.Template.HTMLЧат" id="d195e138-5487-4983-8ab6-ad7740dfca4d" configVersion="83a53cd8ffa0407702e9fd196605f66a858fe8fa"/>
 		<Metadata name="DataProcessor.a1c_Чат.Template.ШаблонДиалога" id="5f5e6c2b-2d66-469b-8578-74aa0847df84" configVersion="26f1a42b410ac59e4c8464aea14917debd3e07a9"/>
 		<Metadata name="DataProcessor.a1c_Чат.Template.ШаблонДиалога.Template" id="5f5e6c2b-2d66-469b-8578-74aa0847df84.0" configVersion="43095582cd734ed7e5716e8d0df60e1f81cffd97"/>
@@ -39,7 +40,8 @@
 		<Metadata name="Style.СтильАИ1С_Лосось.Style" id="3ae736ed-c88b-43bb-b4bb-f1abf20756b7.0" configVersion="77acadea6b7cc4d4901363a9a461f0f103822b19"/>
 		<Metadata name="Style.СтильАИ1С_Синий" id="b36ff74a-ff93-4c72-92a5-39e54d99a636" configVersion="b629b2022f9dcad6f1300b388fe91eedb0d46d04"/>
 		<Metadata name="Style.СтильАИ1С_Синий.Style" id="b36ff74a-ff93-4c72-92a5-39e54d99a636.0" configVersion="5623034aaf3cc1cae401a489c61ec4708bf3c03f"/>
-		<Metadata name="Subsystem.a1c_mcp_MCPСервер" id="63cd882b-55f9-4411-8dc9-1a42998f7103" configVersion="c55a9d0e0f727dd0a28985fdeef44164665d79da"/>
+		<Metadata name="Subsystem.a1c_mcp_MCPСервер" id="63cd882b-55f9-4411-8dc9-1a42998f7103" configVersion="9a06777a23616fbe074413b37e9f2e5b0ad74000"/>
+		<Metadata name="Subsystem.a1c_mcp_MCPСервер.CommandInterface" id="63cd882b-55f9-4411-8dc9-1a42998f7103.1" configVersion="42e259a0b9ac751748f6354ecef1ad26ec087d89"/>
 		<Metadata name="Subsystem.a1c_mcp_MCPСервер.Subsystem.mcp_КонтейнерыИнструментов" id="04282bae-0447-4b3c-8c6f-7af12dbcd498" configVersion="2de045eb90182c9e2033fb50a4fd8303b2d81aa4"/>
 	</ConfigVersions>
 </ConfigDumpInfo>
