@@ -67,7 +67,10 @@ const ENV_ALLOWLIST: &[&str] = &[
 ];
 
 fn is_secret(key: &str) -> bool {
-    key.contains("PASSWORD") || key.contains("API_KEY") || key.contains("TOKEN") || key.contains("SECRET")
+    key.contains("PASSWORD")
+        || key.contains("API_KEY")
+        || key.contains("TOKEN")
+        || key.contains("SECRET")
 }
 
 fn project_root(db: &crate::db::Database) -> PathBuf {
@@ -113,10 +116,7 @@ fn validate_profiles(list: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-async fn compose(
-    root: &std::path::Path,
-    args: &[&str],
-) -> Result<(bool, String), String> {
+async fn compose(root: &std::path::Path, args: &[&str]) -> Result<(bool, String), String> {
     let mut cmd = tokio::process::Command::new("docker");
     cmd.arg("compose")
         .arg("--project-directory")
@@ -186,10 +186,7 @@ pub async fn status(State(state): State<Arc<AppState>>) -> Json<BackendStatus> {
                             .and_then(|x| x.as_str())
                             .unwrap_or("unknown")
                             .to_string(),
-                        health: v
-                            .get("Health")
-                            .and_then(|x| x.as_str())
-                            .map(str::to_string),
+                        health: v.get("Health").and_then(|x| x.as_str()).map(str::to_string),
                     });
                 }
             }
@@ -254,7 +251,9 @@ async fn lifecycle(
         project_root(&db)
     };
     if !root.join("docker-compose.yml").is_file() {
-        return Err(super::BadRequest("project root has no docker-compose.yml".into()).into_response());
+        return Err(
+            super::BadRequest("project root has no docker-compose.yml".into()).into_response(),
+        );
     }
     let owned: Vec<String>;
     let args: Vec<&str> = match action {
@@ -280,7 +279,10 @@ async fn lifecycle(
         }
         _ => return Err(super::BadRequest("unknown action".into()).into_response()),
     };
-    tracing::warn!("agent-backend: docker compose {action} services={:?}", body.services);
+    tracing::warn!(
+        "agent-backend: docker compose {action} services={:?}",
+        body.services
+    );
     match compose(&root, &args).await {
         Ok((ok, text)) => Ok(Json(json!({ "ok": ok, "output": text }))),
         Err(e) => Err(super::AppError::msg(e).into_response()),
@@ -377,7 +379,8 @@ fn parse_dotenv(path: &std::path::Path) -> Vec<(String, String)> {
         let k = k.trim().to_string();
         let mut v = v.trim().to_string();
         if v.len() >= 2
-            && ((v.starts_with('"') && v.ends_with('"')) || (v.starts_with('\'') && v.ends_with('\'')))
+            && ((v.starts_with('"') && v.ends_with('"'))
+                || (v.starts_with('\'') && v.ends_with('\'')))
         {
             v = v[1..v.len() - 1].to_string();
         }
@@ -412,7 +415,11 @@ pub async fn env_list(State(state): State<Arc<AppState>>) -> Json<Vec<EnvEntry>>
                 match map.get(*k) {
                     Some(v) => EnvEntry {
                         key: k.to_string(),
-                        value: if secret { Some("***".into()) } else { Some(v.clone()) },
+                        value: if secret {
+                            Some("***".into())
+                        } else {
+                            Some(v.clone())
+                        },
                         masked: secret,
                         present: true,
                     },
@@ -440,7 +447,9 @@ pub async fn env_put(
 ) -> Result<Json<Value>, axum::response::Response> {
     use axum::response::IntoResponse;
     if !ENV_ALLOWLIST.contains(&body.key.as_str()) {
-        return Err(super::BadRequest(format!("key {:?} is not editable", body.key)).into_response());
+        return Err(
+            super::BadRequest(format!("key {:?} is not editable", body.key)).into_response(),
+        );
     }
     if body.value.contains('\n') {
         return Err(super::BadRequest("value must be a single line".into()).into_response());
@@ -475,8 +484,13 @@ pub async fn env_put(
     content.push('\n');
     std::fs::write(&path, content)
         .map_err(|e| super::AppError::msg(format!("write .env: {e}")).into_response())?;
-    tracing::warn!("agent-backend: .env key {} updated (restart backend to apply)", body.key);
-    Ok(Json(json!({ "ok": true, "key": body.key, "restart_required": true })))
+    tracing::warn!(
+        "agent-backend: .env key {} updated (restart backend to apply)",
+        body.key
+    );
+    Ok(Json(
+        json!({ "ok": true, "key": body.key, "restart_required": true }),
+    ))
 }
 
 // ─── live read-through (backend's own view) ───
@@ -498,10 +512,7 @@ async fn proxy_get(url: &str) -> Result<Value, String> {
 /// GET с JWT админки: бэкенд проверяет токен (единый JWT_SECRET) и отдаёт
 /// per-user RLS-данные. Токен берём из запроса к админке — без него бэкенд
 /// отвечает 401 на защищённые эндпоинты (напр. /tools?base_url=...).
-async fn proxy_get_auth(
-    url: &str,
-    bearer: Option<&str>,
-) -> Result<Value, String> {
+async fn proxy_get_auth(url: &str, bearer: Option<&str>) -> Result<Value, String> {
     let mut req = reqwest::Client::new().get(url);
     if let Some(t) = bearer.filter(|t| !t.is_empty()) {
         req = req.header(reqwest::header::AUTHORIZATION, format!("Bearer {t}"));
@@ -575,7 +586,11 @@ pub async fn live_tools(
         if let Some(b) = qs.get("base_url").filter(|b| !b.is_empty()) {
             u.push_str(&format!("?base_url={}", urlencoding(b)));
         }
-        (u, qs.get("base_url").cloned().filter(|b| !b.is_empty()), bearer_from(&headers))
+        (
+            u,
+            qs.get("base_url").cloned().filter(|b| !b.is_empty()),
+            bearer_from(&headers),
+        )
     };
     match proxy_get_auth(&url, bearer.as_deref()).await {
         Ok(mut v) => {
@@ -661,27 +676,35 @@ pub async fn onec_tools(State(state): State<Arc<AppState>>) -> Json<Value> {
     };
 
     // Ответ может быть plain JSON или SSE-фреймом `data: {...}`.
-    let json_text = text.lines().find_map(|l| {
-        let l = l.trim();
-        if let Some(d) = l.strip_prefix("data:") {
-            Some(d.trim())
-        } else if l.starts_with('{') {
-            Some(l)
-        } else {
-            None
-        }
-    }).unwrap_or(&text);
+    let json_text = text
+        .lines()
+        .find_map(|l| {
+            let l = l.trim();
+            if let Some(d) = l.strip_prefix("data:") {
+                Some(d.trim())
+            } else if l.starts_with('{') {
+                Some(l)
+            } else {
+                None
+            }
+        })
+        .unwrap_or(&text);
 
     match serde_json::from_str::<Value>(json_text) {
         Ok(v) => {
             if let Some(err) = v.get("error") {
                 return Json(json!({ "ok": false, "url": target, "error": err.to_string() }));
             }
-            let tools = v.get("result").and_then(|r| r.get("tools")).and_then(|t| t.as_array());
+            let tools = v
+                .get("result")
+                .and_then(|r| r.get("tools"))
+                .and_then(|t| t.as_array());
             let count = tools.map(|a| a.len()).unwrap_or(0);
             Json(json!({ "ok": true, "url": target, "tools_count": count }))
         }
-        Err(e) => Json(json!({ "ok": false, "url": target, "error": format!("некорректный ответ: {e}") })),
+        Err(e) => {
+            Json(json!({ "ok": false, "url": target, "error": format!("некорректный ответ: {e}") }))
+        }
     }
 }
 
@@ -731,7 +754,8 @@ fn parse_bases_lines_impl(raw: &str) -> Vec<(String, String)> {
             if let Some((name, url)) = chunk.split_once('=') {
                 let name = name.trim().to_lowercase();
                 let url = url.trim();
-                let name_ok = !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+                let name_ok =
+                    !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
                 if name_ok && (url.starts_with("http://") || url.starts_with("https://")) {
                     out.push((name, url.to_string()));
                 }
@@ -749,7 +773,8 @@ fn serialize_bases(entries: &[(String, String)]) -> String {
         .join(";")
 }
 
-const BASES_CONF_HEADER: &str = "# Мапа баз ONEC_BASES — hot-reload (перечитывается бэкендом по mtime, TTL 2с).\n\
+const BASES_CONF_HEADER: &str =
+    "# Мапа баз ONEC_BASES — hot-reload (перечитывается бэкендом по mtime, TTL 2с).\n\
 # Формат: \"имя=url;...\". Имя — НРег. Побеждает присланный формой base_url.\n\
 # Кривая запись не роняет бэкенд (warning в лог + fallback на предыдущее значение).\n";
 
@@ -822,7 +847,10 @@ pub async fn bases_put(
     };
     let path = bases_conf_path(&root);
     if !path.is_file() {
-        return Err(super::BadRequest("backend/bases.conf не найден — создайте его из bases.conf.example".into()).into_response());
+        return Err(super::BadRequest(
+            "backend/bases.conf не найден — создайте его из bases.conf.example".into(),
+        )
+        .into_response());
     }
     let text = std::fs::read_to_string(&path).unwrap_or_default();
     // Разбираем только строки "имя=url" (комментарии/пустые игнорируются парсером бэкенда).
@@ -895,27 +923,38 @@ pub async fn bases_delete(
     let before = entries.len();
     entries.retain(|e| e.0 != name);
     if entries.len() == before {
-        return Err(super::BadRequest(format!("база {name:?} не найдена в bases.conf")).into_response());
+        return Err(
+            super::BadRequest(format!("база {name:?} не найдена в bases.conf")).into_response(),
+        );
     }
     write_bases_conf(&path, &entries)?;
     tracing::info!("agent-backend: база {name} отключена в bases.conf (hot-reload ≤2с)");
     Ok(Json(json!({ "ok": true, "name": name })))
 }
 
-fn write_bases_conf(path: &std::path::Path, entries: &[(String, String)]) -> Result<(), axum::response::Response> {
+fn write_bases_conf(
+    path: &std::path::Path,
+    entries: &[(String, String)],
+) -> Result<(), axum::response::Response> {
     use axum::response::IntoResponse;
-    if let Err(e) = std::fs::write(path, format!("{BASES_CONF_HEADER}\n{serialized}\n", serialized = serialize_bases(entries))) {
+    if let Err(e) = std::fs::write(
+        path,
+        format!(
+            "{BASES_CONF_HEADER}\n{serialized}\n",
+            serialized = serialize_bases(entries)
+        ),
+    ) {
         return Err(super::AppError::msg(format!("write bases.conf: {e}")).into_response());
     }
     Ok(())
 }
 
-// ─── search-maps.conf (мапа база -> разрешённые search-серверы агрегатора) ───
+// ─── search-maps.conf v2 (сервер → базы; '*' — прочие; '!база' — блок) ───
 
-const SEARCH_MAPS_HEADER: &str = "# Мапа база -> разрешённые search-серверы агрегатора (hot-reload, TTL 2с).\n\
+const SEARCH_MAPS_HEADER: &str = "# search-maps v2: сервер=база1,база2 (hot-reload, TTL 2с).\n\
 # Управляется из админки (Agent Studio › Search-мапа), ручные правки на хосте переживают деплой.\n\
-# Формат записи: «база=сервер1,сервер2», записи разделены точкой с запятой. Базы нет в файле —\n\
-# без фильтрации, пустое значение — база заблокирована (кодовые тулзы не выдаются вовсе). Имя — НРег.\n";
+# База упомянута в >=1 строке сервера — видит только эти серверы. Явный запрет — '!база='.\n\
+# База не упомянута нигде — список из '*' (пустая '*' = блок для всех прочих), без '*' — без фильтрации.\n";
 
 /// Эффективный путь мапы: SEARCH_MAPS_FILE из agent/.env (если задан), иначе
 /// root/backend/search-maps.conf — зеркало search_maps_file() бэкенда.
@@ -937,50 +976,186 @@ fn search_map_name_ok(name: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
-/// Разобрать мапу (зеркало parse_search_maps бэкенда: чанки по ';', чанк
-/// начинается с '#' — пропуск, «база=» — валидный пустой список). Последняя
-/// запись с тем же именем побеждает, как в бэкенде. Некорректные имена
-/// отбрасываются (в найденном тексте они собирают строки комментариев).
-fn parse_search_maps(raw: &str) -> Vec<(String, Vec<String>)> {
+/// Читается ли файл как v2 (маркер в заголовке).
+fn is_search_maps_v2(raw: &str) -> bool {
+    raw.contains("# search-maps v2")
+}
+
+/// Канон мапы (v2-семантика) при любом формате файла — зеркало SearchMaps бэкенда.
+#[derive(Debug, Default, Clone)]
+struct SearchMapsCanon {
+    /// сервер -> базы (последняя строка с тем же ключом побеждает)
+    servers: Vec<(String, Vec<String>)>,
+    /// строка '*'
+    wildcard: Option<Vec<String>>,
+    /// строки '!база' (явный запрет)
+    blocked: Vec<String>,
+}
+
+/// Инвертировать v1 («база=серверы») в канон v2 в памяти: «база=» без серверов
+/// превращается в блок-строку, упомянутые базы разъезжаются по строкам серверов.
+fn v1_to_canon(entries: &[(String, Vec<String>)]) -> SearchMapsCanon {
+    let mut canon = SearchMapsCanon::default();
+    for (base, servers) in entries {
+        for srv in servers {
+            if let Some(row) = canon.servers.iter_mut().find(|e| &e.0 == srv) {
+                if !row.1.contains(base) {
+                    row.1.push(base.clone());
+                }
+            } else {
+                canon.servers.push((srv.clone(), vec![base.clone()]));
+            }
+        }
+        if servers.is_empty() && !canon.blocked.contains(base) {
+            canon.blocked.push(base.clone());
+        }
+    }
+    canon
+}
+
+/// Разобрать файл старого формата (v1: «база=серверы») — как раньше: чанки по ';',
+/// строка начинается с '#' — пропуск, «база=» — валидный пустой список.
+/// Последняя запись с тем же именем побеждает. Некорректные чанки — в warnings.
+fn parse_search_maps_v1(raw: &str) -> (Vec<(String, Vec<String>)>, Vec<String>) {
     let mut out: Vec<(String, Vec<String>)> = Vec::new();
+    let mut warnings: Vec<String> = Vec::new();
     for chunk in raw.split(';') {
         let chunk = chunk.trim();
         if chunk.is_empty() || chunk.starts_with('#') {
             continue;
         }
-        if let Some((name, servers)) = chunk.split_once('=') {
-            let name = name.trim().to_lowercase();
-            if name.is_empty() || !search_map_name_ok(&name) {
-                continue;
+        match chunk.split_once('=') {
+            Some((name, servers)) => {
+                let name = name.trim().to_lowercase();
+                if name.is_empty() || !search_map_name_ok(&name) {
+                    let head: String = chunk.chars().take(40).collect();
+                    warnings.push(format!(
+                        "v1-запись с некорректным именем пропущена (начинается с {head:?})"
+                    ));
+                    continue;
+                }
+                let servers: Vec<String> = servers
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                if let Some(e) = out.iter_mut().find(|e| e.0 == name) {
+                    e.1 = servers;
+                } else {
+                    out.push((name, servers));
+                }
             }
-            let servers: Vec<String> = servers
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-            if let Some(e) = out.iter_mut().find(|e| e.0 == name) {
-                e.1 = servers;
-            } else {
-                out.push((name, servers));
+            None => {
+                let head: String = chunk.chars().take(40).collect();
+                warnings.push(format!("v1-запись без '=' пропущена: {head:?}"));
             }
         }
     }
-    out
+    (out, warnings)
 }
 
-/// Сериализовать записи (без заголовка): первая строка — технический ';'
-/// (отрезает заголовок от первой записи), далее каждая запись на своей
-/// строке с хвостовым ';'. У ЗАГОЛОВКА внутри '; нет, значит чанк
-/// до первого ';' — целиком заголовок и начинается с '#' — бэкенд
-/// пропускает его целиком, первая запись в него не попадает.
-fn serialize_search_maps(entries: &[(String, Vec<String>)]) -> String {
+/// Список баз из значения строки v2: НРег, пустые чанки пропускаются.
+fn parse_v2_bases(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+/// Разобрать v2 («сервер=базы», '*' — прочие, '!база=' — явный запрет) —
+/// зеркало parse_v2 бэкенда. Кривые чанки — в warnings (GET файл не роняет).
+fn parse_search_maps_v2(raw: &str) -> (SearchMapsCanon, Vec<String>) {
+    let mut canon = SearchMapsCanon::default();
+    let mut warnings: Vec<String> = Vec::new();
+    for chunk in raw.split(';') {
+        let chunk = chunk.trim();
+        if chunk.is_empty() || chunk.starts_with('#') {
+            continue;
+        }
+        let Some((key, value)) = chunk.split_once('=') else {
+            let head: String = chunk.chars().take(40).collect();
+            warnings.push(format!("v2-запись без '=' пропущена: {head:?}"));
+            continue;
+        };
+        let key = key.trim();
+        let bases = parse_v2_bases(value);
+        if key == "*" {
+            canon.wildcard = Some(bases);
+            continue;
+        }
+        if let Some(base) = key.strip_prefix('!') {
+            let base = base.trim().to_lowercase();
+            if !search_map_name_ok(&base) {
+                let head: String = chunk.chars().take(40).collect();
+                warnings.push(format!(
+                    "v2-блок-строка с некорректным именем базы пропущена: {head:?}"
+                ));
+                continue;
+            }
+            if !bases.is_empty() {
+                warnings.push(format!(
+                    "v2-блок-строке !{base}= нельзя назначить серверы — серверы игнорируются"
+                ));
+            }
+            if !canon.blocked.contains(&base) {
+                canon.blocked.push(base);
+            }
+            continue;
+        }
+        let name = key.to_lowercase();
+        if name.is_empty() || !search_map_name_ok(&name) {
+            let head: String = chunk.chars().take(40).collect();
+            warnings.push(format!(
+                "v2-запись с некорректным ключом сервера пропущена: {head:?} — сохраните мапу из UI, чтобы файл был перезаписан канонично"
+            ));
+            continue;
+        }
+        if let Some(row) = canon.servers.iter_mut().find(|e| e.0 == name) {
+            row.1 = bases;
+        } else {
+            canon.servers.push((name, bases));
+        }
+    }
+    (canon, warnings)
+}
+
+/// Разобрать файл любого формата по маркеру: v2 сразу, v1 — с инверсией в памяти.
+fn parse_search_maps_any(raw: &str) -> (SearchMapsCanon, &'static str, Vec<String>) {
+    if is_search_maps_v2(raw) {
+        let (canon, warnings) = parse_search_maps_v2(raw);
+        (canon, "v2", warnings)
+    } else {
+        let (v1, mut warnings) = parse_search_maps_v1(raw);
+        warnings.push(
+            "файл старого формата (v1: база=серверы) — первое сохранение из UI или «Конвертировать» перепишет его в v2"
+                .into(),
+        );
+        (v1_to_canon(&v1), "v1", warnings)
+    }
+}
+
+/// Сериализовать канон (без заголовка): первая строка — технический ';' (отрезает
+/// заголовок от первой записи), далее каждая запись на своей строке с хвостовым ';'.
+/// '*' первой, затем серверы, затем блок-строки. У ЗАГОЛОВКА внутри ';' нет, значит
+/// чанк до первого ';' — целиком заголовок ('#') и бэкенд пропускает его.
+fn serialize_search_maps(m: &SearchMapsCanon) -> String {
+    let mut rows: Vec<(String, Vec<String>)> = Vec::new();
+    if let Some(bases) = &m.wildcard {
+        rows.push(("*".into(), bases.clone()));
+    }
+    rows.extend(m.servers.iter().cloned());
+    for base in &m.blocked {
+        rows.push((format!("!{base}"), Vec::new()));
+    }
     let mut out = String::new();
-    for (n, servers) in entries {
-        out.push(';');
+    out.push(';');
+    for (key, bases) in &rows {
         out.push('\n');
-        out.push_str(n);
+        out.push_str(key);
         out.push('=');
-        out.push_str(&servers.join(","));
+        out.push_str(&bases.join(","));
+        out.push(';');
     }
     out
 }
@@ -990,12 +1165,12 @@ fn serialize_search_maps(entries: &[(String, Vec<String>)]) -> String {
 /// и бэкенд продолжил бы читать старую копию до пересоздания контейнера.
 fn write_search_maps(
     path: &std::path::Path,
-    entries: &[(String, Vec<String>)],
+    canon: &SearchMapsCanon,
 ) -> Result<(), axum::response::Response> {
     use axum::response::IntoResponse;
     let body = format!(
-        "{SEARCH_MAPS_HEADER}\n{entries}",
-        entries = serialize_search_maps(entries)
+        "{SEARCH_MAPS_HEADER}\n{rows}",
+        rows = serialize_search_maps(canon)
     );
     if let Err(e) = std::fs::write(path, body) {
         return Err(super::AppError::msg(format!("write search-maps.conf: {e}")).into_response());
@@ -1004,12 +1179,13 @@ fn write_search_maps(
 }
 
 #[derive(Debug, Serialize)]
-pub struct SearchMapEntry {
+pub struct SearchMapServerRow {
     pub name: String,
-    pub servers: Vec<String>,
+    pub bases: Vec<String>,
 }
 
-/// GET /agent-backend/search-maps — мапа база -> search-серверы для UI.
+/// GET /agent-backend/search-maps — мапа «сервер → базы» для UI.
+/// v1-файл отдаётся в v2-каноне (in-memory инверсия) с format: "v1".
 /// Битый файл не роняет GET: некорректные записи пропускаются с warning.
 pub async fn search_maps_get(State(state): State<Arc<AppState>>) -> Json<Value> {
     let root = {
@@ -1017,108 +1193,138 @@ pub async fn search_maps_get(State(state): State<Arc<AppState>>) -> Json<Value> 
         project_root(&db)
     };
     let path = search_maps_conf_path(&root);
-    let mut warnings: Vec<String> = Vec::new();
-    let entries: Vec<(String, Vec<String>)> = if path.is_file() {
-        let text = std::fs::read_to_string(&path).unwrap_or_default();
-        // Показываем только валидные имена; «съеденные» комментарием записи
-        // (баг старого заголовка с ';') видны в warnings, а чинятся записью из UI.
-        let parsed = parse_search_maps(&text);
-        for chunk in text.split(';') {
-            let chunk = chunk.trim();
-            if chunk.is_empty() || chunk.starts_with('#') {
-                continue;
-            }
-            if let Some((name, _)) = chunk.split_once('=') {
-                let name = name.trim().to_lowercase();
-                if name.is_empty() || !search_map_name_ok(&name) {
-                    let head: String = chunk.chars().take(40).collect();
-                    warnings.push(format!(
-                        "запись с некорректным именем пропущена (начинается с {head:?}) — сохраните мапу из UI, чтобы файл был перезаписан канонично"
-                    ));
-                }
-            } else {
-                let head: String = chunk.chars().take(40).collect();
-                warnings.push(format!("запись без '=' пропущена: {head:?}"));
-            }
-        }
-        parsed
-    } else {
-        Vec::new()
-    };
-    let bases: Vec<SearchMapEntry> = entries
-        .into_iter()
-        .map(|(name, servers)| SearchMapEntry { name, servers })
-        .collect();
     let source = if path.is_file() { "file" } else { "absent" };
-    Json(json!({ "source": source, "bases": bases, "warnings": warnings }))
+    let (canon, format, warnings) = if path.is_file() {
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        parse_search_maps_any(&text)
+    } else {
+        (SearchMapsCanon::default(), "v2", Vec::new())
+    };
+    let servers: Vec<SearchMapServerRow> = canon
+        .servers
+        .iter()
+        .map(|(name, bases)| SearchMapServerRow {
+            name: name.clone(),
+            bases: bases.clone(),
+        })
+        .collect();
+    Json(json!({
+        "source": source,
+        "format": format,
+        "servers": servers,
+        "wildcard": canon.wildcard,
+        "blocks": canon.blocked,
+        "warnings": warnings,
+    }))
 }
 
 #[derive(Debug, Deserialize)]
 pub struct SearchMapPut {
-    pub servers: Vec<String>,
+    pub bases: Vec<String>,
 }
 
-/// PUT /agent-backend/search-maps/{base} — создать/заменить запись.
-/// Пустой список серверов разрешён и означает «блок»: базе не выдаётся
-/// ни одна search-тулза (в бэкенде — запись «база=»).
-pub async fn search_maps_put(
-    State(state): State<Arc<AppState>>,
-    Path(base): Path<String>,
-    Json(body): Json<SearchMapPut>,
-) -> Result<Json<Value>, axum::response::Response> {
+/// Нормализовать список баз: НРег, пустые чанки — мимо, дубли — мимо.
+/// Кривое имя — 400 (UI чипы обычно исключают опечатки, это последняя скважина).
+fn normalize_bases(bases: Vec<String>) -> Result<Vec<String>, axum::response::Response> {
     use axum::response::IntoResponse;
-    let name = base.trim().to_lowercase();
-    if !search_map_name_ok(&name) {
-        return Err(super::BadRequest("некорректное имя базы (латиница, цифры, _, -)".into()).into_response());
-    }
-    let mut servers: Vec<String> = Vec::new();
-    for s in body.servers {
-        let s = s.trim().to_string();
-        if s.is_empty() {
+    let mut out: Vec<String> = Vec::new();
+    for b in bases {
+        let b = b.trim().to_lowercase();
+        if b.is_empty() {
             continue;
         }
-        if !s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.') {
+        if !search_map_name_ok(&b) {
             return Err(super::BadRequest(format!(
-                "некорректное имя search-сервера: {s:?} (латиница, цифры, _, -, .)"
+                "некорректное имя базы {b:?} (латиница, цифры, _, -)"
             ))
             .into_response());
         }
-        if !servers.contains(&s) {
-            servers.push(s);
+        if !out.contains(&b) {
+            out.push(b);
         }
     }
+    Ok(out)
+}
+
+/// Прочитать канон текущего файла (absent — пустой канон).
+fn read_search_maps_canon(path: &std::path::Path) -> SearchMapsCanon {
+    if path.is_file() {
+        let text = std::fs::read_to_string(path).unwrap_or_default();
+        parse_search_maps_any(&text).0
+    } else {
+        SearchMapsCanon::default()
+    }
+}
+
+/// PUT /agent-backend/search-maps/{key} — создать/заменить строку.
+/// Ключи: имя search-сервера, '*' (дефолт для прочих баз), '!база' (явный запрет,
+/// список серверов у неё пуст по определению). Пустой список сервера валиден:
+/// сервер на текущий момент никому не выдаётся.
+pub async fn search_maps_put(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Path(key): axum::extract::Path<String>,
+    Json(body): Json<SearchMapPut>,
+) -> Result<Json<Value>, axum::response::Response> {
+    use axum::response::IntoResponse;
+    let key = key.trim().to_string();
+    let bases = normalize_bases(body.bases)?;
     let root = {
         let db = state.db.lock().await;
         project_root(&db)
     };
     let path = search_maps_conf_path(&root);
-    let mut entries = if path.is_file() {
-        let text = std::fs::read_to_string(&path).unwrap_or_default();
-        parse_search_maps(&text)
+    let mut canon = read_search_maps_canon(&path);
+    if key == "*" {
+        canon.wildcard = Some(bases.clone());
+    } else if let Some(base) = key.strip_prefix('!') {
+        let base = base.trim().to_lowercase();
+        if !search_map_name_ok(&base) {
+            return Err(super::BadRequest(
+                "некорректное имя базы в блок-строке (латиница, цифры, _, -)".into(),
+            )
+            .into_response());
+        }
+        if !bases.is_empty() {
+            return Err(
+                super::BadRequest("блок-строке '!база=' нельзя назначить серверы".into())
+                    .into_response(),
+            );
+        }
+        if !canon.blocked.contains(&base) {
+            canon.blocked.push(base.clone());
+        }
     } else {
-        Vec::new()
-    };
-    if let Some(e) = entries.iter_mut().find(|e| e.0 == name) {
-        e.1 = servers.clone();
-    } else {
-        entries.push((name.clone(), servers.clone()));
+        let name = key.to_lowercase();
+        if !search_map_name_ok(&name) {
+            return Err(super::BadRequest(
+                "некорректный ключ (сервер: латиница, цифры, _, -; '*' — прочие; '!база' — запрет)"
+                    .into(),
+            )
+            .into_response());
+        }
+        if let Some(row) = canon.servers.iter_mut().find(|e| e.0 == name) {
+            row.1 = bases.clone();
+        } else {
+            canon.servers.push((name.clone(), bases.clone()));
+        }
     }
-    write_search_maps(&path, &entries)?;
+    write_search_maps(&path, &canon)?;
     tracing::info!(
-        "agent-backend: search-maps.conf обновлён — база {name} ({} сервер(ов), hot-reload ≤2с)",
-        servers.len()
+        "agent-backend: search-maps.conf обновлён — ключ {key} ({} баз(ы), hot-reload ≤2с)",
+        bases.len()
     );
-    Ok(Json(json!({ "ok": true, "name": name, "servers": servers })))
+    Ok(Json(json!({ "ok": true, "key": key, "bases": bases })))
 }
 
-/// DELETE /agent-backend/search-maps/{base} — удалить запись; база переходит
-/// в «без фильтрации» (видит все search-серверы, разрешённые её агентом).
+/// DELETE /agent-backend/search-maps/{key} — удалить строку ('*', сервер, '!база').
+/// Серверная строка: её базы переходят в «прочие» ('*' или без фильтрации).
+/// Блок-строка: база снимает запрет и переходит в «прочие».
 pub async fn search_maps_delete(
     State(state): State<Arc<AppState>>,
-    Path(base): Path<String>,
+    axum::extract::Path(key): axum::extract::Path<String>,
 ) -> Result<Json<Value>, axum::response::Response> {
     use axum::response::IntoResponse;
-    let name = base.trim().to_lowercase();
+    let key = key.trim().to_string();
     let root = {
         let db = state.db.lock().await;
         project_root(&db)
@@ -1126,20 +1332,77 @@ pub async fn search_maps_delete(
     let path = search_maps_conf_path(&root);
     if !path.is_file() {
         return Err(super::BadRequest(
-            "search-maps.conf не найден — удалять нечего (все базы и так без фильтрации)".into(),
+            "search-maps.conf не найден — удалять нечего (базы и так без фильтрации)".into(),
         )
         .into_response());
     }
-    let text = std::fs::read_to_string(&path).unwrap_or_default();
-    let mut entries = parse_search_maps(&text);
-    let before = entries.len();
-    entries.retain(|e| e.0 != name);
-    if entries.len() == before {
-        return Err(super::BadRequest(format!("база {name:?} не найдена в search-maps.conf")).into_response());
+    let mut canon = read_search_maps_canon(&path);
+    if key == "*" {
+        if canon.wildcard.take().is_none() {
+            return Err(
+                super::BadRequest("строки '*' нет в search-maps.conf".into()).into_response(),
+            );
+        }
+    } else if let Some(base) = key.strip_prefix('!') {
+        let base = base.trim().to_lowercase();
+        let before = canon.blocked.len();
+        canon.blocked.retain(|b| *b != base);
+        if canon.blocked.len() == before {
+            return Err(super::BadRequest(format!(
+                "блок-строка {base:?} не найдена в search-maps.conf"
+            ))
+            .into_response());
+        }
+    } else {
+        let name = key.to_lowercase();
+        let before = canon.servers.len();
+        canon.servers.retain(|e| e.0 != name);
+        if canon.servers.len() == before {
+            return Err(
+                super::BadRequest(format!("сервер {name:?} не найден в search-maps.conf"))
+                    .into_response(),
+            );
+        }
     }
-    write_search_maps(&path, &entries)?;
-    tracing::info!("agent-backend: search-maps.conf — запись {name} удалена (hot-reload ≤2с)");
-    Ok(Json(json!({ "ok": true, "name": name })))
+    write_search_maps(&path, &canon)?;
+    tracing::info!("agent-backend: search-maps.conf — строка {key} удалена (hot-reload ≤2с)");
+    Ok(Json(json!({ "ok": true, "key": key })))
+}
+
+/// POST /agent-backend/search-maps/convert — инвертировать v1-файл («база=серверы»)
+/// в v2 («сервер=базы» + блок-строки) и перезаписать его. Для v2 — no-op (already).
+pub async fn search_maps_convert(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Value>, axum::response::Response> {
+    use axum::response::IntoResponse;
+    let root = {
+        let db = state.db.lock().await;
+        project_root(&db)
+    };
+    let path = search_maps_conf_path(&root);
+    if !path.is_file() {
+        return Err(
+            super::BadRequest("search-maps.conf не найден — конвертировать нечего".into())
+                .into_response(),
+        );
+    }
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    if is_search_maps_v2(&text) {
+        return Ok(Json(json!({ "ok": true, "already": true, "format": "v2" })));
+    }
+    let (v1, _) = parse_search_maps_v1(&text);
+    let canon = v1_to_canon(&v1);
+    write_search_maps(&path, &canon)?;
+    tracing::info!(
+        "agent-backend: search-maps.conf конвертирован v1→v2 ({} сервер(ов), {} блок(ов))",
+        canon.servers.len(),
+        canon.blocked.len()
+    );
+    Ok(Json(json!({
+        "ok": true,
+        "servers": canon.servers.len(),
+        "blocks": canon.blocked.len(),
+    })))
 }
 
 // ─── stats (прокси к бэкенду /stats/*) ───
@@ -1187,9 +1450,7 @@ pub async fn stats_summary(
     }
 }
 
-pub async fn stats_distinct(
-    State(state): State<Arc<AppState>>,
-) -> Json<Value> {
+pub async fn stats_distinct(State(state): State<Arc<AppState>>) -> Json<Value> {
     let url = {
         let db = state.db.lock().await;
         let root = project_root(&db);
@@ -1202,7 +1463,11 @@ pub async fn stats_distinct(
 }
 
 /// Прозрачный GET-прокси на эндпоинт бэкенда (path + query-string как есть).
-async fn proxy_backend_path(state: &Arc<AppState>, path: &str, qs: &HashMap<String, String>) -> Json<Value> {
+async fn proxy_backend_path(
+    state: &Arc<AppState>,
+    path: &str,
+    qs: &HashMap<String, String>,
+) -> Json<Value> {
     let url = {
         let db = state.db.lock().await;
         let root = project_root(&db);
@@ -1278,7 +1543,9 @@ async fn proxy_backend_send(
     }
     let resp = match req.send().await {
         Ok(r) => r,
-        Err(e) => return Json(json!({ "ok": false, "error": format!("backend unreachable: {e}") })),
+        Err(e) => {
+            return Json(json!({ "ok": false, "error": format!("backend unreachable: {e}") }))
+        }
     };
     let status = resp.status();
     let text = resp.text().await.unwrap_or_default();
@@ -1334,14 +1601,25 @@ pub async fn rag_document(
     State(state): State<Arc<AppState>>,
     Path(document_id): Path<u64>,
 ) -> Json<Value> {
-    proxy_backend_raw(&state, &format!("rag/documents/{document_id}"), &HashMap::new()).await
+    proxy_backend_raw(
+        &state,
+        &format!("rag/documents/{document_id}"),
+        &HashMap::new(),
+    )
+    .await
 }
 
 pub async fn rag_document_delete(
     State(state): State<Arc<AppState>>,
     Path(document_id): Path<u64>,
 ) -> Json<Value> {
-    proxy_backend_send(&state, reqwest::Method::DELETE, &format!("rag/documents/{document_id}"), None).await
+    proxy_backend_send(
+        &state,
+        reqwest::Method::DELETE,
+        &format!("rag/documents/{document_id}"),
+        None,
+    )
+    .await
 }
 
 pub async fn rag_document_upload(

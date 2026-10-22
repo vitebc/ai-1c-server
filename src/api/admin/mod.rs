@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use axum::{
     extract::{Query, State},
     http::StatusCode,
@@ -8,12 +7,16 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::sync::Arc;
 use tracing::Level;
 
 use super::AppState;
 use crate::log_buffer::LogEntry;
 use crate::mcp::{JsonRpcRequest, McpServerConfig};
 
+pub mod agent_audit;
+pub mod agent_backend;
+pub mod agent_files;
 mod bsl_ls;
 mod client_versions;
 mod clients;
@@ -24,9 +27,6 @@ mod model_providers;
 pub(crate) mod search_sync;
 mod settings;
 pub mod skills;
-pub mod agent_audit;
-pub mod agent_backend;
-pub mod agent_files;
 mod users;
 
 #[derive(Debug)]
@@ -91,12 +91,16 @@ struct McpServerStatus {
 async fn status(State(state): State<Arc<AppState>>) -> Json<Vec<McpServerStatus>> {
     let rows: Vec<(String, String)> = {
         let db = state.db.lock().await;
-        let mut stmt = db.conn.prepare(
-            "SELECT id, name FROM mcp_servers WHERE enabled = 1 ORDER BY name"
-        ).unwrap();
+        let mut stmt = db
+            .conn
+            .prepare("SELECT id, name FROM mcp_servers WHERE enabled = 1 ORDER BY name")
+            .unwrap();
         stmt.query_map([], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        }).unwrap().flatten().collect()
+        })
+        .unwrap()
+        .flatten()
+        .collect()
     };
     let mut out = Vec::new();
     for (id, name) in rows {
@@ -140,7 +144,11 @@ async fn status(State(state): State<Arc<AppState>>) -> Json<Vec<McpServerStatus>
         out.push(McpServerStatus {
             id,
             name,
-            status: if live { "running".into() } else { "stopped".into() },
+            status: if live {
+                "running".into()
+            } else {
+                "stopped".into()
+            },
         });
     }
     Json(out)
@@ -186,10 +194,8 @@ async fn log_targets(State(state): State<Arc<AppState>>) -> Json<Value> {
 /// numbers instead of zeros (counts only, no sensitive details).
 async fn dashboard(State(state): State<Arc<AppState>>) -> Json<Value> {
     fn count(conn: &rusqlite::Connection, table: &str) -> i64 {
-        conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| {
-            r.get(0)
-        })
-        .unwrap_or(0)
+        conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
+            .unwrap_or(0)
     }
     let (servers, skills, configs, clients) = {
         let db = state.db.lock().await;
@@ -225,23 +231,52 @@ async fn reindex() -> &'static str {
 
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/mcp-servers", get(mcp_servers::list).post(mcp_servers::create))
+        .route(
+            "/mcp-servers",
+            get(mcp_servers::list).post(mcp_servers::create),
+        )
         .route("/mcp-servers/export", get(mcp_servers::export))
-        .route("/mcp-servers/{id}", get(mcp_servers::get_by_id).put(mcp_servers::update).delete(mcp_servers::delete))
+        .route(
+            "/mcp-servers/{id}",
+            get(mcp_servers::get_by_id)
+                .put(mcp_servers::update)
+                .delete(mcp_servers::delete),
+        )
         .route("/mcp-servers/{id}/restart", post(mcp_servers::restart))
         .route("/mcp-servers/{id}/stats", get(mcp_servers::stats))
         .route("/mcp-servers/{id}/tools", get(mcp_servers::tools))
         .route("/mcp-servers/{id}/reindex", post(mcp_servers::reindex))
-        .route("/mcp-servers/reindex/job/{job_id}", get(mcp_servers::reindex_job))
+        .route(
+            "/mcp-servers/reindex/job/{job_id}",
+            get(mcp_servers::reindex_job),
+        )
         .route("/skills", get(skills::list).post(skills::create))
-        .route("/skills/{id}", get(skills::get_by_id).put(skills::update).delete(skills::delete))
+        .route(
+            "/skills/{id}",
+            get(skills::get_by_id)
+                .put(skills::update)
+                .delete(skills::delete),
+        )
         .route("/skills/import", post(skills::import_skills))
         .route("/skills/upload", post(skills::upload_skills))
         .route("/skills/export", get(skills::export_skills))
         .route("/config-profiles", get(configs::list).post(configs::create))
-        .route("/config-profiles/{id}", get(configs::get_by_id).put(configs::update).delete(configs::delete))
-        .route("/client-versions", get(client_versions::list).post(client_versions::create))
-        .route("/client-versions/{id}", get(client_versions::get_by_id).put(client_versions::update).delete(client_versions::delete))
+        .route(
+            "/config-profiles/{id}",
+            get(configs::get_by_id)
+                .put(configs::update)
+                .delete(configs::delete),
+        )
+        .route(
+            "/client-versions",
+            get(client_versions::list).post(client_versions::create),
+        )
+        .route(
+            "/client-versions/{id}",
+            get(client_versions::get_by_id)
+                .put(client_versions::update)
+                .delete(client_versions::delete),
+        )
         .route("/clients", get(clients::list))
         .route("/status", get(status))
         .route("/dashboard", get(dashboard))
@@ -250,10 +285,18 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/logs/targets", get(log_targets))
         .route("/logs/clear", post(clear_logs))
         .route("/fs/browse", get(fs::browse))
-        .route("/model-providers", get(model_providers::list).post(model_providers::create))
+        .route(
+            "/model-providers",
+            get(model_providers::list).post(model_providers::create),
+        )
         .route("/model-providers/options", get(model_providers::options))
         .route("/model-providers/probe", post(model_providers::probe_adhoc))
-        .route("/model-providers/{id}", get(model_providers::get_by_id).put(model_providers::update).delete(model_providers::delete))
+        .route(
+            "/model-providers/{id}",
+            get(model_providers::get_by_id)
+                .put(model_providers::update)
+                .delete(model_providers::delete),
+        )
         .route("/model-providers/{id}/probe", post(model_providers::probe))
         .route("/auth/rotate", post(crate::auth::rotate_handler))
         .route("/auth/token", get(crate::auth::token_handler))
@@ -280,34 +323,89 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/agent-files/mcp-options", get(agent_files::mcp_options))
         .route("/agent-files/base-users", get(agent_files::base_users))
         .route("/agent-files/agents", post(agent_files::create_agent))
-        .route("/agent-files/agents/{name}", put(agent_files::update_agent).delete(agent_files::delete_agent))
+        .route(
+            "/agent-files/agents/{name}",
+            put(agent_files::update_agent).delete(agent_files::delete_agent),
+        )
         .route("/agent-files/skills", post(agent_files::create_skill))
-        .route("/agent-files/skills/{name}", put(agent_files::update_skill).delete(agent_files::delete_skill))
+        .route(
+            "/agent-files/skills/{name}",
+            put(agent_files::update_skill).delete(agent_files::delete_skill),
+        )
         .route("/agent-files/patterns", post(agent_files::create_pattern))
-        .route("/agent-files/patterns/{name}", put(agent_files::update_pattern).delete(agent_files::delete_pattern))
-        .route("/agent-files/patterns/{name}/toggle", post(agent_files::toggle_pattern))
+        .route(
+            "/agent-files/patterns/{name}",
+            put(agent_files::update_pattern).delete(agent_files::delete_pattern),
+        )
+        .route(
+            "/agent-files/patterns/{name}/toggle",
+            post(agent_files::toggle_pattern),
+        )
         .route("/agent-changes", get(agent_audit::list_changes))
-        .route("/agent-changes/distinct", get(agent_audit::distinct_changes))
+        .route(
+            "/agent-changes/distinct",
+            get(agent_audit::distinct_changes),
+        )
         .route("/agent-changes/purge", delete(agent_audit::purge_changes))
         .route("/agent-changes/{id}/diff", get(agent_audit::change_diff))
-        .route("/agent-changes/{id}/revert", post(agent_audit::revert_change))
+        .route(
+            "/agent-changes/{id}/revert",
+            post(agent_audit::revert_change),
+        )
         .route("/agent-backend/status", get(agent_backend::status))
         .route("/agent-backend/up", post(agent_backend::up))
         .route("/agent-backend/stop", post(agent_backend::stop))
         .route("/agent-backend/restart", post(agent_backend::restart))
         .route("/agent-backend/logs", get(agent_backend::logs))
-        .route("/agent-backend/env", get(agent_backend::env_list).put(agent_backend::env_put))
-        .route("/agent-backend/live/agents", get(agent_backend::live_agents))
-        .route("/agent-backend/live/skills", get(agent_backend::live_skills))
+        .route(
+            "/agent-backend/env",
+            get(agent_backend::env_list).put(agent_backend::env_put),
+        )
+        .route(
+            "/agent-backend/live/agents",
+            get(agent_backend::live_agents),
+        )
+        .route(
+            "/agent-backend/live/skills",
+            get(agent_backend::live_skills),
+        )
         .route("/agent-backend/live/tools", get(agent_backend::live_tools))
-        .route("/agent-backend/live/onec-tools", get(agent_backend::onec_tools))
-        .route("/agent-backend/bases", get(agent_backend::bases_list).put(agent_backend::bases_put))
-        .route("/agent-backend/bases/{name}", put(agent_backend::bases_put_named).delete(agent_backend::bases_delete))
-        .route("/agent-backend/search-maps", get(agent_backend::search_maps_get))
-        .route("/agent-backend/search-maps/{base}", put(agent_backend::search_maps_put).delete(agent_backend::search_maps_delete))
-        .route("/agent-backend/stats/requests", get(agent_backend::stats_requests))
-        .route("/agent-backend/stats/summary", get(agent_backend::stats_summary))
-        .route("/agent-backend/stats/distinct", get(agent_backend::stats_distinct))
+        .route(
+            "/agent-backend/live/onec-tools",
+            get(agent_backend::onec_tools),
+        )
+        .route(
+            "/agent-backend/bases",
+            get(agent_backend::bases_list).put(agent_backend::bases_put),
+        )
+        .route(
+            "/agent-backend/bases/{name}",
+            put(agent_backend::bases_put_named).delete(agent_backend::bases_delete),
+        )
+        .route(
+            "/agent-backend/search-maps",
+            get(agent_backend::search_maps_get),
+        )
+        .route(
+            "/agent-backend/search-maps/convert",
+            post(agent_backend::search_maps_convert),
+        )
+        .route(
+            "/agent-backend/search-maps/{key}",
+            put(agent_backend::search_maps_put).delete(agent_backend::search_maps_delete),
+        )
+        .route(
+            "/agent-backend/stats/requests",
+            get(agent_backend::stats_requests),
+        )
+        .route(
+            "/agent-backend/stats/summary",
+            get(agent_backend::stats_summary),
+        )
+        .route(
+            "/agent-backend/stats/distinct",
+            get(agent_backend::stats_distinct),
+        )
         .route("/agent-backend/sessions", get(agent_backend::sessions_list))
         .route(
             "/agent-backend/sessions/{session_id}/messages",
@@ -319,13 +417,19 @@ pub fn routes() -> Router<Arc<AppState>> {
         )
         // База знаний (RAG): состояние корпуса, документы, поиск, переинжест.
         .route("/agent-backend/rag/status", get(agent_backend::rag_status))
-        .route("/agent-backend/rag/documents", get(agent_backend::rag_documents).post(agent_backend::rag_document_upload))
+        .route(
+            "/agent-backend/rag/documents",
+            get(agent_backend::rag_documents).post(agent_backend::rag_document_upload),
+        )
         .route(
             "/agent-backend/rag/documents/{document_id}",
             get(agent_backend::rag_document).delete(agent_backend::rag_document_delete),
         )
         .route("/agent-backend/rag/search", post(agent_backend::rag_search))
-        .route("/agent-backend/rag/reingest", post(agent_backend::rag_reingest))
+        .route(
+            "/agent-backend/rag/reingest",
+            post(agent_backend::rag_reingest),
+        )
         .route(
             "/agent-backend/rag/collections/{name}",
             delete(agent_backend::rag_collection_delete),
