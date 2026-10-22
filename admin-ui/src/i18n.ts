@@ -5,6 +5,7 @@ export const t = {
     dashboard: 'Дашборд', mcp: 'MCP-серверы', models: 'Модели', studio: 'AI Agent Studio',
     skills: 'Скиллы', bsl: 'BSL LS', configs: 'Конфигурации',
     versions: 'Версии клиента', clients: 'Клиенты', logs: 'Логи', users: 'Пользователи',
+    bases1c: 'Базы 1С',
     stats: 'Статистика',
     agentChanges: 'История изменений',
     rag: 'База знаний',

@@ -22,6 +22,7 @@ const RagTab = lazy(() => import('./pages/RagTab'));
 const Users = lazy(() => import('./pages/Users'));
 const Stats = lazy(() => import('./pages/Stats'));
 const AgentChanges = lazy(() => import('./pages/AgentChanges'));
+const Bases1c = lazy(() => import('./pages/Bases1c'));
 import { Btn, Modal, TextInput } from './components/ui';
 
 const AGENT_SECTIONS = ['agent-studio', 'agent-agents', 'agent-skills', 'agent-patterns', 'agent-backend', 'env'];
@@ -44,6 +45,7 @@ const nav = [
   { to: '/configs', label: t.nav.configs, icon: FileJson, section: 'configs' },
   { to: '/client-versions', label: t.nav.versions, icon: Package, section: 'client-versions' },
   { to: '/clients', label: t.nav.clients, icon: UsersIcon, section: 'clients' },
+  { to: '/bases-1c', label: t.nav.bases1c, icon: Database, section: 'bases1c' },
   { to: '/stats', label: t.nav.stats, icon: BarChart3, section: 'dashboard' },
   { to: '/agent-changes', label: t.nav.agentChanges, icon: History, section: 'agent-changes' },
   { to: '/logs', label: t.nav.logs, icon: ScrollText, section: 'logs' },
@@ -159,6 +161,7 @@ function Shell() {
             <Route path="/configs" element={<Guard me={me} section="configs"><Configs /></Guard>} />
             <Route path="/client-versions" element={<Guard me={me} section="client-versions"><ClientVersions /></Guard>} />
             <Route path="/clients" element={<Guard me={me} section="clients"><Clients /></Guard>} />
+            <Route path="/bases-1c" element={<Guard me={me} section="bases1c"><Bases1c /></Guard>} />
             <Route path="/bsl-ls" element={<Guard me={me} section="bsl-ls"><BslLs /></Guard>} />
             <Route path="/agent-studio" element={<Guard me={me} section="agent-studio" anyOf={['agent-agents', 'agent-skills', 'agent-patterns', 'agent-backend', 'env']}><AgentStudio me={me} /></Guard>} />
             <Route path="/rag" element={<Guard me={me} section="agent-rag"><RagTab /></Guard>} />
