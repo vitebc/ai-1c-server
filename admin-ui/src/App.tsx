@@ -1,7 +1,7 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
 import { Route, Routes, NavLink } from 'react-router-dom';
 import {
-  LayoutDashboard, Server, Brain, FileJson, Package, Users as UsersIcon, ScrollText, Code, KeyRound, LogOut, Bot, UserCog, Sun, Moon, Cpu, BarChart3, History,
+  LayoutDashboard, Server, Brain, FileJson, Package, Users as UsersIcon, ScrollText, Code, KeyRound, LogOut, Bot, UserCog, Sun, Moon, Cpu, BarChart3, History, Database,
 } from 'lucide-react';
 import { getToken, setToken, api } from './api/client';
 import type { Me } from './types';
@@ -18,6 +18,7 @@ const Clients = lazy(() => import('./pages/Clients'));
 const Logs = lazy(() => import('./pages/Logs'));
 const BslLs = lazy(() => import('./pages/BslLs'));
 const AgentStudio = lazy(() => import('./pages/AgentStudio'));
+const RagTab = lazy(() => import('./pages/RagTab'));
 const Users = lazy(() => import('./pages/Users'));
 const Stats = lazy(() => import('./pages/Stats'));
 const AgentChanges = lazy(() => import('./pages/AgentChanges'));
@@ -37,6 +38,7 @@ const nav = [
   { to: '/mcp-servers', label: t.nav.mcp, icon: Server, section: 'mcp-servers' },
   { to: '/models', label: t.nav.models, icon: Cpu, section: 'models' },
   { to: '/agent-studio', label: t.nav.studio, icon: Bot, section: 'agent-studio' },
+  { to: '/rag', label: t.nav.rag, icon: Database, section: 'agent-rag' },
   { to: '/skills', label: t.nav.skills, icon: Brain, section: 'skills' },
   { to: '/bsl-ls', label: t.nav.bsl, icon: Code, section: 'bsl-ls' },
   { to: '/configs', label: t.nav.configs, icon: FileJson, section: 'configs' },
@@ -159,6 +161,7 @@ function Shell() {
             <Route path="/clients" element={<Guard me={me} section="clients"><Clients /></Guard>} />
             <Route path="/bsl-ls" element={<Guard me={me} section="bsl-ls"><BslLs /></Guard>} />
             <Route path="/agent-studio" element={<Guard me={me} section="agent-studio" anyOf={['agent-agents', 'agent-skills', 'agent-patterns', 'agent-backend', 'env']}><AgentStudio me={me} /></Guard>} />
+            <Route path="/rag" element={<Guard me={me} section="agent-rag"><RagTab /></Guard>} />
             <Route path="/stats" element={<Guard me={me} section="dashboard"><Stats /></Guard>} />
             <Route path="/agent-changes" element={<Guard me={me} section="agent-changes"><AgentChanges /></Guard>} />
             <Route path="/logs" element={<Guard me={me} section="logs"><Logs /></Guard>} />

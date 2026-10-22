@@ -7,6 +7,7 @@ export const t = {
     versions: 'Версии клиента', clients: 'Клиенты', logs: 'Логи', users: 'Пользователи',
     stats: 'Статистика',
     agentChanges: 'История изменений',
+    rag: 'База знаний',
   },
   common: {
     save: 'Сохранить', cancel: 'Отмена', create: 'Создать', add: 'Добавить',

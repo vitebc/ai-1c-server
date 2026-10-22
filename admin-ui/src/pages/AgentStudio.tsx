@@ -2,13 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Plus, Pencil, Trash2, Play, Pause, Square, RotateCcw, RefreshCw, Server, AlertTriangle, FolderOpen, Database, Power, Check, X, Users, Download } from 'lucide-react';
 import { api } from '../api/client';
 import FileBrowser from '../components/FileBrowser';
-import RagTab from './RagTab';
 import type { AgentItem, SkillFileItem, PatternItem, AgentOverview, AgentBackendStatus, EnvEntry, Me, McpServer } from '../types';
 import { t } from '../i18n';
 import { errText } from '../errors';
 import { PageHeader, Card, CardBody, Btn, IconBtn, Badge, TableShell, Th, Td, Row, Field, TextInput, TextArea, Select, Modal as UiModal, Alert, Segmented, Confirm } from '../components/ui';
 
-type Tab = 'agents' | 'skills' | 'patterns' | 'backend' | 'bases' | 'searchmaps' | 'env' | 'rag';
+type Tab = 'agents' | 'skills' | 'patterns' | 'backend' | 'bases' | 'searchmaps' | 'env';
 
 const TAB_SECTION: Record<Tab, string> = {
   agents: 'agent-agents',
@@ -18,7 +17,6 @@ const TAB_SECTION: Record<Tab, string> = {
   bases: 'env',
   searchmaps: 'env',
   env: 'env',
-  rag: 'agent-rag',
 };
 
 export default function AgentStudio({ me }: { me: Me | null }) {
@@ -81,13 +79,12 @@ export default function AgentStudio({ me }: { me: Me | null }) {
     { key: 'bases', label: t.studio.basesTab },
     { key: 'searchmaps', label: t.studio.searchMapsTab },
     { key: 'env', label: t.studio.env },
-    { key: 'rag', label: t.rag.titleTab },
   ];
   const tabs = allTabs.filter(x => !me || me.sections.includes(TAB_SECTION[x.key]));
 
   useEffect(() => {
     if (me && !me.sections.includes(TAB_SECTION[tab])) {
-      const first = (['agents', 'skills', 'patterns', 'backend', 'bases', 'searchmaps', 'env', 'rag'] as Tab[])
+      const first = (['agents', 'skills', 'patterns', 'backend', 'bases', 'searchmaps', 'env'] as Tab[])
         .find(x => me.sections.includes(TAB_SECTION[x]));
       if (first) setTab(first);
     }
@@ -123,7 +120,6 @@ export default function AgentStudio({ me }: { me: Me | null }) {
       {tab === 'bases' && <BasesTab onChanged={loadBaseUrls} />}
       {tab === 'searchmaps' && <SearchMapsTab onChanged={loadBaseUrls} />}
       {tab === 'env' && <EnvTab />}
-      {tab === 'rag' && <RagTab />}
       {browseRoot && (
         <FileBrowser
           dirsOnly
