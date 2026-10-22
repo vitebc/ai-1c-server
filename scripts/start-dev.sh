@@ -17,6 +17,9 @@ if [ -f "$AGENT_ENV" ]; then
   export JWT_SECRET
 fi
 
+# Версия коммита для отображения в админке
+export COMMIT_HASH="$(git -C "$DIR" rev-parse --short HEAD 2>/dev/null || echo dev)"
+
 if [ ! -x "$BINARY" ]; then
   echo "ERROR: binary not found: $BINARY"
   echo "Build it first: ./scripts/build-linux.sh"
