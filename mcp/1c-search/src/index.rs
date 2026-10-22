@@ -324,6 +324,7 @@ fn migrate_file_catalog_schema(conn: &Connection) {
         ("extension",       "TEXT"),
         ("object_type",     "TEXT"),
         ("object_name",     "TEXT"),
+        ("name_normalized", "TEXT"),
         ("module_kind",     "TEXT"),
         ("source_kind",     "TEXT"),
     ];
@@ -337,6 +338,7 @@ fn migrate_file_catalog_schema(conn: &Connection) {
     let _ = conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_indexed_files_path_lower  ON indexed_files(path_lower);
          CREATE INDEX IF NOT EXISTS idx_indexed_files_name_lower  ON indexed_files(file_name_lower);
+         CREATE INDEX IF NOT EXISTS idx_indexed_files_name_normalized ON indexed_files(name_normalized);
          CREATE INDEX IF NOT EXISTS idx_indexed_files_object      ON indexed_files(object_type, object_name);
          CREATE INDEX IF NOT EXISTS idx_indexed_files_extension   ON indexed_files(extension);"
     );
@@ -388,7 +390,9 @@ pub fn search_files_in_catalog(
     let mut params_values: Vec<String> = Vec::new();
 
     if !query.is_empty() {
+        let query_norm = normalize_name(query);
         let like = format!("%{}%", query);
+        let like_norm = format!("%{}%", query_norm);
         let mut or_parts: Vec<String> = vec![
             "path_lower LIKE ?".to_string(),
             "file_name_lower LIKE ?".to_string(),
@@ -409,6 +413,16 @@ pub fn search_files_in_catalog(
             or_parts.push("object_name LIKE ?".to_string());
         }
         params_values.push(like);
+        // name_normalized — имя без пробелов/тире/подчёркиваний, позволяет
+        // находить «ПС_44» по запросу «ПС44» и наоборот.
+        let has_name_norm: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('indexed_files') WHERE name='name_normalized'",
+            [], |r| r.get(0)
+        ).unwrap_or(0);
+        if has_name_norm > 0 {
+            or_parts.push("name_normalized LIKE ?".to_string());
+            params_values.push(like_norm);
+        }
         conditions.push(format!("({})", or_parts.join(" OR ")));
     }
     if let Some(sp) = scope_prefix {
@@ -498,7 +512,9 @@ pub fn count_files_in_catalog(
     let mut params_values: Vec<String> = Vec::new();
 
     if !query.is_empty() {
+        let query_norm = normalize_name(query);
         let like = format!("%{}%", query);
+        let like_norm = format!("%{}%", query_norm);
         let mut or_parts: Vec<String> = vec![
             "path_lower LIKE ?".to_string(),
             "file_name_lower LIKE ?".to_string(),
@@ -519,6 +535,16 @@ pub fn count_files_in_catalog(
             or_parts.push("object_name LIKE ?".to_string());
         }
         params_values.push(like);
+        // name_normalized — имя без пробелов/тире/подчёркиваний, позволяет
+        // находить «ПС_44» по запросу «ПС44» и наоборот.
+        let has_name_norm: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('indexed_files') WHERE name='name_normalized'",
+            [], |r| r.get(0)
+        ).unwrap_or(0);
+        if has_name_norm > 0 {
+            or_parts.push("name_normalized LIKE ?".to_string());
+            params_values.push(like_norm);
+        }
         conditions.push(format!("({})", or_parts.join(" OR ")));
     }
     if let Some(sp) = scope_prefix {
@@ -563,6 +589,15 @@ pub fn count_files_in_catalog(
     Ok(count)
 }
 
+/// Убирает пробелы, тире, нижние подчёркивания и другие разделители из имени,
+/// чтобы поиск по «ПС44» находил «ПС_44», «ПС 44», «ПС-44».
+fn normalize_name(name: &str) -> String {
+    name.chars()
+        .filter(|c| !c.is_whitespace() && *c != '-' && *c != '_')
+        .collect::<String>()
+        .to_lowercase()
+}
+
 /// Fill file catalog columns for a single file path (called during build/sync).
 #[allow(dead_code)]
 pub fn upsert_file_catalog(
@@ -580,26 +615,29 @@ pub fn upsert_file_catalog(
 
     let (obj_type, obj_name, module_kind) = infer_object_from_path_index(rel_path);
     let object_name_lower = obj_name.as_deref().map(|n| n.to_lowercase());
+    let name_normalized = obj_name.as_deref().map(|n| normalize_name(n));
     let source_kind = if extension == "bsl" { "bsl" } else if extension == "xml" { "xml" } else { "other" };
 
     let _ = conn.execute(
-        "INSERT INTO indexed_files(filepath, modified_at, path_lower, file_name, file_name_lower, extension, object_type, object_name, object_name_lower, module_kind, source_kind)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+        "INSERT INTO indexed_files(filepath, modified_at, path_lower, file_name, file_name_lower, extension, object_type, object_name, object_name_lower, name_normalized, module_kind, source_kind)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
          ON CONFLICT(filepath) DO UPDATE SET
-             modified_at       = excluded.modified_at,
-             path_lower        = excluded.path_lower,
-             file_name         = excluded.file_name,
-             file_name_lower   = excluded.file_name_lower,
-             extension         = excluded.extension,
-             object_type       = excluded.object_type,
-             object_name       = excluded.object_name,
-             object_name_lower = excluded.object_name_lower,
-             module_kind       = excluded.module_kind,
-             source_kind       = excluded.source_kind",
+             modified_at        = excluded.modified_at,
+             path_lower         = excluded.path_lower,
+             file_name          = excluded.file_name,
+             file_name_lower    = excluded.file_name_lower,
+             extension          = excluded.extension,
+             object_type        = excluded.object_type,
+             object_name        = excluded.object_name,
+             object_name_lower  = excluded.object_name_lower,
+             name_normalized    = excluded.name_normalized,
+             module_kind        = excluded.module_kind,
+             source_kind        = excluded.source_kind",
         params![
             rel_path, mtime as i64, path_lower, file_name, file_name_lower,
             extension,
             obj_type.as_deref(), obj_name.as_deref(), object_name_lower.as_deref(),
+            name_normalized.as_deref(),
             module_kind.as_deref(), source_kind
         ],
     );
@@ -990,8 +1028,8 @@ pub fn sync_index(root: &Path, db_path: &Path) -> Result<SyncStats, String> {
         ).map_err(|e| e.to_string())?;
         let mut ins_file = tx.prepare(
             "INSERT OR REPLACE INTO indexed_files
-             (filepath, modified_at, path_lower, file_name, file_name_lower, extension, object_type, object_name, module_kind, source_kind)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"
+             (filepath, modified_at, path_lower, file_name, file_name_lower, extension, object_type, object_name, object_name_lower, name_normalized, module_kind, source_kind)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)"
         ).map_err(|e| e.to_string())?;
 
         for (i, pf) in parsed.iter().enumerate() {
@@ -1023,10 +1061,14 @@ pub fn sync_index(root: &Path, db_path: &Path) -> Result<SyncStats, String> {
             let file_name_lower = file_name.to_lowercase();
             let extension = file_name.rsplit('.').next().filter(|e| *e != file_name.as_str()).unwrap_or("").to_lowercase();
             let source_kind = if extension == "bsl" { "bsl" } else if extension == "xml" { "xml" } else { "other" };
+            let object_name_lower = obj_name.as_deref().map(|n| n.to_lowercase());
+            let name_normalized = obj_name.as_deref().map(|n| normalize_name(n));
             let _ = ins_file.execute(params![
                 pf.rel_path, pf.mtime as i64,
                 path_lower, file_name, file_name_lower, extension,
-                obj_type.as_deref(), obj_name.as_deref(), module_kind.as_deref(), source_kind
+                obj_type.as_deref(), obj_name.as_deref(), object_name_lower.as_deref(),
+                name_normalized.as_deref(),
+                module_kind.as_deref(), source_kind
             ]);
         }
         // statements dropped here — tx borrow ends
@@ -1169,8 +1211,8 @@ pub fn build_index(root: &Path, db_path: &Path) -> Result<usize, String> {
         ).map_err(|e| e.to_string())?;
         let mut ins_file = tx.prepare(
             "INSERT OR REPLACE INTO indexed_files
-             (filepath, modified_at, path_lower, file_name, file_name_lower, extension, object_type, object_name, module_kind, source_kind)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"
+             (filepath, modified_at, path_lower, file_name, file_name_lower, extension, object_type, object_name, object_name_lower, name_normalized, module_kind, source_kind)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)"
         ).map_err(|e| e.to_string())?;
 
         for (i, pf) in parsed_files.iter().enumerate() {
@@ -1197,10 +1239,14 @@ pub fn build_index(root: &Path, db_path: &Path) -> Result<usize, String> {
             let file_name_lower = file_name.to_lowercase();
             let extension = file_name.rsplit('.').next().filter(|e| *e != file_name.as_str()).unwrap_or("").to_lowercase();
             let source_kind = if extension == "bsl" { "bsl" } else if extension == "xml" { "xml" } else { "other" };
+            let object_name_lower = obj_name.as_deref().map(|n| n.to_lowercase());
+            let name_normalized = obj_name.as_deref().map(|n| normalize_name(n));
             let _ = ins_file.execute(params![
                 pf.rel_path, pf.mtime as i64,
                 path_lower, file_name, file_name_lower, extension,
-                obj_type.as_deref(), obj_name.as_deref(), module_kind.as_deref(), source_kind
+                obj_type.as_deref(), obj_name.as_deref(), object_name_lower.as_deref(),
+                name_normalized.as_deref(),
+                module_kind.as_deref(), source_kind
             ]);
         }
         // statements dropped here
