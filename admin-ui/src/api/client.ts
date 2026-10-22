@@ -224,11 +224,13 @@ export const api = {
   deleteAgentBase: (name: string) =>
     request<{ ok: boolean; name: string }>(`/agent-backend/bases/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   getSearchMaps: () =>
-    request<{ source: string; bases: { name: string; servers: string[] }[]; warnings?: string[] }>('/agent-backend/search-maps'),
-  putSearchMapBase: (base: string, servers: string[]) =>
-    request<{ ok: boolean; name: string; servers: string[] }>(`/agent-backend/search-maps/${encodeURIComponent(base)}`, { method: 'PUT', body: JSON.stringify({ servers }) }),
-  deleteSearchMap: (base: string) =>
-    request<{ ok: boolean; name: string }>(`/agent-backend/search-maps/${encodeURIComponent(base)}`, { method: 'DELETE' }),
+    request<{ source: string; format: 'v1' | 'v2'; servers: { name: string; bases: string[] }[]; wildcard: string[] | null; blocks: string[]; warnings?: string[] }>('/agent-backend/search-maps'),
+  putSearchMapKey: (key: string, bases: string[]) =>
+    request<{ ok: boolean; key: string; bases: string[] }>(`/agent-backend/search-maps/${encodeURIComponent(key)}`, { method: 'PUT', body: JSON.stringify({ bases }) }),
+  deleteSearchMap: (key: string) =>
+    request<{ ok: boolean; key: string }>(`/agent-backend/search-maps/${encodeURIComponent(key)}`, { method: 'DELETE' }),
+  convertSearchMaps: () =>
+    request<{ ok: boolean; already?: boolean }>('/agent-backend/search-maps/convert', { method: 'POST' }),
   getStatsRequests: (params: Record<string, string>) => {
     const qs = Object.entries(params).filter(([, v]) => v).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
     return request<{ ok: boolean; data?: { total: number; items: StatsRequest[] }; error?: string }>(`/agent-backend/stats/requests${qs ? `?${qs}` : ''}`);
