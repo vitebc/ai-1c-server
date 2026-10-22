@@ -28,7 +28,6 @@ use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
-use rand_core::OsRng;
 use axum::{
     extract::{ConnectInfo, Extension, State},
     http::{Request, StatusCode},
@@ -37,6 +36,7 @@ use axum::{
     Json,
 };
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation};
+use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -152,6 +152,7 @@ pub const SECTIONS: &[&str] = &[
     "agent-changes",
     "agent-backend",
     "agent-rag",
+    "bases1c",
     "skills",
     "bsl-ls",
     "configs",
@@ -188,6 +189,7 @@ fn base_sections(role: &str) -> Vec<String> {
             "agent-changes",
             "agent-backend",
             "agent-rag",
+            "bases1c",
             "skills",
             "bsl-ls",
             "configs",
@@ -209,6 +211,7 @@ fn base_sections(role: &str) -> Vec<String> {
             "agent-skills",
             "agent-patterns",
             "agent-changes",
+            "bases1c",
             "skills",
             "bsl-ls",
             "configs",
@@ -269,11 +272,7 @@ pub fn role_base_sections(db: &Database, role: &str) -> Vec<String> {
 /// per-user JSON overrides applied. Overrides only operate *within* the role
 /// base: `false` removes, `true` re-grants — granting outside the role is
 /// impossible (use the role matrix instead).
-pub fn effective_sections(
-    db: &Database,
-    role: &str,
-    overrides: Option<&str>,
-) -> Vec<String> {
+pub fn effective_sections(db: &Database, role: &str, overrides: Option<&str>) -> Vec<String> {
     let base = role_base_sections(db, role);
     let mut set: std::collections::HashSet<String> = base.iter().cloned().collect();
     if let Some(raw) = overrides {
@@ -416,7 +415,8 @@ fn jwt_secret(db: &Database) -> Result<String, Box<dyn std::error::Error>> {
             return Ok(s);
         }
     }
-    let secret = uuid::Uuid::new_v4().simple().to_string() + &uuid::Uuid::new_v4().simple().to_string();
+    let secret =
+        uuid::Uuid::new_v4().simple().to_string() + &uuid::Uuid::new_v4().simple().to_string();
     db.conn.execute(
         "INSERT INTO server_settings (key, value) VALUES ('jwt_secret', ?1)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -561,7 +561,8 @@ fn section_for(path: &str) -> Option<&'static str> {
         "models"
     } else if rest.starts_with("agent-files/tools")
         || rest == "agent-files/mcp-options"
-        || rest == "agent-files" {
+        || rest == "agent-files"
+    {
         "__agent_files_any"
     } else if rest.starts_with("agent-backend/live") {
         "__agent_files_any"
@@ -786,7 +787,11 @@ fn can_write(role: &str, path: &str) -> bool {
     }
 }
 
-fn check_access(identity: &AuthIdentity, path: &str, method: &axum::http::Method) -> Option<Response> {
+fn check_access(
+    identity: &AuthIdentity,
+    path: &str,
+    method: &axum::http::Method,
+) -> Option<Response> {
     // Section check.
     let section = section_for(path).unwrap_or("dashboard");
     if !identity.system {
