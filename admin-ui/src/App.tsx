@@ -1,7 +1,7 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
 import { Route, Routes, NavLink } from 'react-router-dom';
 import {
-  LayoutDashboard, Server, Brain, FileJson, Package, Users as UsersIcon, ScrollText, Code, KeyRound, LogOut, Bot, UserCog, Sun, Moon, Cpu, BarChart3, History, Database,
+  LayoutDashboard, Server, Brain, FileJson, Package, Users as UsersIcon, ScrollText, Code, KeyRound, LogOut, Bot, UserCog, Sun, Moon, Cpu, BarChart3, History, Database, GitBranch,
 } from 'lucide-react';
 import { getToken, setToken, api } from './api/client';
 import type { Me } from './types';
@@ -56,6 +56,7 @@ function Shell() {
   const [authed, setAuthed] = useState<boolean | null>(null);
   const [me, setMe] = useState<Me | null>(null);
   const [showPw, setShowPw] = useState(false);
+  const commit = import.meta.env.VITE_COMMIT_HASH ?? 'dev';
   const { theme, toggle } = useTheme();
 
   useEffect(() => {
@@ -136,6 +137,11 @@ function Shell() {
           {me && !me.system && (
             <div className="px-3 py-1 text-xs text-slate-500 dark:text-slate-400">
               {me.username} <span className="opacity-70">({me.role})</span>
+            </div>
+          )}
+          {commit && (
+            <div className="px-3 py-1 text-[10px] text-slate-400 dark:text-slate-500 font-mono">
+              <GitBranch size={11} className="mr-1" /> {commit}
             </div>
           )}
           {me && !me.system && (
