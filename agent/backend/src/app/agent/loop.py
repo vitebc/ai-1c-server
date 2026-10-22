@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -476,6 +477,8 @@ async def run_agent(
 
 #: Ответы инструментов, которые означают «ничего не нашлось» (не ошибка!).
 #: Список короткий и явный: эвристика по тексту, а не универсальный разбор JSON.
+#: Остережение: «0 файлов»/«0 результатов» проверяются как число — иначе маркер
+#: ловит подстроку в «Найдено 20 файлов» и успевает оборвать рабочий поиск.
 _EMPTY_MARKERS = (
     "найдено 0",
     "0 найдено",
@@ -483,16 +486,21 @@ _EMPTY_MARKERS = (
     "ничего не найдено",
     "нет результатов",
     "пустой результат",
-    "0 файлов",
-    "0 результатов",
     "0 записей",
 )
+
+_FILES_COUNT_RE = re.compile(r"найдено\s+(\d+)\s+файлов?", re.IGNORECASE)
 
 
 def _is_empty_result(feedback: str) -> bool:
     """Похоже ли, что инструмент ответил «ничего не нашлось» (а не сломался)."""
     head = feedback[:400].lower()
-    return any(m in head for m in _EMPTY_MARKERS)
+    # «Найдено 0 файлов» — реальный ноль. «Найдено 20 файлов» — успех, хотя в
+    # тексте есть подстрока «0 файлов» (из «20»); поэтому проверяем число.
+    m = _FILES_COUNT_RE.search(head)
+    if m:
+        return int(m.group(1)) == 0
+    return any(marker in head for marker in _EMPTY_MARKERS)
 
 
 def _norm_args(arguments: Any) -> str:
