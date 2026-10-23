@@ -867,23 +867,28 @@ async def _chat_impl(
         async def _run_bg() -> None:
             started = time.monotonic()
             try:
-                result = await run_agent(
-                    llm=llm,
-                    registry=registry,
-                    user_message=user_content,
-                    user_id=req.user_id,
-                    access_profile=profile,
-                    base_name=req.base_name or "",
-                    base_url=base_root or "",
-                    max_rounds=max_rounds,
-                    history=history if history else None,
-                    extra_system=extra_system,
-                    skill_name=skill_name,
-                    agent_name=agent_name,
-                    base_system=base_system,
-                    max_consecutive_errors=settings.agent_max_consecutive_errors,
-                    max_repeat_calls=settings.agent_max_repeat_calls,
-                )
+                try:
+                    result = await run_agent(
+                        llm=llm,
+                        registry=registry,
+                        user_message=user_content,
+                        user_id=req.user_id,
+                        access_profile=profile,
+                        base_name=req.base_name or "",
+                        base_url=base_root or "",
+                        max_rounds=max_rounds,
+                        history=history if history else None,
+                        extra_system=extra_system,
+                        skill_name=skill_name,
+                        agent_name=agent_name,
+                        base_system=base_system,
+                        max_consecutive_errors=settings.agent_max_consecutive_errors,
+                        max_repeat_calls=settings.agent_max_repeat_calls,
+                    )
+                except Exception as e:  # noqa: BLE001 — модель недоступна: отвечаем текстом
+                    code = errors.error_code()
+                    log.exception("чат (фон): обращение к LLM не удалось code=%s (%s)", code, type(e).__name__)
+                    result = AgentResult(answer=errors.llm(e), rounds=0, tool_calls=[], tool_errors=1)
                 async with SessionFactory() as s:
                     s.add(Message(session_id=session_id, role="assistant", content=result.answer))
                     await s.commit()
