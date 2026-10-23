@@ -69,7 +69,10 @@ def _count_commits_today() -> int:
 
 
 def main() -> int:
-    if not (REPO_ROOT / ".git").exists():
+    # Монорепо: agent/ — подкаталог репозитория (git subtree), .git лежит в корне.
+    try:
+        _git("rev-parse", "--show-toplevel")
+    except subprocess.CalledProcessError:
         print(f"не git-репозиторий: {REPO_ROOT}")
         return 1
 
