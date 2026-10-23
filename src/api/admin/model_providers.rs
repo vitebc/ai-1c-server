@@ -1,9 +1,9 @@
-use std::sync::Arc;
 use axum::{
     extract::{Path, State},
     Json,
 };
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 use super::super::AppState;
 
@@ -92,9 +92,17 @@ pub async fn list(State(state): State<Arc<AppState>>) -> Json<Vec<ModelProviderR
     let db = state.db.lock().await;
     let mut stmt = db
         .conn
-        .prepare(&format!("SELECT {} FROM model_providers ORDER BY name", PROVIDER_COLS))
+        .prepare(&format!(
+            "SELECT {} FROM model_providers ORDER BY name",
+            PROVIDER_COLS
+        ))
         .unwrap();
-    Json(stmt.query_map([], row_to_provider).unwrap().flatten().collect())
+    Json(
+        stmt.query_map([], row_to_provider)
+            .unwrap()
+            .flatten()
+            .collect(),
+    )
 }
 
 pub async fn get_by_id(
@@ -105,7 +113,10 @@ pub async fn get_by_id(
     let row = db
         .conn
         .query_row(
-            &format!("SELECT {} FROM model_providers WHERE id = ?1", PROVIDER_COLS),
+            &format!(
+                "SELECT {} FROM model_providers WHERE id = ?1",
+                PROVIDER_COLS
+            ),
             [&id],
             row_to_provider,
         )
@@ -123,7 +134,9 @@ pub async fn create(
     }
     let base_url = body.base_url.unwrap_or_default().trim().to_string();
     if !valid_base_url(&base_url) {
-        return Err(super::AppError::msg("base_url must start with http:// or https://"));
+        return Err(super::AppError::msg(
+            "base_url must start with http:// or https://",
+        ));
     }
     let id = uuid::Uuid::new_v4().to_string();
     let models = serde_json::to_string(&normalize_models(body.models)).unwrap();
@@ -171,7 +184,10 @@ pub async fn update(
     let existing = db
         .conn
         .query_row(
-            &format!("SELECT {} FROM model_providers WHERE id = ?1", PROVIDER_COLS),
+            &format!(
+                "SELECT {} FROM model_providers WHERE id = ?1",
+                PROVIDER_COLS
+            ),
             [&id],
             row_to_provider,
         )
@@ -183,7 +199,9 @@ pub async fn update(
     }
     let base_url = body.base_url.unwrap_or(existing.base_url);
     if !valid_base_url(&base_url) {
-        return Err(super::AppError::msg("base_url must start with http:// or https://"));
+        return Err(super::AppError::msg(
+            "base_url must start with http:// or https://",
+        ));
     }
     let api_key = match body.api_key {
         Some(k) if !k.is_empty() => k,
@@ -199,7 +217,15 @@ pub async fn update(
     if let Err(e) = db.conn.execute(
         "UPDATE model_providers SET name=?1, base_url=?2, api_key=?3, models=?4,
          enabled=?5, is_default=?6, updated_at=datetime('now') WHERE id=?7",
-        rusqlite::params![name.trim(), base_url.trim(), api_key, models, enabled, is_default, id],
+        rusqlite::params![
+            name.trim(),
+            base_url.trim(),
+            api_key,
+            models,
+            enabled,
+            is_default,
+            id
+        ],
     ) {
         let msg = e.to_string();
         if msg.contains("UNIQUE") {
@@ -223,7 +249,9 @@ pub async fn delete(
     Path(id): Path<String>,
 ) -> Result<Json<()>, super::AppError> {
     let db = state.db.lock().await;
-    let changes = db.conn.execute("DELETE FROM model_providers WHERE id = ?1", [&id])?;
+    let changes = db
+        .conn
+        .execute("DELETE FROM model_providers WHERE id = ?1", [&id])?;
     if changes == 0 {
         return Err(super::NotFound.into());
     }
@@ -320,8 +348,7 @@ pub async fn options(State(state): State<Arc<AppState>>) -> Json<serde_json::Val
             Ok(mut stmt) => stmt
                 .query_map([], |row| {
                     let raw: String = row.get(1)?;
-                    let models: Vec<String> =
-                        serde_json::from_str(&raw).unwrap_or_default();
+                    let models: Vec<String> = serde_json::from_str(&raw).unwrap_or_default();
                     Ok((row.get::<_, String>(0)?, models, row.get::<_, i32>(2)? != 0))
                 })
                 .map(|r| r.flatten().collect())

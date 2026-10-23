@@ -2,12 +2,9 @@
 //! `search_index_dir`, `auth_required`, etc.). Token material is never exposed
 //! here — use `/api/admin/auth/token`.
 
-use std::sync::Arc;
-use axum::{
-    extract::State,
-    Json,
-};
+use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 use super::super::AppState;
 
@@ -35,8 +32,7 @@ pub async fn list(State(state): State<Arc<AppState>>) -> Json<Vec<Setting>> {
         })
         .unwrap();
     Json(
-        rows
-            .flatten()
+        rows.flatten()
             .map(|(k, v)| Setting {
                 value: if k == "api_token_hash" || k == "api_token" {
                     None
@@ -53,10 +49,7 @@ pub async fn upsert(
     State(state): State<Arc<AppState>>,
     Json(body): Json<PutSetting>,
 ) -> Result<Json<Setting>, super::AppError> {
-    if body.key.trim().is_empty()
-        || body.key == "api_token_hash"
-        || body.key == "api_token"
-    {
+    if body.key.trim().is_empty() || body.key == "api_token_hash" || body.key == "api_token" {
         return Err(super::AppError::msg("invalid key"));
     }
     let db = state.db.lock().await;

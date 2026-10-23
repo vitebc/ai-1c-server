@@ -135,7 +135,10 @@ impl McpSession {
         Ok(())
     }
 
-    async fn send_notification(&self, msg: &serde_json::Value) -> Result<(), Box<dyn std::error::Error>> {
+    async fn send_notification(
+        &self,
+        msg: &serde_json::Value,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let mut line = serde_json::to_string(msg)?;
         line.push('\n');
         let mut writer = self.writer.lock().await;
@@ -144,7 +147,10 @@ impl McpSession {
         Ok(())
     }
 
-    pub async fn call(&self, request: JsonRpcRequest) -> Result<JsonRpcResponse, Box<dyn std::error::Error>> {
+    pub async fn call(
+        &self,
+        request: JsonRpcRequest,
+    ) -> Result<JsonRpcResponse, Box<dyn std::error::Error>> {
         let req_id = {
             let mut n = self.next_id.lock().await;
             let id = *n;

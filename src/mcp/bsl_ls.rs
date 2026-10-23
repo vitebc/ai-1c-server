@@ -1,10 +1,9 @@
+use serde::Serialize;
 use std::path::Path;
 use std::sync::Arc;
-use serde::Serialize;
 use std::sync::Mutex as StdMutex;
+use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
-use tokio::process::{Command, Child};
-
 
 #[derive(Debug, Clone)]
 pub struct BslLsConfig {
@@ -34,22 +33,32 @@ impl BslLsConfig {
                 "SELECT value FROM server_settings WHERE key = ?1",
                 [key],
                 |row| row.get::<_, String>(0),
-            ).ok()
+            )
+            .ok()
         }
         let conn = &db.conn;
         let data_dir = get_val(conn, "bsl_ls_data_dir").unwrap_or_else(|| default_data_dir.into());
         Self {
             java_path: get_val(conn, "bsl_ls_java_path").unwrap_or_else(|| "java".into()),
-            jar_path: get_val(conn, "bsl_ls_jar_path").unwrap_or_else(|| format!("{}/bsl-language-server.jar", data_dir)),
-            port: get_val(conn, "bsl_ls_port").and_then(|v| v.parse().ok()).unwrap_or(8025),
-            enabled: get_val(conn, "bsl_ls_enabled").map(|v| v == "true").unwrap_or(false),
+            jar_path: get_val(conn, "bsl_ls_jar_path")
+                .unwrap_or_else(|| format!("{}/bsl-language-server.jar", data_dir)),
+            port: get_val(conn, "bsl_ls_port")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(8025),
+            enabled: get_val(conn, "bsl_ls_enabled")
+                .map(|v| v == "true")
+                .unwrap_or(false),
             data_dir,
         }
     }
 
     pub fn save(&self, db: &crate::db::Database) -> Result<(), Box<dyn std::error::Error>> {
         let conn = &db.conn;
-        let enabled_str = if self.enabled { "true".to_string() } else { "false".to_string() };
+        let enabled_str = if self.enabled {
+            "true".to_string()
+        } else {
+            "false".to_string()
+        };
         let pairs: [(&str, &String); 5] = [
             ("bsl_ls_java_path", &self.java_path),
             ("bsl_ls_jar_path", &self.jar_path),
@@ -94,7 +103,9 @@ impl BslLsManager {
 
     pub fn push_log(&self, line: String) {
         let mut logs = self.logs.lock().unwrap();
-        if logs.len() >= 500 { logs.remove(0); }
+        if logs.len() >= 500 {
+            logs.remove(0);
+        }
         logs.push(line);
     }
 
@@ -161,7 +172,11 @@ impl BslLsManager {
                         // Also try data/java/ as fallback
                         let java_dir = Path::new(&cfg.data_dir).join("java");
                         find_java_in_dir(&java_dir).unwrap_or_else(|| {
-                            tracing::warn!("Java not found at '{}' or in {}", jp, java_dir.display());
+                            tracing::warn!(
+                                "Java not found at '{}' or in {}",
+                                jp,
+                                java_dir.display()
+                            );
                             jp
                         })
                     })
@@ -169,8 +184,12 @@ impl BslLsManager {
                     // Simple name — try PATH, then data/java/
                     let jp_clone = jp.clone();
                     match tokio::task::spawn_blocking(move || {
-                        std::process::Command::new(&jp_clone).arg("-version").output()
-                    }).await {
+                        std::process::Command::new(&jp_clone)
+                            .arg("-version")
+                            .output()
+                    })
+                    .await
+                    {
                         Ok(Ok(out)) if out.status.success() => jp,
                         _ => {
                             let java_dir = Path::new(&cfg.data_dir).join("java");
@@ -180,7 +199,10 @@ impl BslLsManager {
                                     found
                                 }
                                 None => {
-                                    tracing::warn!("Java not in PATH and not found in {}", java_dir.display());
+                                    tracing::warn!(
+                                        "Java not in PATH and not found in {}",
+                                        java_dir.display()
+                                    );
                                     jp
                                 }
                             }
@@ -206,7 +228,13 @@ impl BslLsManager {
         };
 
         let mut cmd = Command::new(&java_path);
-        cmd.args(["-jar", &jar_path, "--websocket", "--server.port", &cfg.port.to_string()]);
+        cmd.args([
+            "-jar",
+            &jar_path,
+            "--websocket",
+            "--server.port",
+            &cfg.port.to_string(),
+        ]);
         cmd.stdin(std::process::Stdio::null());
         cmd.stdout(std::process::Stdio::null());
         cmd.stderr(std::process::Stdio::piped());
@@ -215,8 +243,14 @@ impl BslLsManager {
             Ok(c) => c,
             Err(e) => {
                 let hint = match e.raw_os_error() {
-                    Some(2) => format!(". Java not found at '{}' — use Install Java button", java_path),
-                    Some(13) => format!(". Permission denied for '{}' — check java executable permissions", java_path),
+                    Some(2) => format!(
+                        ". Java not found at '{}' — use Install Java button",
+                        java_path
+                    ),
+                    Some(13) => format!(
+                        ". Permission denied for '{}' — check java executable permissions",
+                        java_path
+                    ),
                     _ => "".into(),
                 };
                 let msg = format!("Failed to spawn BSL LS: {}{}", e, hint);
@@ -224,7 +258,7 @@ impl BslLsManager {
                 *self.last_error.lock().await = Some(msg);
                 return;
             }
-            };
+        };
 
         let pid = child.id().unwrap_or(0);
         *self.last_error.lock().await = None;
@@ -238,7 +272,10 @@ impl BslLsManager {
                 let mut line = String::new();
                 while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
                     let trimmed = line.trim().to_string();
-                    if trimmed.is_empty() { line.clear(); continue; }
+                    if trimmed.is_empty() {
+                        line.clear();
+                        continue;
+                    }
                     tracing::info!("[bsl-ls:{}] {}", pid_str, trimmed);
                     log_arc.lock().unwrap().push(trimmed);
                     if log_arc.lock().unwrap().len() > 500 {
@@ -279,7 +316,9 @@ impl BslLsManager {
                     *self.last_error.lock().await = Some(msg.clone());
                     BslLsStatus::Error(msg)
                 }
-                Ok(None) => BslLsStatus::Running { pid: child.id().unwrap_or(0) },
+                Ok(None) => BslLsStatus::Running {
+                    pid: child.id().unwrap_or(0),
+                },
                 Err(e) => {
                     let msg = format!("BSL LS process error: {}", e);
                     *self.last_error.lock().await = Some(msg.clone());
@@ -309,17 +348,22 @@ pub async fn check_java_at_path(java_path: &str) -> Result<String, String> {
             .map_err(|e| format!("Java not found at '{}': {}", path, e))?;
         let stderr = String::from_utf8_lossy(&output.stderr);
         let first = stderr.lines().next().unwrap_or("").to_string();
-        if first.is_empty() { Err("No output".into()) } else { Ok(first) }
-    }).await.map_err(|e| format!("Task failed: {}", e))?
+        if first.is_empty() {
+            Err("No output".into())
+        } else {
+            Ok(first)
+        }
+    })
+    .await
+    .map_err(|e| format!("Task failed: {}", e))?
 }
 
 pub async fn check_java_version() -> Result<String, String> {
-    let output = tokio::task::spawn_blocking(|| {
-        std::process::Command::new("java")
-            .arg("-version")
-            .output()
-    }).await.map_err(|e| format!("Task failed: {}", e))?
-    .map_err(|e| format!("Java not found: {}", e))?;
+    let output =
+        tokio::task::spawn_blocking(|| std::process::Command::new("java").arg("-version").output())
+            .await
+            .map_err(|e| format!("Task failed: {}", e))?
+            .map_err(|e| format!("Java not found: {}", e))?;
     let stderr = String::from_utf8_lossy(&output.stderr);
     let first_line = stderr.lines().next().unwrap_or("").to_string();
     if first_line.is_empty() {
@@ -345,17 +389,35 @@ pub async fn check_bsl_ls_release() -> Result<BslLsRelease, Box<dyn std::error::
         .send()
         .await?;
     let release: serde_json::Value = resp.json().await?;
-    let version = release["tag_name"].as_str().unwrap_or("unknown").trim_start_matches('v').to_string();
+    let version = release["tag_name"]
+        .as_str()
+        .unwrap_or("unknown")
+        .trim_start_matches('v')
+        .to_string();
     let published_at = release["published_at"].as_str().unwrap_or("").to_string();
     let jar_url = release["assets"].as_array().and_then(|assets| {
-        assets.iter().find(|a| {
-            a["name"].as_str().map(|n| n.ends_with(".jar")).unwrap_or(false)
-        }).and_then(|a| a["browser_download_url"].as_str().map(String::from))
+        assets
+            .iter()
+            .find(|a| {
+                a["name"]
+                    .as_str()
+                    .map(|n| n.ends_with(".jar"))
+                    .unwrap_or(false)
+            })
+            .and_then(|a| a["browser_download_url"].as_str().map(String::from))
     });
-    Ok(BslLsRelease { version, jar_url, published_at })
+    Ok(BslLsRelease {
+        version,
+        jar_url,
+        published_at,
+    })
 }
 
-pub async fn download_bsl_ls_jar(url: &str, version: &str, data_dir: &Path) -> Result<String, Box<dyn std::error::Error>> {
+pub async fn download_bsl_ls_jar(
+    url: &str,
+    version: &str,
+    data_dir: &Path,
+) -> Result<String, Box<dyn std::error::Error>> {
     let jar_dir = data_dir.join("bsl-ls");
     tokio::fs::create_dir_all(&jar_dir).await?;
 
@@ -395,7 +457,10 @@ pub fn detect_installed_bsl_ls(data_dir: &Path) -> Option<(String, String)> {
             if !name.starts_with("bsl-language-server-") || !name.ends_with(".jar") {
                 continue;
             }
-            let ver = name.trim_start_matches("bsl-language-server-").trim_end_matches(".jar").to_string();
+            let ver = name
+                .trim_start_matches("bsl-language-server-")
+                .trim_end_matches(".jar")
+                .to_string();
             let replace = best.as_ref().map_or(true, |(b, _)| ver > *b);
             if replace {
                 best = Some((ver, entry.path().to_string_lossy().to_string()));
@@ -410,10 +475,20 @@ fn fetch_url_sync(url: &str) -> Result<String, String> {
     use std::process::Command;
     if cfg!(windows) {
         let out = Command::new("powershell")
-            .args(["-Command", &format!("(Invoke-WebRequest -Uri '{}' -UseBasicParsing).Content", url)])
-            .output().map_err(|e| format!("PowerShell failed: {}", e))?;
+            .args([
+                "-Command",
+                &format!(
+                    "(Invoke-WebRequest -Uri '{}' -UseBasicParsing).Content",
+                    url
+                ),
+            ])
+            .output()
+            .map_err(|e| format!("PowerShell failed: {}", e))?;
         if !out.status.success() {
-            return Err(format!("PowerShell HTTP error: {}", String::from_utf8_lossy(&out.stderr)));
+            return Err(format!(
+                "PowerShell HTTP error: {}",
+                String::from_utf8_lossy(&out.stderr)
+            ));
         }
         Ok(String::from_utf8_lossy(&out.stdout).to_string())
     } else {
@@ -452,16 +527,27 @@ fn fetch_to_file_sync(url: &str, dest: &Path) -> Result<(), String> {
     if cfg!(windows) {
         use std::process::Command;
         let out = Command::new("powershell")
-            .args(["-Command", &format!("Invoke-WebRequest -Uri '{}' -OutFile '{}' -UseBasicParsing", url, dest.display())])
-            .output().map_err(|e| format!("PowerShell failed: {}", e))?;
+            .args([
+                "-Command",
+                &format!(
+                    "Invoke-WebRequest -Uri '{}' -OutFile '{}' -UseBasicParsing",
+                    url,
+                    dest.display()
+                ),
+            ])
+            .output()
+            .map_err(|e| format!("PowerShell failed: {}", e))?;
         if !out.status.success() {
-            return Err(format!("Download error: {}", String::from_utf8_lossy(&out.stderr)));
+            return Err(format!(
+                "Download error: {}",
+                String::from_utf8_lossy(&out.stderr)
+            ));
         }
         Ok(())
     } else {
-        try_cmd(&[&["curl", "-sL", url]], Some(dest)).map(|_| ()).or_else(|_| {
-            try_cmd(&[&["wget", "-q", url]], Some(dest)).map(|_| ())
-        })
+        try_cmd(&[&["curl", "-sL", url]], Some(dest))
+            .map(|_| ())
+            .or_else(|_| try_cmd(&[&["wget", "-q", url]], Some(dest)).map(|_| ()))
     }
 }
 
@@ -472,11 +558,18 @@ fn find_java_in_dir(dir: &Path) -> Option<String> {
         tracing::debug!("find_java_in_dir: {} does not exist", dir.display());
         return None;
     }
-    for entry in walkdir::WalkDir::new(dir).min_depth(1).into_iter().filter_map(|e| e.ok()) {
+    for entry in walkdir::WalkDir::new(dir)
+        .min_depth(1)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
         if entry.file_name() == bin_name {
             #[cfg(unix)]
             if !is_executable(&entry.path()) {
-                tracing::debug!("Found java at {} but not executable", entry.path().display());
+                tracing::debug!(
+                    "Found java at {} but not executable",
+                    entry.path().display()
+                );
                 continue;
             }
             return Some(entry.path().to_string_lossy().to_string());
@@ -488,7 +581,9 @@ fn find_java_in_dir(dir: &Path) -> Option<String> {
 #[cfg(unix)]
 fn is_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
-    std::fs::metadata(path).map(|m| m.permissions().mode() & 0o111 != 0).unwrap_or(false)
+    std::fs::metadata(path)
+        .map(|m| m.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -506,13 +601,21 @@ pub async fn install_java(data_dir: &Path) -> Result<JavaInstallInfo, Box<dyn st
         use std::process::Command as SyncCommand;
 
         let api_url = format!(
-            "https://api.adoptium.net/v3/assets/latest/21/hotspot?os={}&arch=x64&image_type=jdk", os
+            "https://api.adoptium.net/v3/assets/latest/21/hotspot?os={}&arch=x64&image_type=jdk",
+            os
         );
 
         let meta_json = fetch_url_sync(&api_url)?;
-        let assets: serde_json::Value = serde_json::from_str(&meta_json).map_err(|e| format!("JSON parse: {}", e))?;
-        let asset = assets.as_array().and_then(|a| a.first()).ok_or("No JDK assets")?;
-        let version = asset["version"]["semver"].as_str().unwrap_or("unknown").to_string();
+        let assets: serde_json::Value =
+            serde_json::from_str(&meta_json).map_err(|e| format!("JSON parse: {}", e))?;
+        let asset = assets
+            .as_array()
+            .and_then(|a| a.first())
+            .ok_or("No JDK assets")?;
+        let version = asset["version"]["semver"]
+            .as_str()
+            .unwrap_or("unknown")
+            .to_string();
         let pkg = &asset["binary"]["package"];
         let archive_url = pkg["link"].as_str().ok_or("No package link")?.to_string();
         let archive_name = pkg["name"].as_str().unwrap_or("jdk.tar.gz");
@@ -526,25 +629,48 @@ pub async fn install_java(data_dir: &Path) -> Result<JavaInstallInfo, Box<dyn st
 
         let r = if cfg!(windows) {
             SyncCommand::new("powershell")
-                .args(["-Command", &format!("Expand-Archive -Path '{}' -DestinationPath '{}' -Force", archive_path.display(), java_dir.display())])
+                .args([
+                    "-Command",
+                    &format!(
+                        "Expand-Archive -Path '{}' -DestinationPath '{}' -Force",
+                        archive_path.display(),
+                        java_dir.display()
+                    ),
+                ])
                 .output()
         } else {
             SyncCommand::new("tar")
-                .args(["-xzf", &archive_path.to_string_lossy(), "-C", &java_dir.to_string_lossy()])
+                .args([
+                    "-xzf",
+                    &archive_path.to_string_lossy(),
+                    "-C",
+                    &java_dir.to_string_lossy(),
+                ])
                 .output()
         };
         match r {
             Ok(out) if out.status.success() => {}
-            Ok(out) => return Err(format!("Extraction failed: {}", String::from_utf8_lossy(&out.stderr))),
+            Ok(out) => {
+                return Err(format!(
+                    "Extraction failed: {}",
+                    String::from_utf8_lossy(&out.stderr)
+                ))
+            }
             Err(e) => return Err(format!("Extraction error: {}", e)),
         }
         let _ = std::fs::remove_file(&archive_path);
         let java_bin = find_java_in_dir(&java_dir)
             .ok_or_else(|| format!("java binary not found in {}", java_dir.display()))?;
 
-        Ok(JavaInstallInfo { version, java_path: java_bin, archive_name: archive_name.to_string() })
-    }).await.map_err(|e| format!("Task panicked: {}", e))?
-      .map_err(|e: String| -> Box<dyn std::error::Error> { e.into() })?;
+        Ok(JavaInstallInfo {
+            version,
+            java_path: java_bin,
+            archive_name: archive_name.to_string(),
+        })
+    })
+    .await
+    .map_err(|e| format!("Task panicked: {}", e))?
+    .map_err(|e: String| -> Box<dyn std::error::Error> { e.into() })?;
 
     tracing::info!("Java installed at: {}", result.java_path);
     Ok(result)

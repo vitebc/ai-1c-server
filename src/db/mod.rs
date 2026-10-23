@@ -1,5 +1,5 @@
-use std::path::Path;
 use rusqlite::Connection;
+use std::path::Path;
 
 pub struct Database {
     pub conn: Connection,
@@ -25,7 +25,10 @@ impl Database {
 
         let migrations_dir = Path::new("migrations");
         if !migrations_dir.exists() {
-            tracing::warn!("Migrations directory not found: {}", migrations_dir.display());
+            tracing::warn!(
+                "Migrations directory not found: {}",
+                migrations_dir.display()
+            );
             return Ok(());
         }
 
@@ -47,7 +50,8 @@ impl Database {
             }
             let sql = std::fs::read_to_string(entry.path())?;
             self.conn.execute_batch(&sql)?;
-            self.conn.execute("INSERT INTO _migrations (name) VALUES (?1)", [&name])?;
+            self.conn
+                .execute("INSERT INTO _migrations (name) VALUES (?1)", [&name])?;
             tracing::info!("Applied migration: {}", name);
         }
 

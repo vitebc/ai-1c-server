@@ -96,7 +96,10 @@ impl HttpMcpSession {
 
     /// POST one JSON-RPC message, parse JSON or SSE (`data:`) response.
     /// Returns `Null` for empty (202 notification ack).
-    async fn post(&self, body: &serde_json::Value) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    async fn post(
+        &self,
+        body: &serde_json::Value,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
         let mut req = self
             .client
             .post(&self.url)
@@ -132,7 +135,8 @@ impl HttpMcpSession {
                             return Ok(v);
                         }
                     }
-                    if fallback.is_none() && (v.get("result").is_some() || v.get("error").is_some()) {
+                    if fallback.is_none() && (v.get("result").is_some() || v.get("error").is_some())
+                    {
                         fallback = Some(v);
                     }
                 }

@@ -39,19 +39,30 @@ impl McpManager {
         }
     }
 
-    pub async fn start_server(&self, config: &McpServerConfig) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn start_server(
+        &self,
+        config: &McpServerConfig,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         // Hot-reload safe: stop previous session for this id first.
         self.stop_server(&config.id).await;
         let session = match config.transport.as_str() {
             "stdio" => ManagedSession::Stdio(Arc::new(McpSession::start(config).await?)),
             "http" | "sse" => {
                 let s = HttpMcpSession::start(config).await.map_err(|e| {
-                    format!("MCP HTTP '{}' ({}): {e}", config.id, config.url.as_deref().unwrap_or("-"))
+                    format!(
+                        "MCP HTTP '{}' ({}): {e}",
+                        config.id,
+                        config.url.as_deref().unwrap_or("-")
+                    )
                 })?;
                 ManagedSession::Http(Arc::new(s))
             }
             other => {
-                tracing::warn!("MCP server '{}': transport '{}' not yet supported", config.id, other);
+                tracing::warn!(
+                    "MCP server '{}': transport '{}' not yet supported",
+                    config.id,
+                    other
+                );
                 return Ok(());
             }
         };
@@ -128,7 +139,11 @@ impl McpManager {
         Ok(resp.result.unwrap_or(serde_json::Value::Null))
     }
 
-    pub async fn call(&self, server_id: &str, request: JsonRpcRequest) -> Result<JsonRpcResponse, McpError> {
+    pub async fn call(
+        &self,
+        server_id: &str,
+        request: JsonRpcRequest,
+    ) -> Result<JsonRpcResponse, McpError> {
         let client_id = request.id.clone();
         // Читаем карту и сразу отпускаем лок: сам вызов идёт уже без него.
         // Иначе `start_server`/`stop_server` (write-lock) ждали бы конца
@@ -141,8 +156,14 @@ impl McpManager {
             .cloned()
             .ok_or_else(|| McpError::NotFound(server_id.to_string()))?;
         let mut response = match &*session {
-            ManagedSession::Stdio(s) => s.call(request).await.map_err(|e| McpError::CallError(e.to_string()))?,
-            ManagedSession::Http(s) => s.call(request).await.map_err(|e| McpError::CallError(e.to_string()))?,
+            ManagedSession::Stdio(s) => s
+                .call(request)
+                .await
+                .map_err(|e| McpError::CallError(e.to_string()))?,
+            ManagedSession::Http(s) => s
+                .call(request)
+                .await
+                .map_err(|e| McpError::CallError(e.to_string()))?,
         };
         if let Some(cid) = client_id {
             response.id = cid;
@@ -151,7 +172,13 @@ impl McpManager {
     }
 
     pub async fn shutdown_all(&self) {
-        let sessions: Vec<Arc<ManagedSession>> = self.sessions.write().await.drain().map(|(_, s)| s).collect();
+        let sessions: Vec<Arc<ManagedSession>> = self
+            .sessions
+            .write()
+            .await
+            .drain()
+            .map(|(_, s)| s)
+            .collect();
         for session in sessions {
             if let ManagedSession::Stdio(s) = &*session {
                 s.shutdown().await;

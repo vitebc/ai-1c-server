@@ -1,9 +1,9 @@
-use std::sync::Arc;
 use axum::{
     extract::{Path, State},
     Json,
 };
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 use super::super::AppState;
 use crate::mcp::{BslLsRelease, BslLsStatus};
@@ -71,7 +71,11 @@ pub async fn get_versions(State(state): State<Arc<AppState>>) -> Json<VersionsIn
         crate::mcp::detect_installed_bsl_ls(data_dir).map(|(v, _)| v)
     };
     let bsl_ls_latest = crate::mcp::check_bsl_ls_release().await.ok();
-    Json(VersionsInfo { java, bsl_ls_current, bsl_ls_latest })
+    Json(VersionsInfo {
+        java,
+        bsl_ls_current,
+        bsl_ls_latest,
+    })
 }
 
 pub async fn download_bsl_ls(
@@ -80,7 +84,9 @@ pub async fn download_bsl_ls(
 ) -> Json<serde_json::Value> {
     let release = match crate::mcp::check_bsl_ls_release().await {
         Ok(r) => r,
-        Err(e) => return Json(serde_json::json!({"error": format!("Failed to check release: {}", e)})),
+        Err(e) => {
+            return Json(serde_json::json!({"error": format!("Failed to check release: {}", e)}))
+        }
     };
     let jar_url = match &release.jar_url {
         Some(u) => u.clone(),
@@ -90,10 +96,11 @@ pub async fn download_bsl_ls(
         let cfg = state.bsl_ls.get_config().await;
         std::path::PathBuf::from(&cfg.data_dir)
     };
-    let jar_path = match crate::mcp::download_bsl_ls_jar(&jar_url, &release.version, &data_dir).await {
-        Ok(p) => p,
-        Err(e) => return Json(serde_json::json!({"error": format!("Download failed: {}", e)})),
-    };
+    let jar_path =
+        match crate::mcp::download_bsl_ls_jar(&jar_url, &release.version, &data_dir).await {
+            Ok(p) => p,
+            Err(e) => return Json(serde_json::json!({"error": format!("Download failed: {}", e)})),
+        };
     // Update config with new jar path
     let mut new_cfg = {
         let cfg = state.bsl_ls.get_config().await;
@@ -146,9 +153,7 @@ pub async fn restart(State(state): State<Arc<AppState>>) -> Json<BslLsState> {
     get_state(State(state)).await
 }
 
-pub async fn install_java_endpoint(
-    State(state): State<Arc<AppState>>,
-) -> Json<serde_json::Value> {
+pub async fn install_java_endpoint(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
     let data_dir_path = {
         let cfg = state.bsl_ls.get_config().await;
         cfg.data_dir.clone()

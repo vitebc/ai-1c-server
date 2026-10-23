@@ -193,7 +193,14 @@ pub fn commit_and_record(
                 .map(|(out, _)| out.trim().to_string())
                 .unwrap_or_default();
             record_change(
-                db, user_id, username, entity_type, entity_name, action, &hash, &summary,
+                db,
+                user_id,
+                username,
+                entity_type,
+                entity_name,
+                action,
+                &hash,
+                &summary,
             );
         }
         Err(e) if e == "no changes to commit" => {
@@ -249,12 +256,36 @@ pub async fn list_changes(
     let mut where_parts: Vec<String> = Vec::new();
     let mut filter_vals: Vec<String> = Vec::new();
     let mut idx = 0usize;
-    if f_user_id.is_some() { idx += 1; where_parts.push(format!("user_id = ?{idx}")); filter_vals.push(f_user_id.unwrap()); }
-    if f_entity_type.is_some() { idx += 1; where_parts.push(format!("entity_type = ?{idx}")); filter_vals.push(f_entity_type.unwrap()); }
-    if f_entity_name.is_some() { idx += 1; where_parts.push(format!("entity_name LIKE ?{idx}")); filter_vals.push(format!("%{}%", f_entity_name.unwrap())); }
-    if f_action.is_some() { idx += 1; where_parts.push(format!("action = ?{idx}")); filter_vals.push(f_action.unwrap()); }
-    if f_from.is_some() { idx += 1; where_parts.push(format!("timestamp >= ?{idx}")); filter_vals.push(f_from.unwrap()); }
-    if f_to.is_some() { idx += 1; where_parts.push(format!("timestamp <= ?{idx}")); filter_vals.push(f_to.unwrap()); }
+    if f_user_id.is_some() {
+        idx += 1;
+        where_parts.push(format!("user_id = ?{idx}"));
+        filter_vals.push(f_user_id.unwrap());
+    }
+    if f_entity_type.is_some() {
+        idx += 1;
+        where_parts.push(format!("entity_type = ?{idx}"));
+        filter_vals.push(f_entity_type.unwrap());
+    }
+    if f_entity_name.is_some() {
+        idx += 1;
+        where_parts.push(format!("entity_name LIKE ?{idx}"));
+        filter_vals.push(format!("%{}%", f_entity_name.unwrap()));
+    }
+    if f_action.is_some() {
+        idx += 1;
+        where_parts.push(format!("action = ?{idx}"));
+        filter_vals.push(f_action.unwrap());
+    }
+    if f_from.is_some() {
+        idx += 1;
+        where_parts.push(format!("timestamp >= ?{idx}"));
+        filter_vals.push(f_from.unwrap());
+    }
+    if f_to.is_some() {
+        idx += 1;
+        where_parts.push(format!("timestamp <= ?{idx}"));
+        filter_vals.push(f_to.unwrap());
+    }
     let where_sql = if where_parts.is_empty() {
         String::new()
     } else {
@@ -294,22 +325,24 @@ pub async fn list_changes(
 
     // Page.
     let items: Vec<AgentChange> = match db.conn.prepare(&page_sql) {
-        Ok(mut stmt) => match stmt.query_map(rusqlite::params_from_iter(page_params.iter()), |row| {
-            Ok(AgentChange {
-                id: row.get(0)?,
-                timestamp: row.get(1)?,
-                user_id: row.get(2)?,
-                username: row.get(3)?,
-                entity_type: row.get(4)?,
-                entity_name: row.get(5)?,
-                action: row.get(6)?,
-                git_commit_hash: row.get(7)?,
-                diff_summary: row.get(8)?,
-            })
-        }) {
-            Ok(rows) => rows.flatten().collect(),
-            Err(e) => return Err(super::AppError::msg(e.to_string()).into_response()),
-        },
+        Ok(mut stmt) => {
+            match stmt.query_map(rusqlite::params_from_iter(page_params.iter()), |row| {
+                Ok(AgentChange {
+                    id: row.get(0)?,
+                    timestamp: row.get(1)?,
+                    user_id: row.get(2)?,
+                    username: row.get(3)?,
+                    entity_type: row.get(4)?,
+                    entity_name: row.get(5)?,
+                    action: row.get(6)?,
+                    git_commit_hash: row.get(7)?,
+                    diff_summary: row.get(8)?,
+                })
+            }) {
+                Ok(rows) => rows.flatten().collect(),
+                Err(e) => return Err(super::AppError::msg(e.to_string()).into_response()),
+            }
+        }
         Err(e) => return Err(super::AppError::msg(e.to_string()).into_response()),
     };
 
@@ -322,9 +355,10 @@ pub async fn distinct_changes(
 ) -> Result<Json<Value>, axum::response::Response> {
     let db = state.db.lock().await;
     let users: Vec<String> = {
-        let mut stmt = match db.conn.prepare(
-            "SELECT DISTINCT username FROM agent_changes ORDER BY username",
-        ) {
+        let mut stmt = match db
+            .conn
+            .prepare("SELECT DISTINCT username FROM agent_changes ORDER BY username")
+        {
             Ok(s) => s,
             Err(e) => return Err(super::AppError::msg(e.to_string()).into_response()),
         };
@@ -359,10 +393,10 @@ pub async fn change_diff(
     let hash: String = {
         let db = state.db.lock().await;
         match db.conn.query_row(
-                "SELECT git_commit_hash FROM agent_changes WHERE id = ?1",
-                [id],
-                |r| r.get::<_, String>(0),
-            ) {
+            "SELECT git_commit_hash FROM agent_changes WHERE id = ?1",
+            [id],
+            |r| r.get::<_, String>(0),
+        ) {
             Ok(h) => h,
             Err(_) => return Err(super::NotFound.into_response()),
         }
@@ -383,11 +417,11 @@ pub async fn revert_change(
     let row: (String, String, String, String, String) = {
         let db = state.db.lock().await;
         match db.conn.query_row(
-                "SELECT git_commit_hash, entity_type, entity_name, user_id, username \
+            "SELECT git_commit_hash, entity_type, entity_name, user_id, username \
                  FROM agent_changes WHERE id = ?1",
-                [id],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
-            ) {
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+        ) {
             Ok(r) => r,
             Err(_) => return Err(super::NotFound.into_response()),
         }
@@ -403,9 +437,7 @@ pub async fn revert_change(
     // entity paths, so the revert stays scoped.
     let new_hash = match git_revert(&root, &row.0) {
         Ok(h) => h,
-        Err(e) => {
-            return Err(super::AppError::msg(format!("revert failed: {e}")).into_response())
-        }
+        Err(e) => return Err(super::AppError::msg(format!("revert failed: {e}")).into_response()),
     };
 
     // The reverted entity may no longer exist (revert of a delete restores it;

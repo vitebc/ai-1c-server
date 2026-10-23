@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use axum::{
     extract::{Path, Query, State},
     http::HeaderMap,
@@ -6,6 +5,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::sync::Arc;
 
 use super::super::AppState;
 use crate::mcp::McpServerConfig;
@@ -63,14 +63,18 @@ fn validate_args_env(args: Option<&str>, env: Option<&str>) -> Result<(), super:
         serde_json::from_str::<Vec<String>>(a)
             .map(|_| ())
             .map_err(|e| {
-                super::BadRequest(format!("Invalid 'args' JSON (expected array of strings): {e}"))
+                super::BadRequest(format!(
+                    "Invalid 'args' JSON (expected array of strings): {e}"
+                ))
             })?;
     }
     if let Some(e) = env.map(str::trim).filter(|s| !s.is_empty()) {
         serde_json::from_str::<std::collections::HashMap<String, String>>(e)
             .map(|_| ())
             .map_err(|e| {
-                super::BadRequest(format!("Invalid 'env' JSON (expected object of strings): {e}"))
+                super::BadRequest(format!(
+                    "Invalid 'env' JSON (expected object of strings): {e}"
+                ))
             })?;
     }
     Ok(())
@@ -82,23 +86,25 @@ pub async fn list(State(state): State<Arc<AppState>>) -> Json<Vec<McpServerRow>>
         "SELECT id, name, description, server_type, transport, command, args, env, url, enabled, config, created_at, updated_at
          FROM mcp_servers ORDER BY name"
     ).unwrap();
-    let rows = stmt.query_map([], |row| {
-        Ok(McpServerRow {
-            id: row.get(0)?,
-            name: row.get(1)?,
-            description: row.get(2)?,
-            server_type: row.get(3)?,
-            transport: row.get(4)?,
-            command: row.get(5)?,
-            args: row.get(6)?,
-            env: row.get(7)?,
-            url: row.get(8)?,
-            enabled: row.get::<_, i32>(9)? != 0,
-            config: row.get(10)?,
-            created_at: row.get(11)?,
-            updated_at: row.get(12)?,
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(McpServerRow {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                description: row.get(2)?,
+                server_type: row.get(3)?,
+                transport: row.get(4)?,
+                command: row.get(5)?,
+                args: row.get(6)?,
+                env: row.get(7)?,
+                url: row.get(8)?,
+                enabled: row.get::<_, i32>(9)? != 0,
+                config: row.get(10)?,
+                created_at: row.get(11)?,
+                updated_at: row.get(12)?,
+            })
         })
-    }).unwrap();
+        .unwrap();
     Json(rows.flatten().collect())
 }
 
@@ -161,7 +167,9 @@ pub async fn create(
     drop(db);
     // Hot-reload: (re)start the session from the new row.
     sync_server(&state, &id).await;
-    get_by_id(State(state), Path(id)).await.map_err(|e| super::AppError::from(e).into_response())
+    get_by_id(State(state), Path(id))
+        .await
+        .map_err(|e| super::AppError::from(e).into_response())
 }
 
 pub async fn update(
@@ -171,7 +179,8 @@ pub async fn update(
 ) -> Result<Json<McpServerRow>, axum::response::Response> {
     use axum::response::IntoResponse;
     validate_args_env(body.args.as_deref(), body.env.as_deref())
-        .map_err(IntoResponse::into_response)?;    let db = state.db.lock().await;
+        .map_err(IntoResponse::into_response)?;
+    let db = state.db.lock().await;
     let existing: McpServerRow = db.conn.query_row(
         "SELECT id, name, description, server_type, transport, command, args, env, url, enabled, config, created_at, updated_at
          FROM mcp_servers WHERE id = ?1",
@@ -195,30 +204,34 @@ pub async fn update(
         },
     ).map_err(|_| super::NotFound.into_response())?;
 
-    db.conn.execute(
-        "UPDATE mcp_servers SET
+    db.conn
+        .execute(
+            "UPDATE mcp_servers SET
             name = ?1, description = ?2, server_type = ?3, transport = ?4,
             command = ?5, args = ?6, env = ?7, url = ?8, enabled = ?9, config = ?10,
             updated_at = datetime('now')
          WHERE id = ?11",
-        rusqlite::params![
-            body.name.as_deref().unwrap_or(&existing.name),
-            body.description.or(existing.description),
-            body.server_type.as_deref().unwrap_or(&existing.server_type),
-            body.transport.as_deref().unwrap_or(&existing.transport),
-            body.command.or(existing.command),
-            body.args.or(existing.args),
-            body.env.or(existing.env),
-            body.url.or(existing.url),
-            body.enabled.unwrap_or(existing.enabled) as i32,
-            body.config.or(existing.config),
-            id.clone(),
-        ],
-    ).map_err(|e| super::AppError::from(e).into_response())?;
+            rusqlite::params![
+                body.name.as_deref().unwrap_or(&existing.name),
+                body.description.or(existing.description),
+                body.server_type.as_deref().unwrap_or(&existing.server_type),
+                body.transport.as_deref().unwrap_or(&existing.transport),
+                body.command.or(existing.command),
+                body.args.or(existing.args),
+                body.env.or(existing.env),
+                body.url.or(existing.url),
+                body.enabled.unwrap_or(existing.enabled) as i32,
+                body.config.or(existing.config),
+                id.clone(),
+            ],
+        )
+        .map_err(|e| super::AppError::from(e).into_response())?;
     drop(db);
     // Hot-reload: restart the session with the updated row.
     sync_server(&state, &id).await;
-    get_by_id(State(state), Path(id)).await.map_err(|e| super::AppError::from(e).into_response())
+    get_by_id(State(state), Path(id))
+        .await
+        .map_err(|e| super::AppError::from(e).into_response())
 }
 
 pub async fn delete(
@@ -226,7 +239,9 @@ pub async fn delete(
     Path(id): Path<String>,
 ) -> Result<Json<()>, super::AppError> {
     let db = state.db.lock().await;
-    let changes = db.conn.execute("DELETE FROM mcp_servers WHERE id = ?1", [&id])?;
+    let changes = db
+        .conn
+        .execute("DELETE FROM mcp_servers WHERE id = ?1", [&id])?;
     if changes == 0 {
         return Err(super::NotFound.into());
     }
@@ -283,18 +298,16 @@ pub async fn restart(
     let exists: bool = {
         let db = state.db.lock().await;
         db.conn
-            .query_row(
-                "SELECT 1 FROM mcp_servers WHERE id = ?1",
-                [&id],
-                |_| Ok(()),
-            )
+            .query_row("SELECT 1 FROM mcp_servers WHERE id = ?1", [&id], |_| Ok(()))
             .is_ok()
     };
     if !exists {
         return Err(super::NotFound.into());
     }
     sync_server(&state, &id).await;
-    Ok(Json(json!({ "id": id, "running": state.mcp.is_running(&id).await })))
+    Ok(Json(
+        json!({ "id": id, "running": state.mcp.is_running(&id).await }),
+    ))
 }
 
 /// GET /api/admin/mcp-servers/{id}/stats — call the `stats` tool on a running
@@ -449,7 +462,13 @@ pub async fn reindex(
     Path(id): Path<String>,
 ) -> Result<Json<Value>, axum::response::Response> {
     use axum::response::IntoResponse;
-    let row: Option<(String, String, Option<String>, Option<String>, Option<String>)> = {
+    let row: Option<(
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    )> = {
         let db = state.db.lock().await;
         db.conn
             .query_row(
@@ -471,24 +490,26 @@ pub async fn reindex(
         Some(r) => r,
         None => return Err(super::NotFound.into_response()),
     };
-    if command.as_deref().is_none_or(|c| !c.contains("mcp-1c-search")) {
-        return Err(super::BadRequest("reindex is only supported for mcp-1c-search rows".into())
-            .into_response());
+    if command
+        .as_deref()
+        .is_none_or(|c| !c.contains("mcp-1c-search"))
+    {
+        return Err(
+            super::BadRequest("reindex is only supported for mcp-1c-search rows".into())
+                .into_response(),
+        );
     }
     let (roots, index_dir) = {
         let db = state.db.lock().await;
         search_roots(&db, env.as_deref(), profile_id.as_deref())
     };
     if roots.is_empty() {
-        return Err(super::BadRequest("no indexed roots found for this server".into())
-            .into_response());
+        return Err(
+            super::BadRequest("no indexed roots found for this server".into()).into_response(),
+        );
     }
-    let index_dir = index_dir.unwrap_or_else(|| {
-        format!(
-            "{}/search-index",
-            state.data_dir.trim_end_matches('/')
-        )
-    });
+    let index_dir = index_dir
+        .unwrap_or_else(|| format!("{}/search-index", state.data_dir.trim_end_matches('/')));
 
     let job_id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
@@ -653,7 +674,11 @@ async fn run_reindex_job(
         .join(", ");
     tracing::info!(
         "reindex {job_id}: owner '{owner_name}', shared neighbors: [{}]",
-        if neigh_names.is_empty() { "none".into() } else { neigh_names }
+        if neigh_names.is_empty() {
+            "none".into()
+        } else {
+            neigh_names
+        }
     );
 
     // 2. Stop the whole group so nobody holds the shared `.db` files.
@@ -666,8 +691,8 @@ async fn run_reindex_job(
     // 3. Delete per-root index files.
     let mut deleted: Vec<String> = Vec::new();
     for root in &roots {
-        let base = std::path::Path::new(&index_dir)
-            .join(format!("{:016x}.db", search_index_hash(root)));
+        let base =
+            std::path::Path::new(&index_dir).join(format!("{:016x}.db", search_index_hash(root)));
         for suffix in ["", "-wal", "-shm", "-journal"] {
             let p = format!("{}{}", base.display(), suffix);
             match std::fs::remove_file(&p) {
@@ -753,7 +778,12 @@ async fn run_reindex_job(
     }
 
     // 6. Owner ready — restart neighbors (incremental, they share the fresh DB).
-    set_job_progress(&state, &job_id, 99, "Index ready, restarting neighbors…".into());
+    set_job_progress(
+        &state,
+        &job_id,
+        99,
+        "Index ready, restarting neighbors…".into(),
+    );
     for (nid, _) in &neighbors {
         sync_server(&state, nid).await;
     }
@@ -872,14 +902,16 @@ pub async fn export(
                         .collect(),
                 ),
                 // Cursor mcp.json / generic Streamable HTTP
-                _ => with_headers(
-                    [("url".into(), json!(url))].into_iter().collect(),
-                ),
+                _ => with_headers([("url".into(), json!(url))].into_iter().collect()),
             };
             (name.clone(), entry)
         })
         .collect();
 
-    let key = if format == "opencode" { "mcp" } else { "mcpServers" };
+    let key = if format == "opencode" {
+        "mcp"
+    } else {
+        "mcpServers"
+    };
     Json(json!({ key: servers_obj }))
 }

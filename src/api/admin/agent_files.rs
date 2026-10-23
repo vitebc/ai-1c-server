@@ -189,7 +189,11 @@ fn render_agent_file(
     }
     out
 }
-fn render_frontmatter(meta: &[(String, String)], lists: &HashMap<String, Vec<String>>, body: &str) -> String {
+fn render_frontmatter(
+    meta: &[(String, String)],
+    lists: &HashMap<String, Vec<String>>,
+    body: &str,
+) -> String {
     let mut out = String::from("---\n");
     for (k, v) in meta {
         out.push_str(&format!("{k}: {v}\n"));
@@ -210,7 +214,10 @@ fn render_frontmatter(meta: &[(String, String)], lists: &HashMap<String, Vec<Str
 }
 
 fn meta_str(meta: &HashMap<String, Value>, key: &str) -> String {
-    meta.get(key).and_then(|v| v.as_str()).unwrap_or("").to_string()
+    meta.get(key)
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string()
 }
 
 fn meta_list(meta: &HashMap<String, Value>, key: &str) -> Vec<String> {
@@ -349,7 +356,10 @@ fn split_mcp(s: &str) -> Vec<String> {
 /// «доступно всем» — валидное состояние, не ошибка.
 fn normalize_access_list(raw: &[String]) -> Vec<String> {
     let mut out = Vec::new();
-    for s in raw.iter().flat_map(|x| x.split(',').map(|p| p.trim().to_string())) {
+    for s in raw
+        .iter()
+        .flat_map(|x| x.split(',').map(|p| p.trim().to_string()))
+    {
         if !s.is_empty() && !out.contains(&s) {
             out.push(s);
         }
@@ -373,8 +383,11 @@ fn normalize_mcp(raw: Vec<String>) -> Result<Vec<String>, String> {
     for m in raw.iter().flat_map(|s| split_mcp(s)) {
         let ok = !m.starts_with('-')
             && !m.ends_with('-')
-            && m.split('-')
-                .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()));
+            && m.split('-').all(|p| {
+                !p.is_empty()
+                    && p.chars()
+                        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+            });
         if !ok {
             return Err(format!("invalid mcp entry {m:?}: use [a-z0-9-]"));
         }
@@ -411,7 +424,11 @@ pub struct PatternBody {
 
 /// Значение `enabled` для frontmatter паттерна (строка 'true'/'false').
 fn pattern_enabled_value(enabled: bool) -> String {
-    if enabled { "true".into() } else { "false".into() }
+    if enabled {
+        "true".into()
+    } else {
+        "false".into()
+    }
 }
 
 // ─── readers ────────────────────────────────────────────────────────
@@ -576,7 +593,13 @@ fn list_dirs_sorted(dir: &Path) -> Vec<PathBuf> {
     let mut out: Vec<PathBuf> = entries
         .flatten()
         .map(|e| e.path())
-        .filter(|p| p.is_dir() && !p.file_name().map(|n| n.to_string_lossy().starts_with('.')).unwrap_or(true))
+        .filter(|p| {
+            p.is_dir()
+                && !p
+                    .file_name()
+                    .map(|n| n.to_string_lossy().starts_with('.'))
+                    .unwrap_or(true)
+        })
         .collect();
     out.sort();
     out
@@ -696,7 +719,9 @@ pub async fn create_agent(
     use axum::response::IntoResponse;
     let name = body.name.trim().to_string();
     if !is_valid_name(&name) {
-        return Err(super::BadRequest("name must match ^[a-z0-9-]+$ (max 64)".into()).into_response());
+        return Err(
+            super::BadRequest("name must match ^[a-z0-9-]+$ (max 64)".into()).into_response(),
+        );
     }
     let root = {
         let db = state.db.lock().await;
@@ -708,7 +733,8 @@ pub async fn create_agent(
         return Err(super::BadRequest(format!("agent {name:?} already exists")).into_response());
     }
     let mcp = normalize_mcp(body.mcp).map_err(|e| super::BadRequest(e).into_response())?;
-    let provider = normalize_provider(body.provider).map_err(|e| super::BadRequest(e).into_response())?;
+    let provider =
+        normalize_provider(body.provider).map_err(|e| super::BadRequest(e).into_response())?;
     let content = render_agent_file(
         &name,
         &body.title.unwrap_or_default(),
@@ -729,8 +755,14 @@ pub async fn create_agent(
     {
         let db = state.db.lock().await;
         super::agent_audit::commit_and_record(
-            &state, &db, &ident.user_id, &ident.username,
-            "agent", &name, "create", &format!("backend/agents/{name}"),
+            &state,
+            &db,
+            &ident.user_id,
+            &ident.username,
+            "agent",
+            &name,
+            "create",
+            &format!("backend/agents/{name}"),
         );
     }
     Ok(Json(read_agent(&dir)))
@@ -748,7 +780,9 @@ pub async fn update_agent(
     }
     let new_name = body.name.trim().to_string();
     if !is_valid_name(&new_name) {
-        return Err(super::BadRequest("name must match ^[a-z0-9-]+$ (max 64)".into()).into_response());
+        return Err(
+            super::BadRequest("name must match ^[a-z0-9-]+$ (max 64)".into()).into_response(),
+        );
     }
     let root = {
         let db = state.db.lock().await;
@@ -764,16 +798,20 @@ pub async fn update_agent(
         let target = jail(&root, &PathBuf::from(format!("backend/agents/{new_name}")))
             .map_err(|e| super::BadRequest(e).into_response())?;
         if target.exists() {
-            return Err(super::BadRequest(format!("agent {new_name:?} already exists")).into_response());
+            return Err(
+                super::BadRequest(format!("agent {new_name:?} already exists")).into_response(),
+            );
         }
-        std::fs::rename(&dir, &target).map_err(|e| super::AppError::msg(format!("rename: {e}")).into_response())?;
+        std::fs::rename(&dir, &target)
+            .map_err(|e| super::AppError::msg(format!("rename: {e}")).into_response())?;
         tracing::info!("agent-files: renamed agent {name} -> {new_name}");
         target
     } else {
         dir
     };
     let mcp = normalize_mcp(body.mcp).map_err(|e| super::BadRequest(e).into_response())?;
-    let provider = normalize_provider(body.provider).map_err(|e| super::BadRequest(e).into_response())?;
+    let provider =
+        normalize_provider(body.provider).map_err(|e| super::BadRequest(e).into_response())?;
     let content = render_agent_file(
         &new_name,
         &body.title.unwrap_or_default(),
@@ -793,8 +831,14 @@ pub async fn update_agent(
     {
         let db = state.db.lock().await;
         super::agent_audit::commit_and_record(
-            &state, &db, &ident.user_id, &ident.username,
-            "agent", &new_name, "update", &format!("backend/agents/{new_name}"),
+            &state,
+            &db,
+            &ident.user_id,
+            &ident.username,
+            "agent",
+            &new_name,
+            "update",
+            &format!("backend/agents/{new_name}"),
         );
     }
     Ok(Json(read_agent(&final_dir)))
@@ -818,13 +862,20 @@ pub async fn delete_agent(
     if !dir.join("AGENT.md").is_file() {
         return Err(super::NotFound.into_response());
     }
-    std::fs::remove_dir_all(&dir).map_err(|e| super::AppError::msg(format!("delete: {e}")).into_response())?;
+    std::fs::remove_dir_all(&dir)
+        .map_err(|e| super::AppError::msg(format!("delete: {e}")).into_response())?;
     tracing::warn!("agent-files: deleted agent {name}");
     {
         let db = state.db.lock().await;
         super::agent_audit::commit_and_record(
-            &state, &db, &ident.user_id, &ident.username,
-            "agent", &name, "delete", &format!("backend/agents/{name}"),
+            &state,
+            &db,
+            &ident.user_id,
+            &ident.username,
+            "agent",
+            &name,
+            "delete",
+            &format!("backend/agents/{name}"),
         );
     }
     Ok(Json(json!({ "ok": true })))
@@ -840,7 +891,9 @@ pub async fn create_skill(
     use axum::response::IntoResponse;
     let name = body.name.trim().to_string();
     if !is_valid_name(&name) {
-        return Err(super::BadRequest("name must match ^[a-z0-9-]+$ (max 64)".into()).into_response());
+        return Err(
+            super::BadRequest("name must match ^[a-z0-9-]+$ (max 64)".into()).into_response(),
+        );
     }
     let root = {
         let db = state.db.lock().await;
@@ -864,8 +917,14 @@ pub async fn create_skill(
     {
         let db = state.db.lock().await;
         super::agent_audit::commit_and_record(
-            &state, &db, &ident.user_id, &ident.username,
-            "skill", &name, "create", &format!("backend/skills/{name}"),
+            &state,
+            &db,
+            &ident.user_id,
+            &ident.username,
+            "skill",
+            &name,
+            "create",
+            &format!("backend/skills/{name}"),
         );
     }
     Ok(Json(read_skill(&dir)))
@@ -883,7 +942,9 @@ pub async fn update_skill(
     }
     let new_name = body.name.trim().to_string();
     if !is_valid_name(&new_name) {
-        return Err(super::BadRequest("name must match ^[a-z0-9-]+$ (max 64)".into()).into_response());
+        return Err(
+            super::BadRequest("name must match ^[a-z0-9-]+$ (max 64)".into()).into_response(),
+        );
     }
     let root = {
         let db = state.db.lock().await;
@@ -898,9 +959,12 @@ pub async fn update_skill(
         let target = jail(&root, &PathBuf::from(format!("backend/skills/{new_name}")))
             .map_err(|e| super::BadRequest(e).into_response())?;
         if target.exists() {
-            return Err(super::BadRequest(format!("skill {new_name:?} already exists")).into_response());
+            return Err(
+                super::BadRequest(format!("skill {new_name:?} already exists")).into_response(),
+            );
         }
-        std::fs::rename(&dir, &target).map_err(|e| super::AppError::msg(format!("rename: {e}")).into_response())?;
+        std::fs::rename(&dir, &target)
+            .map_err(|e| super::AppError::msg(format!("rename: {e}")).into_response())?;
         tracing::info!("agent-files: renamed skill {name} -> {new_name}");
         target
     } else {
@@ -918,8 +982,14 @@ pub async fn update_skill(
     {
         let db = state.db.lock().await;
         super::agent_audit::commit_and_record(
-            &state, &db, &ident.user_id, &ident.username,
-            "skill", &new_name, "update", &format!("backend/skills/{new_name}"),
+            &state,
+            &db,
+            &ident.user_id,
+            &ident.username,
+            "skill",
+            &new_name,
+            "update",
+            &format!("backend/skills/{new_name}"),
         );
     }
     Ok(Json(read_skill(&final_dir)))
@@ -943,13 +1013,20 @@ pub async fn delete_skill(
     if !dir.join("SKILL.md").is_file() {
         return Err(super::NotFound.into_response());
     }
-    std::fs::remove_dir_all(&dir).map_err(|e| super::AppError::msg(format!("delete: {e}")).into_response())?;
+    std::fs::remove_dir_all(&dir)
+        .map_err(|e| super::AppError::msg(format!("delete: {e}")).into_response())?;
     tracing::warn!("agent-files: deleted skill {name}");
     {
         let db = state.db.lock().await;
         super::agent_audit::commit_and_record(
-            &state, &db, &ident.user_id, &ident.username,
-            "skill", &name, "delete", &format!("backend/skills/{name}"),
+            &state,
+            &db,
+            &ident.user_id,
+            &ident.username,
+            "skill",
+            &name,
+            "delete",
+            &format!("backend/skills/{name}"),
         );
     }
     Ok(Json(json!({ "ok": true })))
@@ -965,7 +1042,9 @@ pub async fn create_pattern(
     use axum::response::IntoResponse;
     let name = body.name.trim().to_string();
     if !is_valid_name(&name) {
-        return Err(super::BadRequest("name must match ^[a-z0-9-]+$ (max 64)".into()).into_response());
+        return Err(
+            super::BadRequest("name must match ^[a-z0-9-]+$ (max 64)".into()).into_response(),
+        );
     }
     let root = {
         let db = state.db.lock().await;
@@ -988,8 +1067,14 @@ pub async fn create_pattern(
     {
         let db = state.db.lock().await;
         super::agent_audit::commit_and_record(
-            &state, &db, &ident.user_id, &ident.username,
-            "pattern", &name, "create", &format!("backend/patterns/{name}.md"),
+            &state,
+            &db,
+            &ident.user_id,
+            &ident.username,
+            "pattern",
+            &name,
+            "create",
+            &format!("backend/patterns/{name}.md"),
         );
     }
     Ok(Json(read_pattern(&path)))
@@ -1007,7 +1092,9 @@ pub async fn update_pattern(
     }
     let new_name = body.name.trim().to_string();
     if !is_valid_name(&new_name) {
-        return Err(super::BadRequest("name must match ^[a-z0-9-]+$ (max 64)".into()).into_response());
+        return Err(
+            super::BadRequest("name must match ^[a-z0-9-]+$ (max 64)".into()).into_response(),
+        );
     }
     let root = {
         let db = state.db.lock().await;
@@ -1019,12 +1106,18 @@ pub async fn update_pattern(
         return Err(super::NotFound.into_response());
     }
     let final_path = if new_name != name {
-        let target = jail(&root, &PathBuf::from(format!("backend/patterns/{new_name}.md")))
-            .map_err(|e| super::BadRequest(e).into_response())?;
+        let target = jail(
+            &root,
+            &PathBuf::from(format!("backend/patterns/{new_name}.md")),
+        )
+        .map_err(|e| super::BadRequest(e).into_response())?;
         if target.exists() {
-            return Err(super::BadRequest(format!("pattern {new_name:?} already exists")).into_response());
+            return Err(
+                super::BadRequest(format!("pattern {new_name:?} already exists")).into_response(),
+            );
         }
-        std::fs::rename(&path, &target).map_err(|e| super::AppError::msg(format!("rename: {e}")).into_response())?;
+        std::fs::rename(&path, &target)
+            .map_err(|e| super::AppError::msg(format!("rename: {e}")).into_response())?;
         tracing::info!("agent-files: renamed pattern {name} -> {new_name}");
         target
     } else {
@@ -1044,8 +1137,14 @@ pub async fn update_pattern(
     {
         let db = state.db.lock().await;
         super::agent_audit::commit_and_record(
-            &state, &db, &ident.user_id, &ident.username,
-            "pattern", &new_name, "update", &format!("backend/patterns/{new_name}.md"),
+            &state,
+            &db,
+            &ident.user_id,
+            &ident.username,
+            "pattern",
+            &new_name,
+            "update",
+            &format!("backend/patterns/{new_name}.md"),
         );
     }
     Ok(Json(read_pattern(&final_path)))
@@ -1078,7 +1177,10 @@ pub async fn toggle_pattern(
     } else {
         "enabled: true"
     };
-    let text = match text.lines().position(|l| l.trim_start().starts_with("enabled:")) {
+    let text = match text
+        .lines()
+        .position(|l| l.trim_start().starts_with("enabled:"))
+    {
         Some(i) => {
             let mut lines: Vec<&str> = text.lines().collect();
             lines[i] = new_line;
@@ -1124,8 +1226,14 @@ pub async fn toggle_pattern(
     {
         let db = state.db.lock().await;
         super::agent_audit::commit_and_record(
-            &state, &db, &ident.user_id, &ident.username,
-            "pattern", &name, "toggle", &format!("backend/patterns/{name}.md"),
+            &state,
+            &db,
+            &ident.user_id,
+            &ident.username,
+            "pattern",
+            &name,
+            "toggle",
+            &format!("backend/patterns/{name}.md"),
         );
     }
     Ok(Json(read_pattern(&path)))
@@ -1149,13 +1257,20 @@ pub async fn delete_pattern(
     if !path.is_file() {
         return Err(super::NotFound.into_response());
     }
-    std::fs::remove_file(&path).map_err(|e| super::AppError::msg(format!("delete: {e}")).into_response())?;
+    std::fs::remove_file(&path)
+        .map_err(|e| super::AppError::msg(format!("delete: {e}")).into_response())?;
     tracing::warn!("agent-files: deleted pattern {name}");
     {
         let db = state.db.lock().await;
         super::agent_audit::commit_and_record(
-            &state, &db, &ident.user_id, &ident.username,
-            "pattern", &name, "delete", &format!("backend/patterns/{name}.md"),
+            &state,
+            &db,
+            &ident.user_id,
+            &ident.username,
+            "pattern",
+            &name,
+            "delete",
+            &format!("backend/patterns/{name}.md"),
         );
     }
     Ok(Json(json!({ "ok": true })))
@@ -1165,8 +1280,9 @@ pub async fn delete_pattern(
 
 /// Кэш ответов get_users на базу: имя/URL → (время, список). TTL 5 минут —
 /// состав пользователей в базе меняется редко, а запрос идёт к живой 1С.
-static BASE_USERS_CACHE: std::sync::LazyLock<std::sync::Mutex<HashMap<String, (std::time::Instant, Vec<String>)>>> =
-    std::sync::LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
+static BASE_USERS_CACHE: std::sync::LazyLock<
+    std::sync::Mutex<HashMap<String, (std::time::Instant, Vec<String>)>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
 
 const BASE_USERS_TTL: std::time::Duration = std::time::Duration::from_secs(300);
 
@@ -1178,7 +1294,8 @@ fn dotenv_value(root: &Path, key: &str) -> Option<String> {
             if k.trim() == key {
                 let mut v = v.trim().to_string();
                 if v.len() >= 2
-                    && ((v.starts_with('"') && v.ends_with('"')) || (v.starts_with('\'') && v.ends_with('\'')))
+                    && ((v.starts_with('"') && v.ends_with('"'))
+                        || (v.starts_with('\'') && v.ends_with('\'')))
                 {
                     v = v[1..v.len() - 1].to_string();
                 }
@@ -1213,10 +1330,18 @@ pub async fn base_users(
     axum::extract::Query(qs): axum::extract::Query<HashMap<String, String>>,
 ) -> Result<Json<Value>, axum::response::Response> {
     use axum::response::IntoResponse;
-    let base = qs.get("base").map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let base = qs
+        .get("base")
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
     let base = match base {
         Some(b) => b,
-        None => return Err(super::BadRequest("нужен параметр ?base={имя из мапы или URL}".into()).into_response()),
+        None => {
+            return Err(
+                super::BadRequest("нужен параметр ?base={имя из мапы или URL}".into())
+                    .into_response(),
+            )
+        }
     };
     let root = {
         let db = state.db.lock().await;
@@ -1228,7 +1353,9 @@ pub async fn base_users(
         let cache = BASE_USERS_CACHE.lock().unwrap();
         if let Some((at, users)) = cache.get(&base) {
             if at.elapsed() < BASE_USERS_TTL {
-                return Ok(Json(json!({ "base": base, "cached": true, "users": users })));
+                return Ok(Json(
+                    json!({ "base": base, "cached": true, "users": users }),
+                ));
             }
         }
     }
@@ -1254,7 +1381,9 @@ pub async fn base_users(
                 }
             }
         }
-        Err(format!("база {base:?} не найдена в мапе ONEC_BASES (bases.conf / .env)"))
+        Err(format!(
+            "база {base:?} не найдена в мапе ONEC_BASES (bases.conf / .env)"
+        ))
     };
     let url = match resolve() {
         Ok(u) => u,
@@ -1287,14 +1416,18 @@ pub async fn base_users(
         .json(&payload)
         .send()
         .await
-        .map_err(|e| super::BadRequest(format!("база недоступна ({rpc_url}): {e}")).into_response())?;
+        .map_err(|e| {
+            super::BadRequest(format!("база недоступна ({rpc_url}): {e}")).into_response()
+        })?;
     let status = resp.status();
-    let body: Value = resp
-        .json()
-        .await
-        .map_err(|e| super::BadRequest(format!("база вернула не-JSON (HTTP {status}): {e}")).into_response())?;
+    let body: Value = resp.json().await.map_err(|e| {
+        super::BadRequest(format!("база вернула не-JSON (HTTP {status}): {e}")).into_response()
+    })?;
     if !status.is_success() {
-        return Err(super::BadRequest(format!("база вернула HTTP {status}: {}", body.to_string())).into_response());
+        return Err(
+            super::BadRequest(format!("база вернула HTTP {status}: {}", body.to_string()))
+                .into_response(),
+        );
     }
     // JSON-RPC: result.content[0].text → {"users": "a, b, c"} (строка).
     let text = body
@@ -1303,13 +1436,15 @@ pub async fn base_users(
         .and_then(|c| c.get(0))
         .and_then(|b| b.get("text"))
         .and_then(|t| t.as_str())
-        .ok_or_else(|| super::BadRequest("в ответе get_users нет result.content[0].text".into()).into_response())?;
+        .ok_or_else(|| {
+            super::BadRequest("в ответе get_users нет result.content[0].text".into())
+                .into_response()
+        })?;
     let inner: Value = serde_json::from_str(text)
         .map_err(|e| super::BadRequest(format!("ответ get_users не JSON: {e}")).into_response())?;
-    let raw_users = inner
-        .get("users")
-        .and_then(|u| u.as_str())
-        .ok_or_else(|| super::BadRequest("в ответе get_users нет поля users".into()).into_response())?;
+    let raw_users = inner.get("users").and_then(|u| u.as_str()).ok_or_else(|| {
+        super::BadRequest("в ответе get_users нет поля users".into()).into_response()
+    })?;
     // Дедуп: trim + case-insensitive (регистр первого вхождения сохраняется).
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut users: Vec<String> = Vec::new();
@@ -1329,6 +1464,11 @@ pub async fn base_users(
             cache.insert(key, (std::time::Instant::now(), users.clone()));
         }
     }
-    tracing::info!("agent-files: base-users {base}: {} уникальных пользователей", users.len());
-    Ok(Json(json!({ "base": base, "cached": false, "users": users })))
+    tracing::info!(
+        "agent-files: base-users {base}: {} уникальных пользователей",
+        users.len()
+    );
+    Ok(Json(
+        json!({ "base": base, "cached": false, "users": users }),
+    ))
 }

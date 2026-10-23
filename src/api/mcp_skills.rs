@@ -1,5 +1,3 @@
-use std::sync::Arc;
-use std::convert::Infallible;
 use axum::{
     extract::State,
     response::{
@@ -9,10 +7,12 @@ use axum::{
     Json as JsonReq,
 };
 use futures::stream::Stream;
-use tokio_stream::StreamExt;
 use serde_json::{json, Value};
+use std::convert::Infallible;
+use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio_stream::wrappers::BroadcastStream;
+use tokio_stream::StreamExt;
 
 use super::AppState;
 
@@ -28,16 +28,15 @@ pub async fn sse_handler(
     State(_state): State<Arc<AppState>>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let rx = SSE_CHANNEL.subscribe();
-    let stream = BroadcastStream::new(rx).map(|msg| {
-        match msg {
-            Ok(data) => Ok(Event::default().data(data)),
-            Err(_) => Ok(Event::default().data("")),
-        }
+    let stream = BroadcastStream::new(rx).map(|msg| match msg {
+        Ok(data) => Ok(Event::default().data(data)),
+        Err(_) => Ok(Event::default().data("")),
     });
-    Sse::new(stream)
-        .keep_alive(axum::response::sse::KeepAlive::new()
+    Sse::new(stream).keep_alive(
+        axum::response::sse::KeepAlive::new()
             .interval(std::time::Duration::from_secs(15))
-            .text("ping"))
+            .text("ping"),
+    )
 }
 
 /// POST handler — JSON-RPC for MCP tools
@@ -99,23 +98,42 @@ fn ok_text(id: Value, text: String) -> Value {
 
 async fn handle_list_skills(id: Value, state: &Arc<AppState>) -> Value {
     let db = state.db.lock().await;
-    let mut stmt = match db.conn.prepare("SELECT id, name, description, category, updated_at FROM skills ORDER BY name") {
+    let mut stmt = match db
+        .conn
+        .prepare("SELECT id, name, description, category, updated_at FROM skills ORDER BY name")
+    {
         Ok(s) => s,
         Err(e) => return make_error(id, -32603, format!("DB error: {}", e)),
     };
-    let rows: Vec<String> = stmt.query_map([], |row| {
-        Ok(format!("### {}\nID: `{}`\n{}\nКатегория: {}\nОбновлён: {}",
-            row.get::<_, String>(1)?, row.get::<_, String>(0)?,
-            row.get::<_, Option<String>>(2)?.unwrap_or_default(),
-            row.get::<_, Option<String>>(3)?.unwrap_or_default(),
-            row.get::<_, String>(4)?))
-    }).unwrap().flatten().collect();
-    ok_text(id, if rows.is_empty() { "Скилы не найдены".into() } else { rows.join("\n\n") })
+    let rows: Vec<String> = stmt
+        .query_map([], |row| {
+            Ok(format!(
+                "### {}\nID: `{}`\n{}\nКатегория: {}\nОбновлён: {}",
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                row.get::<_, Option<String>>(3)?.unwrap_or_default(),
+                row.get::<_, String>(4)?
+            ))
+        })
+        .unwrap()
+        .flatten()
+        .collect();
+    ok_text(
+        id,
+        if rows.is_empty() {
+            "Скилы не найдены".into()
+        } else {
+            rows.join("\n\n")
+        },
+    )
 }
 
 async fn handle_get_skill(id: Value, args: &Value, state: &Arc<AppState>) -> Value {
     let skill_id = args["id"].as_str().unwrap_or("");
-    if skill_id.is_empty() { return make_error(id, -32602, "Parameter 'id' is required".into()); }
+    if skill_id.is_empty() {
+        return make_error(id, -32602, "Parameter 'id' is required".into());
+    }
     let db = state.db.lock().await;
     match db.conn.query_row(
         "SELECT name, description, instruction, category, metadata, updated_at FROM skills WHERE id = ?1",
@@ -143,14 +161,37 @@ async fn handle_get_skill(id: Value, args: &Value, state: &Arc<AppState>) -> Val
 async fn handle_search_skills(id: Value, args: &Value, state: &Arc<AppState>) -> Value {
     let query = args["query"].as_str().unwrap_or("").to_lowercase();
     let db = state.db.lock().await;
-    let mut stmt = db.conn.prepare("SELECT id, name, description FROM skills ORDER BY name").unwrap();
-    let results: Vec<String> = stmt.query_map([], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?))
-    }).unwrap().flatten()
-    .filter(|(sid, name, desc)| format!("{} {} {}", sid, name, desc.as_deref().unwrap_or("")).to_lowercase().contains(&query))
-    .map(|(sid, name, desc)| format!("### {}\nID: `{}`\n{}", name, sid, desc.unwrap_or_default()))
-    .collect();
-    ok_text(id, if results.is_empty() { format!("По запросу '{}' ничего не найдено", query) } else { results.join("\n\n") })
+    let mut stmt = db
+        .conn
+        .prepare("SELECT id, name, description FROM skills ORDER BY name")
+        .unwrap();
+    let results: Vec<String> = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })
+        .unwrap()
+        .flatten()
+        .filter(|(sid, name, desc)| {
+            format!("{} {} {}", sid, name, desc.as_deref().unwrap_or(""))
+                .to_lowercase()
+                .contains(&query)
+        })
+        .map(|(sid, name, desc)| {
+            format!("### {}\nID: `{}`\n{}", name, sid, desc.unwrap_or_default())
+        })
+        .collect();
+    ok_text(
+        id,
+        if results.is_empty() {
+            format!("По запросу '{}' ничего не найдено", query)
+        } else {
+            results.join("\n\n")
+        },
+    )
 }
 
 async fn handle_check_updates(id: Value, args: &Value, state: &Arc<AppState>) -> Value {
@@ -163,16 +204,27 @@ async fn handle_check_updates(id: Value, args: &Value, state: &Arc<AppState>) ->
     for s in skills_param {
         let sid = s["id"].as_str().unwrap_or("");
         let client_updated = s["updated_at"].as_str().unwrap_or("");
-        if sid.is_empty() { continue; }
+        if sid.is_empty() {
+            continue;
+        }
         if let Ok(server_updated) = db.conn.query_row::<String, _, _>(
-            "SELECT updated_at FROM skills WHERE id = ?1", [sid], |row| row.get(0)
+            "SELECT updated_at FROM skills WHERE id = ?1",
+            [sid],
+            |row| row.get(0),
         ) {
             if server_updated.as_str() > client_updated {
                 changed.push(format!("{}: обновлён {}", sid, server_updated));
             }
         }
     }
-    ok_text(id, if changed.is_empty() { "Все скилы актуальны".into() } else { changed.join("\n") })
+    ok_text(
+        id,
+        if changed.is_empty() {
+            "Все скилы актуальны".into()
+        } else {
+            changed.join("\n")
+        },
+    )
 }
 
 async fn handle_export_skills(id: Value, state: &Arc<AppState>) -> Value {

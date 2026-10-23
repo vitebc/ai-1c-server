@@ -1,6 +1,3 @@
-use std::sync::Arc;
-use std::path::Path as FilePath;
-use std::io::Write;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -8,7 +5,9 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-
+use std::io::Write;
+use std::path::Path as FilePath;
+use std::sync::Arc;
 
 use super::super::AppState;
 
@@ -80,8 +79,16 @@ fn row_to_skill(row: &rusqlite::Row) -> rusqlite::Result<SkillRow> {
 
 pub async fn list(State(state): State<Arc<AppState>>) -> Json<Vec<SkillRow>> {
     let db = state.db.lock().await;
-    let mut stmt = db.conn.prepare(&format!("SELECT {} FROM skills ORDER BY name", SKILL_COLS)).unwrap();
-    Json(stmt.query_map([], row_to_skill).unwrap().flatten().collect())
+    let mut stmt = db
+        .conn
+        .prepare(&format!("SELECT {} FROM skills ORDER BY name", SKILL_COLS))
+        .unwrap();
+    Json(
+        stmt.query_map([], row_to_skill)
+            .unwrap()
+            .flatten()
+            .collect(),
+    )
 }
 
 pub async fn get_by_id(
@@ -89,11 +96,14 @@ pub async fn get_by_id(
     Path(id): Path<String>,
 ) -> Result<Json<SkillRow>, super::NotFound> {
     let db = state.db.lock().await;
-    let row = db.conn.query_row(
-        &format!("SELECT {} FROM skills WHERE id = ?1", SKILL_COLS),
-        [&id],
-        row_to_skill,
-    ).map_err(|_| super::NotFound)?;
+    let row = db
+        .conn
+        .query_row(
+            &format!("SELECT {} FROM skills WHERE id = ?1", SKILL_COLS),
+            [&id],
+            row_to_skill,
+        )
+        .map_err(|_| super::NotFound)?;
     Ok(Json(row))
 }
 
@@ -104,10 +114,22 @@ pub async fn create(
     let id = body.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let db = state.db.lock().await;
     db.conn.execute(
-        &format!("INSERT INTO skills ({}) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)", SKILL_COLS),
+        &format!(
+            "INSERT INTO skills ({}) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+            SKILL_COLS
+        ),
         rusqlite::params![
-            id, body.name, body.description, body.instruction, body.server_id, body.tool_name,
-            body.tool_schema, body.category, body.version, body.enabled.unwrap_or(true) as i32, body.metadata,
+            id,
+            body.name,
+            body.description,
+            body.instruction,
+            body.server_id,
+            body.tool_name,
+            body.tool_schema,
+            body.category,
+            body.version,
+            body.enabled.unwrap_or(true) as i32,
+            body.metadata,
         ],
     )?;
     drop(db);
@@ -120,18 +142,37 @@ pub async fn update(
     Json(body): Json<UpdateSkill>,
 ) -> Result<Json<SkillRow>, super::AppError> {
     let db = state.db.lock().await;
-    let existing = db.conn.query_row(
-        &format!("SELECT {} FROM skills WHERE id = ?1", SKILL_COLS),
-        [&id],
-        row_to_skill,
-    ).map_err(|_| super::NotFound)?;
+    let existing = db
+        .conn
+        .query_row(
+            &format!("SELECT {} FROM skills WHERE id = ?1", SKILL_COLS),
+            [&id],
+            row_to_skill,
+        )
+        .map_err(|_| super::NotFound)?;
 
     let name = body.name.as_deref().unwrap_or(&existing.name).to_string();
-    let tool_name = body.tool_name.as_deref().unwrap_or(&existing.tool_name).to_string();
-    let new_description = body.description.clone().unwrap_or_else(|| existing.description.clone().unwrap_or_default());
-    let new_instruction = body.instruction.clone().unwrap_or_else(|| existing.instruction.clone().unwrap_or_default());
-    let new_sid = body.server_id.clone().or_else(|| existing.server_id.clone());
-    let new_schema = body.tool_schema.clone().unwrap_or(existing.tool_schema.clone());
+    let tool_name = body
+        .tool_name
+        .as_deref()
+        .unwrap_or(&existing.tool_name)
+        .to_string();
+    let new_description = body
+        .description
+        .clone()
+        .unwrap_or_else(|| existing.description.clone().unwrap_or_default());
+    let new_instruction = body
+        .instruction
+        .clone()
+        .unwrap_or_else(|| existing.instruction.clone().unwrap_or_default());
+    let new_sid = body
+        .server_id
+        .clone()
+        .or_else(|| existing.server_id.clone());
+    let new_schema = body
+        .tool_schema
+        .clone()
+        .unwrap_or(existing.tool_schema.clone());
     let new_cat = body.category.clone().or_else(|| existing.category.clone());
     let new_ver = body.version.clone().or_else(|| existing.version.clone());
     let new_enabled = body.enabled.unwrap_or(existing.enabled) as i32;
@@ -147,7 +188,9 @@ pub async fn update(
     )?;
 
     // Sync to disk: write SKILL.md
-    let skills_dir = FilePath::new(&state.data_dir).join("skills").join(&tool_name);
+    let skills_dir = FilePath::new(&state.data_dir)
+        .join("skills")
+        .join(&tool_name);
     let frontmatter = build_frontmatter_yaml(&name, &new_description, &tool_name, &existing);
     let md_content = format!("---\n{}\n---\n\n{}", frontmatter.trim(), new_instruction);
     if let Some(parent) = skills_dir.parent() {
@@ -159,19 +202,47 @@ pub async fn update(
     get_by_id(State(state), Path(id)).await.map_err(Into::into)
 }
 
-fn build_frontmatter_yaml(name: &str, description: &str, tool_name: &str, existing: &SkillRow) -> String {
+fn build_frontmatter_yaml(
+    name: &str,
+    description: &str,
+    tool_name: &str,
+    existing: &SkillRow,
+) -> String {
     let mut map = serde_json::Map::new();
     map.insert("name".into(), serde_json::Value::String(name.to_string()));
-    if !description.is_empty() { map.insert("description".into(), serde_json::Value::String(description.to_string())); }
-    map.insert("tool_name".into(), serde_json::Value::String(tool_name.to_string()));
-    if let Some(cat) = &existing.category { map.insert("category".into(), serde_json::Value::String(cat.clone())); }
-    if let Some(ver) = &existing.version { map.insert("version".into(), serde_json::Value::String(ver.clone())); }
-    if let Some(sid) = &existing.server_id { map.insert("server_id".into(), serde_json::Value::String(sid.clone())); }
+    if !description.is_empty() {
+        map.insert(
+            "description".into(),
+            serde_json::Value::String(description.to_string()),
+        );
+    }
+    map.insert(
+        "tool_name".into(),
+        serde_json::Value::String(tool_name.to_string()),
+    );
+    if let Some(cat) = &existing.category {
+        map.insert("category".into(), serde_json::Value::String(cat.clone()));
+    }
+    if let Some(ver) = &existing.version {
+        map.insert("version".into(), serde_json::Value::String(ver.clone()));
+    }
+    if let Some(sid) = &existing.server_id {
+        map.insert("server_id".into(), serde_json::Value::String(sid.clone()));
+    }
     if let Some(meta) = &existing.metadata {
         if let Ok(obj) = serde_json::from_str::<serde_json::Value>(meta) {
             if let Some(obj) = obj.as_object() {
                 for (k, v) in obj {
-                    if !["name", "description", "tool_name", "category", "version", "server_id"].contains(&k.as_str()) {
+                    if ![
+                        "name",
+                        "description",
+                        "tool_name",
+                        "category",
+                        "version",
+                        "server_id",
+                    ]
+                    .contains(&k.as_str())
+                    {
                         map.insert(k.clone(), v.clone());
                     }
                 }
@@ -187,11 +258,16 @@ pub async fn delete(
 ) -> Result<Json<()>, super::AppError> {
     let db = state.db.lock().await;
     // Get tool_name before deleting
-    let tool_name: Option<String> = db.conn.query_row(
-        "SELECT tool_name FROM skills WHERE id = ?1", [&id], |row| row.get(0)
-    ).ok();
+    let tool_name: Option<String> = db
+        .conn
+        .query_row("SELECT tool_name FROM skills WHERE id = ?1", [&id], |row| {
+            row.get(0)
+        })
+        .ok();
     let changes = db.conn.execute("DELETE FROM skills WHERE id = ?1", [&id])?;
-    if changes == 0 { return Err(super::NotFound.into()); }
+    if changes == 0 {
+        return Err(super::NotFound.into());
+    }
     drop(db);
     // Clean up disk
     if let Some(tn) = tool_name {
@@ -202,7 +278,9 @@ pub async fn delete(
 }
 
 #[derive(Debug, Deserialize)]
-pub struct ImportReq { pub dir: String }
+pub struct ImportReq {
+    pub dir: String,
+}
 
 pub async fn import_skills(
     State(state): State<Arc<AppState>>,
@@ -215,10 +293,15 @@ pub async fn import_skills(
 }
 
 #[derive(Debug, Deserialize)]
-pub struct UploadReq { pub files: Vec<UploadedFile> }
+pub struct UploadReq {
+    pub files: Vec<UploadedFile>,
+}
 
 #[derive(Debug, Deserialize)]
-pub struct UploadedFile { pub path: String, pub content: String }
+pub struct UploadedFile {
+    pub path: String,
+    pub content: String,
+}
 
 pub async fn upload_skills(
     State(state): State<Arc<AppState>>,
@@ -227,9 +310,13 @@ pub async fn upload_skills(
     let tmp = std::env::temp_dir().join("ai-1c-skills-upload");
     let _ = std::fs::remove_dir_all(&tmp);
     for file in &body.files {
-        if !file.path.ends_with(".md") && !file.path.contains('/') { continue; }
+        if !file.path.ends_with(".md") && !file.path.contains('/') {
+            continue;
+        }
         let dest = tmp.join(&file.path);
-        if let Some(parent) = dest.parent() { std::fs::create_dir_all(parent)?; }
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
         std::fs::write(&dest, &file.content)?;
     }
     let db = state.db.lock().await;
@@ -247,26 +334,41 @@ pub async fn export_skills(State(state): State<Arc<AppState>>) -> impl IntoRespo
 
     let mut buffer = Vec::new();
     if let Err(e) = write_skills_zip(&skills_dir, &mut buffer) {
-        return (StatusCode::INTERNAL_SERVER_ERROR, format!("ZIP error: {}", e)).into_response();
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("ZIP error: {}", e),
+        )
+            .into_response();
     }
-    let headers = [("Content-Type", "application/zip"), ("Content-Disposition", "attachment; filename=\"skills.zip\"")];
+    let headers = [
+        ("Content-Type", "application/zip"),
+        ("Content-Disposition", "attachment; filename=\"skills.zip\""),
+    ];
     (headers, buffer).into_response()
 }
 
-pub fn write_skills_zip(skills_dir: &FilePath, buffer: &mut Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
+pub fn write_skills_zip(
+    skills_dir: &FilePath,
+    buffer: &mut Vec<u8>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut zip = zip::ZipWriter::new(std::io::Cursor::new(buffer));
-    let options: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default()
-        .compression_method(zip::CompressionMethod::Deflated);
+    let options: zip::write::FileOptions<'_, ()> =
+        zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
     if !skills_dir.exists() {
         zip.finish()?;
         return Ok(());
     }
 
-    for entry in walkdir::WalkDir::new(skills_dir).into_iter().filter_map(|e| e.ok()) {
+    for entry in walkdir::WalkDir::new(skills_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
         let path = entry.path();
         let rel = path.strip_prefix(skills_dir)?.to_string_lossy().to_string();
-        if rel.is_empty() { continue; }
+        if rel.is_empty() {
+            continue;
+        }
         let zip_path = format!(".opencode/skills/{}", rel);
 
         if path.is_dir() {
@@ -281,5 +383,3 @@ pub fn write_skills_zip(skills_dir: &FilePath, buffer: &mut Vec<u8>) -> Result<(
     zip.finish()?;
     Ok(())
 }
-
-

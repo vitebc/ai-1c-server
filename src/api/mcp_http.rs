@@ -88,7 +88,11 @@ pub async fn aggregated_tools(State(state): State<Arc<AppState>>) -> Json<Value>
         match state.mcp.list_tools(&sid).await {
             Ok(list) => {
                 for t in list {
-                    let tname = t.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
+                    let tname = t
+                        .get("name")
+                        .and_then(|n| n.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     let mut full = format!("{prefix}__{tname}");
                     full.truncate(64);
                     tools.push(json!({
@@ -123,10 +127,7 @@ pub async fn mcp_list(State(state): State<Arc<AppState>>) -> Json<Value> {
 
 /// GET /api/mcp/{id|name}/tools — inventory of one enabled server.
 /// 404 unknown/disabled, 502 not running.
-pub async fn server_tools(
-    State(state): State<Arc<AppState>>,
-    Path(key): Path<String>,
-) -> Response {
+pub async fn server_tools(State(state): State<Arc<AppState>>, Path(key): Path<String>) -> Response {
     let (sid, name) = {
         let db = state.db.lock().await;
         match db.conn.query_row(
@@ -136,7 +137,11 @@ pub async fn server_tools(
         ) {
             Ok(r) => r,
             Err(_) => {
-                return (StatusCode::NOT_FOUND, Json(json!({ "error": format!("MCP server '{key}' not found") }))).into_response();
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({ "error": format!("MCP server '{key}' not found") })),
+                )
+                    .into_response();
             }
         }
     };
@@ -155,7 +160,11 @@ pub async fn server_tools(
                 .collect();
             Json(json!({ "id": sid, "name": name, "tools": cleaned })).into_response()
         }
-        Err(e) => (StatusCode::BAD_GATEWAY, Json(json!({ "error": e.to_string() }))).into_response(),
+        Err(e) => (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({ "error": e.to_string() })),
+        )
+            .into_response(),
     }
 }
 
@@ -206,11 +215,7 @@ async fn handle_rpc(state: &Arc<AppState>, target: Target, body: Value) -> Respo
         _ if method.starts_with("notifications/") => {
             return StatusCode::ACCEPTED.into_response();
         }
-        _ => err_body(
-            id.clone(),
-            -32601,
-            format!("Method not found: {method}"),
-        ),
+        _ => err_body(id.clone(), -32601, format!("Method not found: {method}")),
     };
 
     // Fan-out to SSE subscribers (legacy `sse` clients read answers there).
@@ -236,7 +241,9 @@ async fn proxy_call(state: &Arc<AppState>, sid: &str, id: Value, body: Value) ->
             resp.id = id.clone();
             serde_json::to_value(resp).unwrap_or_else(|e| err_body(id, -32603, e.to_string()))
         }
-        Err(McpError::NotFound(_)) => err_body(id, -32002, format!("MCP server '{sid}' is not running")),
+        Err(McpError::NotFound(_)) => {
+            err_body(id, -32002, format!("MCP server '{sid}' is not running"))
+        }
         Err(McpError::CallError(msg)) => err_body(id, -32603, msg),
     }
 }
@@ -253,9 +260,11 @@ async fn enabled_servers(state: &Arc<AppState>) -> Vec<(String, String)> {
         Ok(s) => s,
         Err(_) => return Vec::new(),
     };
-    stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
-        .map(|rows| rows.flatten().collect())
-        .unwrap_or_default()
+    stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })
+    .map(|rows| rows.flatten().collect())
+    .unwrap_or_default()
 }
 
 /// MCP tool names allow `[a-zA-Z0-9_.-]{1,64}` — sanitize server name for prefixing.

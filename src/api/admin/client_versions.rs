@@ -1,9 +1,9 @@
-use std::sync::Arc;
 use axum::{
     extract::{Path, State},
     Json,
 };
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 use super::super::AppState;
 
@@ -42,22 +42,27 @@ pub struct UpdateVersion {
 
 pub async fn list(State(state): State<Arc<AppState>>) -> Json<Vec<ClientVersionRow>> {
     let db = state.db.lock().await;
-    let mut stmt = db.conn.prepare(
-        "SELECT id, version, platform, url, checksum, changelog, required, created_at
-         FROM client_versions ORDER BY version DESC"
-    ).unwrap();
-    let rows = stmt.query_map([], |row| {
-        Ok(ClientVersionRow {
-            id: row.get(0)?,
-            version: row.get(1)?,
-            platform: row.get(2)?,
-            url: row.get(3)?,
-            checksum: row.get(4)?,
-            changelog: row.get(5)?,
-            required: row.get::<_, i32>(6)? != 0,
-            created_at: row.get(7)?,
+    let mut stmt = db
+        .conn
+        .prepare(
+            "SELECT id, version, platform, url, checksum, changelog, required, created_at
+         FROM client_versions ORDER BY version DESC",
+        )
+        .unwrap();
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(ClientVersionRow {
+                id: row.get(0)?,
+                version: row.get(1)?,
+                platform: row.get(2)?,
+                url: row.get(3)?,
+                checksum: row.get(4)?,
+                changelog: row.get(5)?,
+                required: row.get::<_, i32>(6)? != 0,
+                created_at: row.get(7)?,
+            })
         })
-    }).unwrap();
+        .unwrap();
     Json(rows.flatten().collect())
 }
 
@@ -71,8 +76,13 @@ pub async fn create(
         "INSERT INTO client_versions (id, version, platform, url, checksum, changelog, required)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         rusqlite::params![
-            id, body.version, body.platform, body.url, body.checksum,
-            body.changelog, body.required.unwrap_or(false) as i32,
+            id,
+            body.version,
+            body.platform,
+            body.url,
+            body.checksum,
+            body.changelog,
+            body.required.unwrap_or(false) as i32,
         ],
     )?;
     drop(db);
@@ -84,23 +94,26 @@ pub async fn get_by_id(
     Path(id): Path<String>,
 ) -> Result<Json<ClientVersionRow>, super::NotFound> {
     let db = state.db.lock().await;
-    let row = db.conn.query_row(
-        "SELECT id, version, platform, url, checksum, changelog, required, created_at
+    let row = db
+        .conn
+        .query_row(
+            "SELECT id, version, platform, url, checksum, changelog, required, created_at
          FROM client_versions WHERE id = ?1",
-        [&id],
-        |row| {
-            Ok(ClientVersionRow {
-                id: row.get(0)?,
-                version: row.get(1)?,
-                platform: row.get(2)?,
-                url: row.get(3)?,
-                checksum: row.get(4)?,
-                changelog: row.get(5)?,
-                required: row.get::<_, i32>(6)? != 0,
-                created_at: row.get(7)?,
-            })
-        },
-    ).map_err(|_| super::NotFound)?;
+            [&id],
+            |row| {
+                Ok(ClientVersionRow {
+                    id: row.get(0)?,
+                    version: row.get(1)?,
+                    platform: row.get(2)?,
+                    url: row.get(3)?,
+                    checksum: row.get(4)?,
+                    changelog: row.get(5)?,
+                    required: row.get::<_, i32>(6)? != 0,
+                    created_at: row.get(7)?,
+                })
+            },
+        )
+        .map_err(|_| super::NotFound)?;
     Ok(Json(row))
 }
 
@@ -110,23 +123,26 @@ pub async fn update(
     Json(body): Json<UpdateVersion>,
 ) -> Result<Json<ClientVersionRow>, super::AppError> {
     let db = state.db.lock().await;
-    let existing = db.conn.query_row(
-        "SELECT id, version, platform, url, checksum, changelog, required, created_at
+    let existing = db
+        .conn
+        .query_row(
+            "SELECT id, version, platform, url, checksum, changelog, required, created_at
          FROM client_versions WHERE id = ?1",
-        [&id],
-        |row| {
-            Ok(ClientVersionRow {
-                id: row.get(0)?,
-                version: row.get(1)?,
-                platform: row.get(2)?,
-                url: row.get(3)?,
-                checksum: row.get(4)?,
-                changelog: row.get(5)?,
-                required: row.get::<_, i32>(6)? != 0,
-                created_at: row.get(7)?,
-            })
-        },
-    ).map_err(|_| super::NotFound)?;
+            [&id],
+            |row| {
+                Ok(ClientVersionRow {
+                    id: row.get(0)?,
+                    version: row.get(1)?,
+                    platform: row.get(2)?,
+                    url: row.get(3)?,
+                    checksum: row.get(4)?,
+                    changelog: row.get(5)?,
+                    required: row.get::<_, i32>(6)? != 0,
+                    created_at: row.get(7)?,
+                })
+            },
+        )
+        .map_err(|_| super::NotFound)?;
 
     db.conn.execute(
         "UPDATE client_versions SET version=?1, platform=?2, url=?3, checksum=?4, changelog=?5, required=?6 WHERE id=?7",
@@ -149,7 +165,9 @@ pub async fn delete(
     Path(id): Path<String>,
 ) -> Result<Json<()>, super::AppError> {
     let db = state.db.lock().await;
-    let changes = db.conn.execute("DELETE FROM client_versions WHERE id = ?1", [&id])?;
+    let changes = db
+        .conn
+        .execute("DELETE FROM client_versions WHERE id = ?1", [&id])?;
     if changes == 0 {
         return Err(super::NotFound.into());
     }

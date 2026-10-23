@@ -1,9 +1,9 @@
-use std::sync::Arc;
 use axum::{
     extract::{Path, State},
     Json,
 };
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 use super::super::AppState;
 
@@ -38,7 +38,8 @@ pub struct UpdateConfig {
     pub parent_id: Option<Option<String>>,
 }
 
-const ROW_SQL: &str = "SELECT id, name, path, active, parent_id, last_indexed, created_at, updated_at
+const ROW_SQL: &str =
+    "SELECT id, name, path, active, parent_id, last_indexed, created_at, updated_at
      FROM config_profiles";
 
 fn map_row(row: &rusqlite::Row) -> rusqlite::Result<ConfigProfileRow> {
@@ -56,10 +57,7 @@ fn map_row(row: &rusqlite::Row) -> rusqlite::Result<ConfigProfileRow> {
 
 /// All profiles: (mains first, then extensions). Used by search_sync.
 pub fn load_all(db: &crate::db::Database) -> Vec<ConfigProfileRow> {
-    let mut stmt = match db
-        .conn
-        .prepare(&format!("{ROW_SQL} ORDER BY name"))
-    {
+    let mut stmt = match db.conn.prepare(&format!("{ROW_SQL} ORDER BY name")) {
         Ok(s) => s,
         Err(_) => return Vec::new(),
     };
@@ -70,10 +68,13 @@ pub fn load_all(db: &crate::db::Database) -> Vec<ConfigProfileRow> {
 
 pub async fn list(State(state): State<Arc<AppState>>) -> Json<Vec<ConfigProfileRow>> {
     let db = state.db.lock().await;
-    let mut stmt = db.conn.prepare(
-        "SELECT id, name, path, active, parent_id, last_indexed, created_at, updated_at
-         FROM config_profiles ORDER BY name"
-    ).unwrap();
+    let mut stmt = db
+        .conn
+        .prepare(
+            "SELECT id, name, path, active, parent_id, last_indexed, created_at, updated_at
+         FROM config_profiles ORDER BY name",
+        )
+        .unwrap();
     let rows = stmt.query_map([], map_row).unwrap();
     Json(rows.flatten().collect())
 }
@@ -100,8 +101,10 @@ pub async fn create(
                 .unwrap_or(false)
         };
         if !ok {
-            return Err(super::BadRequest("parent_id must reference an existing main profile".into())
-                .into_response());
+            return Err(super::BadRequest(
+                "parent_id must reference an existing main profile".into(),
+            )
+            .into_response());
         }
     }
     let db = state.db.lock().await;
@@ -122,12 +125,15 @@ pub async fn get_by_id(
     Path(id): Path<String>,
 ) -> Result<Json<ConfigProfileRow>, super::NotFound> {
     let db = state.db.lock().await;
-    let row = db.conn.query_row(
-        "SELECT id, name, path, active, parent_id, last_indexed, created_at, updated_at
+    let row = db
+        .conn
+        .query_row(
+            "SELECT id, name, path, active, parent_id, last_indexed, created_at, updated_at
          FROM config_profiles WHERE id = ?1",
-        [&id],
-        map_row,
-    ).map_err(|_| super::NotFound)?;
+            [&id],
+            map_row,
+        )
+        .map_err(|_| super::NotFound)?;
     Ok(Json(row))
 }
 
@@ -138,12 +144,15 @@ pub async fn update(
 ) -> Result<Json<ConfigProfileRow>, axum::response::Response> {
     use axum::response::IntoResponse;
     let db = state.db.lock().await;
-    let existing = db.conn.query_row(
-        "SELECT id, name, path, active, parent_id, last_indexed, created_at, updated_at
+    let existing = db
+        .conn
+        .query_row(
+            "SELECT id, name, path, active, parent_id, last_indexed, created_at, updated_at
          FROM config_profiles WHERE id = ?1",
-        [&id],
-        map_row,
-    ).map_err(|_| super::NotFound.into_response())?;
+            [&id],
+            map_row,
+        )
+        .map_err(|_| super::NotFound.into_response())?;
 
     let new_parent: Option<String> = match body.parent_id {
         None => existing.parent_id.clone(),
@@ -154,14 +163,19 @@ pub async fn update(
     }
     // A main profile with extensions cannot become an extension itself.
     if new_parent.is_some() {
-        let has_children: bool = db.conn.query_row(
-            "SELECT COUNT(*) > 0 FROM config_profiles WHERE parent_id = ?1",
-            [&id],
-            |row| row.get(0),
-        ).unwrap_or(false);
+        let has_children: bool = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM config_profiles WHERE parent_id = ?1",
+                [&id],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
         if has_children {
-            return Err(super::BadRequest("profile with extensions cannot become an extension".into())
-                .into_response());
+            return Err(super::BadRequest(
+                "profile with extensions cannot become an extension".into(),
+            )
+            .into_response());
         }
         let parent_ok: bool = db.conn.query_row(
             "SELECT COUNT(*) > 0 FROM config_profiles WHERE id = ?1 AND parent_id IS NULL AND id <> ?2",
@@ -169,8 +183,10 @@ pub async fn update(
             |row| row.get(0),
         ).unwrap_or(false);
         if !parent_ok {
-            return Err(super::BadRequest("parent_id must reference an existing main profile".into())
-                .into_response());
+            return Err(super::BadRequest(
+                "parent_id must reference an existing main profile".into(),
+            )
+            .into_response());
         }
     }
 
@@ -197,7 +213,9 @@ pub async fn delete(
     Path(id): Path<String>,
 ) -> Result<Json<()>, super::AppError> {
     let db = state.db.lock().await;
-    let changes = db.conn.execute("DELETE FROM config_profiles WHERE id = ?1", [&id])?;
+    let changes = db
+        .conn
+        .execute("DELETE FROM config_profiles WHERE id = ?1", [&id])?;
     if changes == 0 {
         return Err(super::NotFound.into());
     }

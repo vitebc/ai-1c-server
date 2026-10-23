@@ -88,8 +88,17 @@ fn clean_object(
             in_progress: ctx.in_progress.clone(),
         };
         match k.as_str() {
-            "properties" | "items" | "additionalProperties" | "patternProperties"
-            | "anyOf" | "allOf" | "oneOf" | "not" | "if" | "then" | "else" => {
+            "properties"
+            | "items"
+            | "additionalProperties"
+            | "patternProperties"
+            | "anyOf"
+            | "allOf"
+            | "oneOf"
+            | "not"
+            | "if"
+            | "then"
+            | "else" => {
                 out.insert(k.clone(), clean_value(v, depth + 1, &child_ctx));
             }
             _ => {
@@ -170,7 +179,10 @@ mod tests {
         assert_eq!(cleaned["type"], "object");
         assert!(cleaned["properties"]["nested"].get("$schema").is_none());
         assert!(cleaned["properties"]["nested"].get("title").is_none());
-        assert_eq!(cleaned["properties"]["nested"]["properties"]["x"]["type"], "integer");
+        assert_eq!(
+            cleaned["properties"]["nested"]["properties"]["x"]["type"],
+            "integer"
+        );
     }
 
     #[test]
@@ -195,7 +207,10 @@ mod tests {
         assert!(cleaned.get("$defs").is_none());
         // $ref развёрнут в определение.
         assert_eq!(cleaned["properties"]["addr"]["type"], "object");
-        assert_eq!(cleaned["properties"]["addr"]["properties"]["city"]["type"], "string");
+        assert_eq!(
+            cleaned["properties"]["addr"]["properties"]["city"]["type"],
+            "string"
+        );
     }
 
     #[test]

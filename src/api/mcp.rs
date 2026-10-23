@@ -1,10 +1,10 @@
-use std::sync::Arc;
+use axum::http::StatusCode;
 use axum::{
     extract::{Path, State},
     response::IntoResponse,
     Json,
 };
-use axum::http::StatusCode;
+use std::sync::Arc;
 
 use crate::mcp::{JsonRpcRequest, JsonRpcResponse, McpError};
 
@@ -25,10 +25,14 @@ impl IntoResponse for McpError {
             McpError::NotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
             McpError::CallError(_) => (StatusCode::BAD_GATEWAY, self.to_string()),
         };
-        (status, Json(serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": null,
-            "error": { "code": -32000, "message": body }
-        }))).into_response()
+        (
+            status,
+            Json(serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": null,
+                "error": { "code": -32000, "message": body }
+            })),
+        )
+            .into_response()
     }
 }

@@ -613,7 +613,7 @@ pub fn upsert_file_catalog(
         .unwrap_or("")
         .to_lowercase();
 
-    let (obj_type, obj_name, module_kind) = infer_object_from_path_index(rel_path);
+    let (obj_type, obj_name, module_kind) = infer_object_from_path_index(rel_path, None);
     let object_name_lower = obj_name.as_deref().map(|n| n.to_lowercase());
     let name_normalized = obj_name.as_deref().map(|n| normalize_name(n));
     let source_kind = if extension == "bsl" { "bsl" } else if extension == "xml" { "xml" } else { "other" };
@@ -643,12 +643,63 @@ pub fn upsert_file_catalog(
     );
 }
 
-fn infer_object_from_path_index(rel: &str) -> (Option<String>, Option<String>, Option<String>) {
-    let parts: Vec<&str> = rel.splitn(3, '/').collect();
-    if parts.len() < 2 { return (None, None, None); }
+/// Извлекает имя объекта из секции <xr:GeneratedType name="..."> XML-файла.
+/// Работает только для отчётов и обработок, где эта секция присутствует.
+/// Пример: ExternalDataProcessorObject.ПС44_ОтчетПоСвободнымОстаткамИРезервамГП
+/// → ПС44_ОтчетПоСвободнымОстаткамИРезервамГП
+fn extract_obj_name_from_xml(content: &str) -> Option<String> {
+    let marker = r#"xr:GeneratedType name=""#;
+    let mut start = 0;
+    while let Some(pos) = content[start..].find(marker) {
+        let abs_pos = start + pos;
+        let after_marker = &content[abs_pos + marker.len()..];
+        if let Some(quote_pos) = after_marker.find('"') {
+            let full_name = &after_marker[..quote_pos];
+            if let Some(dot_pos) = full_name.rfind('.') {
+                let obj_name = &full_name[dot_pos + 1..];
+                if !obj_name.is_empty() {
+                    return Some(obj_name.to_string());
+                }
+            }
+        }
+        start = abs_pos + marker.len();
+    }
+    None
+}
+
+/// Проверяет, является ли сегмент пути служебным (не именем объекта).
+fn is_service_segment(seg: &str) -> bool {
+    matches!(seg, "Ext" | "Forms" | "Module" | "ObjectModule" | "ManagerModule" | "Templates" | "Command" | "Form" | "CommonModules" | "CommonForms" | "CommonTemplates" | "CommonAttributes" | "CommonCommands")
+}
+
+/// Определяет тип объекта, имя объекта и вид модуля по относительному пути.
+/// Для XML-файлов принимает опциональное содержимое файла, чтобы извлечь имя
+/// из секции <xr:GeneratedType name="..."> (точнее, чем имя папки).
+fn infer_object_from_path_index(rel: &str, content: Option<&str>) -> (Option<String>, Option<String>, Option<String>) {
+    let is_xml = rel.ends_with(".xml");
+
+    // Для XML файлов пробуем извлечь имя из GeneratedType — это точное имя объекта из метаданных.
+    if is_xml {
+        if let Some(content) = content {
+            if let Some(xml_name) = extract_obj_name_from_xml(content) {
+                let obj_type = if xml_name.starts_with("ExternalDataProcessorObject") {
+                    Some("DataProcessor")
+                } else if xml_name.starts_with("ExternalReportObject") {
+                    Some("Report")
+                } else {
+                    None
+                };
+                return (obj_type.map(|s| s.to_string()), Some(xml_name), Some("XML".to_string()));
+            }
+        }
+    }
+
+    // Определяем по структуре пути.
+    let parts: Vec<&str> = rel.split('/').collect();
+    if parts.is_empty() {
+        return (None, None, None);
+    }
     let folder = parts[0];
-    let obj_name = parts[1];
-    let file_part = parts.get(2).copied().unwrap_or("");
 
     let obj_type = match folder {
         "CommonModules"               => Some("CommonModule"),
@@ -682,6 +733,17 @@ fn infer_object_from_path_index(rel: &str) -> (Option<String>, Option<String>, O
         _ => None,
     };
 
+    // obj_name: для стандартных типов метаданных — компонент 1 (Каталоги/Имя/...),
+    // для нестандартных корней с тематической группировкой (ТП601 УПП/ТП603 ПС/Имя/...)
+    // — компонент 2. Пропускаем служебные сегменты.
+    let obj_name = if obj_type.is_some() {
+        parts.get(1).copied()
+    } else {
+        parts.get(2).copied()
+    }.filter(|s| !s.is_empty() && !is_service_segment(s));
+
+    let file_part = parts.last().copied().unwrap_or("");
+
     let lf = file_part.to_lowercase();
     let module_kind = if lf == "module.bsl" {
         Some("Module")
@@ -699,7 +761,7 @@ fn infer_object_from_path_index(rel: &str) -> (Option<String>, Option<String>, O
 
     (
         obj_type.map(|s| s.to_string()),
-        if obj_name.is_empty() { None } else { Some(obj_name.to_string()) },
+        obj_name.map(|s| s.to_string()),
         module_kind.map(|s| s.to_string()),
     )
 }
@@ -1055,12 +1117,18 @@ pub fn sync_index(root: &Path, db_path: &Path) -> Result<SyncStats, String> {
                     ]);
                 }
             }
-            let (obj_type, obj_name, module_kind) = infer_object_from_path_index(&pf.rel_path);
             let path_lower = pf.rel_path.to_lowercase();
             let file_name = pf.rel_path.rsplit('/').next().unwrap_or(&pf.rel_path).to_string();
             let file_name_lower = file_name.to_lowercase();
             let extension = file_name.rsplit('.').next().filter(|e| *e != file_name.as_str()).unwrap_or("").to_lowercase();
             let source_kind = if extension == "bsl" { "bsl" } else if extension == "xml" { "xml" } else { "other" };
+            // Для XML файлов читаем содержимое, чтобы извлечь имя объекта из GeneratedType.
+            let xml_content = if extension == "xml" {
+                std::fs::read_to_string(root.join(&pf.rel_path)).ok()
+            } else {
+                None
+            };
+            let (obj_type, obj_name, module_kind) = infer_object_from_path_index(&pf.rel_path, xml_content.as_deref());
             let object_name_lower = obj_name.as_deref().map(|n| n.to_lowercase());
             let name_normalized = obj_name.as_deref().map(|n| normalize_name(n));
             let _ = ins_file.execute(params![
@@ -1233,12 +1301,18 @@ pub fn build_index(root: &Path, db_path: &Path) -> Result<usize, String> {
                 }
                 total_symbols += 1;
             }
-            let (obj_type, obj_name, module_kind) = infer_object_from_path_index(&pf.rel_path);
             let path_lower = pf.rel_path.to_lowercase();
             let file_name = pf.rel_path.rsplit('/').next().unwrap_or(&pf.rel_path).to_string();
             let file_name_lower = file_name.to_lowercase();
             let extension = file_name.rsplit('.').next().filter(|e| *e != file_name.as_str()).unwrap_or("").to_lowercase();
             let source_kind = if extension == "bsl" { "bsl" } else if extension == "xml" { "xml" } else { "other" };
+            // Для XML файлов читаем содержимое, чтобы извлечь имя объекта из GeneratedType.
+            let xml_content = if extension == "xml" {
+                std::fs::read_to_string(root.join(&pf.rel_path)).ok()
+            } else {
+                None
+            };
+            let (obj_type, obj_name, module_kind) = infer_object_from_path_index(&pf.rel_path, xml_content.as_deref());
             let object_name_lower = obj_name.as_deref().map(|n| n.to_lowercase());
             let name_normalized = obj_name.as_deref().map(|n| normalize_name(n));
             let _ = ins_file.execute(params![

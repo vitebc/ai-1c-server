@@ -86,8 +86,7 @@ pub async fn list(
         })
         .unwrap();
     Json(
-        rows
-            .flatten()
+        rows.flatten()
             // Non-admins never see admin accounts (usernames stay hidden too).
             .filter(|u| is_admin_ident(&ident) || u.role != "admin")
             .collect(),
@@ -318,7 +317,10 @@ pub async fn update(
         params.push((e as i32).into());
     }
     if let Some(s) = sections_str {
-        params.push(s.map(rusqlite::types::Value::from).unwrap_or(rusqlite::types::Value::Null));
+        params.push(
+            s.map(rusqlite::types::Value::from)
+                .unwrap_or(rusqlite::types::Value::Null),
+        );
     }
     params.push(id.clone().into());
     let params_ref: Vec<&dyn rusqlite::ToSql> =
@@ -592,9 +594,7 @@ pub async fn delete(
                 .into_response();
         }
     }
-    let _ = db
-        .conn
-        .execute("DELETE FROM users WHERE id = ?1", [&id]);
+    let _ = db.conn.execute("DELETE FROM users WHERE id = ?1", [&id]);
     tracing::warn!("users: deleted {id}");
     Json(json!({ "ok": true })).into_response()
 }

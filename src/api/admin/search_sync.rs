@@ -14,8 +14,8 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 
-use super::configs::ConfigProfileRow;
 use super::super::AppState;
+use super::configs::ConfigProfileRow;
 
 pub const AUTO_TYPE: &str = "search-auto";
 const KEY_PROFILES: &str = "ONEC_CONFIG_PROFILES_JSON";
@@ -159,9 +159,7 @@ fn build_env(
     let ext_json: Vec<Value> = extensions
         .iter()
         .filter(|e| !e.path.trim().is_empty())
-        .map(|e| {
-            json!({ "id": e.id, "name": e.name, "path": e.path.trim() })
-        })
+        .map(|e| json!({ "id": e.id, "name": e.name, "path": e.path.trim() }))
         .collect();
     let profiles = json!([{
         "id": main.id,
@@ -196,9 +194,8 @@ pub async fn resync_search_servers(state: &Arc<AppState>) {
         let db = state.db.lock().await;
         let profiles = super::configs::load_all(&db);
         let tpl = resolve_template(&db);
-        let index_dir = get_setting(&db, "search_index_dir").unwrap_or_else(|| {
-            format!("{}/search-index", state.data_dir.trim_end_matches('/'))
-        });
+        let index_dir = get_setting(&db, "search_index_dir")
+            .unwrap_or_else(|| format!("{}/search-index", state.data_dir.trim_end_matches('/')));
         (profiles, tpl, index_dir)
     };
 
@@ -249,7 +246,15 @@ pub async fn resync_search_servers(state: &Arc<AppState>) {
     }
 
     // Existing auto rows: (id, config=profile_id, name, command, args, env, enabled).
-    let existing: Vec<(String, Option<String>, String, Option<String>, Option<String>, Option<String>, bool)> = {
+    let existing: Vec<(
+        String,
+        Option<String>,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        bool,
+    )> = {
         let db = state.db.lock().await;
         let mut stmt = match db.conn.prepare(
             "SELECT id, config, name, command, args, env, enabled
@@ -334,7 +339,11 @@ pub async fn resync_search_servers(state: &Arc<AppState>) {
                     continue;
                 }
                 drop(db);
-                tracing::info!("search_sync: created '{}' for profile '{}'", d.name, d.profile_id);
+                tracing::info!(
+                    "search_sync: created '{}' for profile '{}'",
+                    d.name,
+                    d.profile_id
+                );
                 changed_ids.push(id);
             }
         }
@@ -342,9 +351,14 @@ pub async fn resync_search_servers(state: &Arc<AppState>) {
 
     // Remove auto rows whose profile is gone.
     for (id, cfg, name, _, _, _, _) in &existing {
-        if !desired.iter().any(|d| Some(d.profile_id.as_str()) == cfg.as_deref()) {
+        if !desired
+            .iter()
+            .any(|d| Some(d.profile_id.as_str()) == cfg.as_deref())
+        {
             let db = state.db.lock().await;
-            let _ = db.conn.execute("DELETE FROM mcp_servers WHERE id = ?1", [id]);
+            let _ = db
+                .conn
+                .execute("DELETE FROM mcp_servers WHERE id = ?1", [id]);
             drop(db);
             state.mcp.stop_server(id).await;
             tracing::info!("search_sync: removed orphan '{name}' ({id})");

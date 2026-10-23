@@ -1,7 +1,7 @@
-use std::path::Path;
-use std::fs;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::fs;
+use std::path::Path;
 
 #[derive(Debug, Deserialize)]
 struct SkillFrontmatter {
@@ -45,15 +45,21 @@ pub fn import_skills_from_dir(
     let mut skipped = 0usize;
     let mut errors = Vec::new();
 
-    collect_md_files(dir, dir, &mut |path| {
-        match import_single_file(path, db, dir, data_dir) {
+    collect_md_files(
+        dir,
+        dir,
+        &mut |path| match import_single_file(path, db, dir, data_dir) {
             Ok(true) => imported += 1,
             Ok(false) => skipped += 1,
             Err(e) => errors.push(format!("{}: {}", path.display(), e)),
-        }
-    })?;
+        },
+    )?;
 
-    Ok(ImportResult { imported, skipped, errors })
+    Ok(ImportResult {
+        imported,
+        skipped,
+        errors,
+    })
 }
 
 fn collect_md_files(
@@ -89,12 +95,15 @@ fn import_single_file(
         return Ok(false);
     }
 
-    let end = content[3..].find("\n---").map(|i| i + 3).ok_or("Missing closing ---")?;
+    let end = content[3..]
+        .find("\n---")
+        .map(|i| i + 3)
+        .ok_or("Missing closing ---")?;
     let yaml_str = &content[3..end].trim();
     let body = content[end + 4..].trim();
 
-    let fm: SkillFrontmatter = serde_yaml::from_str(yaml_str)
-        .map_err(|e| format!("YAML parse error: {}", e))?;
+    let fm: SkillFrontmatter =
+        serde_yaml::from_str(yaml_str).map_err(|e| format!("YAML parse error: {}", e))?;
 
     let tool_name = fm.tool_name.unwrap_or_else(|| fm.name.clone());
     let instruction = body.to_string();
@@ -125,8 +134,16 @@ fn import_single_file(
     let raw: serde_json::Value = serde_yaml::from_str(yaml_str).unwrap_or_default();
     if let Some(obj) = raw.as_object() {
         for (k, v) in obj {
-            if !["name", "tool_name", "description", "server_id", "tool_schema", "category", "version"]
-                .contains(&k.as_str())
+            if ![
+                "name",
+                "tool_name",
+                "description",
+                "server_id",
+                "tool_schema",
+                "category",
+                "version",
+            ]
+            .contains(&k.as_str())
             {
                 meta.insert(k.clone(), v.clone());
             }
@@ -135,7 +152,11 @@ fn import_single_file(
     if !files_meta.is_empty() {
         meta.extend(files_meta);
     }
-    let metadata = if meta.is_empty() { None } else { Some(json!(meta).to_string()) };
+    let metadata = if meta.is_empty() {
+        None
+    } else {
+        Some(json!(meta).to_string())
+    };
 
     let id = format!("skill-{}", tool_name);
 
@@ -191,12 +212,16 @@ fn import_single_file(
 }
 
 /// Collect file paths from scripts/, references/, preset/ subdirectories
-fn collect_skill_files(skill_dir: &Path) -> (serde_json::Map<String, serde_json::Value>, Vec<String>) {
+fn collect_skill_files(
+    skill_dir: &Path,
+) -> (serde_json::Map<String, serde_json::Value>, Vec<String>) {
     let mut meta = serde_json::Map::new();
     let mut all_files = Vec::new();
     for sub in &["scripts", "references", "preset"] {
         let sub_dir = skill_dir.join(sub);
-        if !sub_dir.exists() { continue; }
+        if !sub_dir.exists() {
+            continue;
+        }
         let mut files = Vec::new();
         if let Ok(entries) = fs::read_dir(&sub_dir) {
             for e in entries.flatten() {
