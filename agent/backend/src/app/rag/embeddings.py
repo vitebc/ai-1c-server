@@ -142,12 +142,21 @@ class FakeEmbeddings:
         return [x / norm for x in vec]
 
 
-def build_embeddings(provider: str, base_url: str, model: str = "") -> Embeddings:
-    """Провайдер по имени. base_url — адрес эмбеддинг-сервиса (для fake не нужен)."""
+def build_embeddings(provider: str, base_url: str, model: str = "", timeout: float | None = None) -> Embeddings:
+    """Провайдер по имени. base_url — адрес эмбеддинг-сервиса (для fake не нужен).
+
+    timeout — таймаут запроса; None = дефолт клиента (длинный, для инжеста).
+    Интерактивный путь (чат) передаёт короткий, чтобы лежащий сервис не держал
+    запрос минутами.
+    """
     if provider == "llamacpp":
-        return LlamaCppEmbeddings(base_url, model=model)
+        if timeout is None:
+            return LlamaCppEmbeddings(base_url, model=model)
+        return LlamaCppEmbeddings(base_url, model=model, timeout=timeout)
     if provider == "tei":
-        return TEIEmbeddings(base_url)
+        if timeout is None:
+            return TEIEmbeddings(base_url)
+        return TEIEmbeddings(base_url, timeout=timeout)
     if provider == "fake":
         return FakeEmbeddings()
     raise ValueError(f"Неизвестный embeddings_provider: {provider!r} (жди 'fake', 'tei' или 'llamacpp')")

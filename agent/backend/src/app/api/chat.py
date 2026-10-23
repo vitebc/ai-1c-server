@@ -23,6 +23,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
+from app import errors
 from app.agent import SYSTEM_PROMPT, AgentResult, ToolRegistry, run_agent
 from app.agent.tools import ToolDefinition, clean_parameters
 from app.agents import Agent, AgentRegistry
@@ -249,6 +250,7 @@ def _local_tools() -> list[ToolDefinition]:
         settings.embeddings_provider,
         settings.embeddings_url,
         settings.embeddings_model,
+        timeout=settings.embeddings_timeout,
     )
     pattern_tool = make_pattern_tool(settings.patterns_dir)
     return [
@@ -405,9 +407,7 @@ def scope_registry_for_agent(
         elif td.server != "local" and td.server not in agent.mcp_servers:
             rejected.append(f"{t} (сервер {td.server} не в mcp агента {sorted(agent.mcp_servers)})")
         elif allowed_search is not None and td.server.startswith("search-") and td.server not in allowed_search:
-            rejected.append(
-                f"{t} (search-сервер {td.server} не разрешён для базы {base_name}: {allowed_search})"
-            )
+            rejected.append(f"{t} (search-сервер {td.server} не разрешён для базы {base_name}: {allowed_search})")
         else:
             scoped.append(t)
     return registry.subset(scoped), rejected
@@ -507,7 +507,11 @@ async def list_agents(
     visible = [a for a in agents.agents if a.visible_for(base_name, onec_id)]
     log.debug(
         "list_agents base_name=%s jwt=%s onec_id=%s visible=%d/%d",
-        base_name, "yes" if jwt_valid else "no", onec_id, len(visible), len(agents.agents),
+        base_name,
+        "yes" if jwt_valid else "no",
+        onec_id,
+        len(visible),
+        len(agents.agents),
     )
     return JSONResponse(
         {
@@ -561,6 +565,47 @@ def _history_to_messages(rows: list[Message]) -> list[dict[str, Any]]:
     return out
 
 
+async def _auto_skill(message: str, skills: SkillRegistry, agent_spec: Agent) -> Skill | None:
+    """Авто-подбор скила по description среди скилов агента.
+
+    Сбой эмбеддинг-сервиса не роняет чат: пишем предупреждение и работаем
+    полным набором тулзов агента (скил не включается). Раньше исключение
+    отсюда уходило наружу как HTTP 500 и форма 1С показывала «Бэкенд HTTP 500».
+    """
+    scoped = (
+        SkillRegistry(skills=list(skills.skills))
+        if agent_spec.allows_all_skills
+        else SkillRegistry(skills=[s for s in skills.skills if s.name in agent_spec.skills])
+    )
+    try:
+        embeddings = build_embeddings(
+            settings.embeddings_provider,
+            settings.embeddings_url,
+            settings.embeddings_model,
+            timeout=settings.embeddings_timeout,
+        )
+        scored = await scoped.match_all(message, embeddings)
+    except Exception as e:  # noqa: BLE001 — подбор скила не критичен для ответа
+        log.warning(
+            "авто-матчинг скила недоступен (%s: %s) — работаю без скила",
+            type(e).__name__,
+            e,
+        )
+        return None
+    skill: Skill | None = None
+    if scored and scored[0][1] > settings.skill_match_threshold_value:
+        skill = scored[0][0]
+    log.info(
+        "авто-матчинг скила: порог=%.2f лучший=%s score=%.3f top3=[%s] итог=%s",
+        settings.skill_match_threshold_value,
+        scored[0][0].name if scored else "-",
+        scored[0][1] if scored else 0.0,
+        ", ".join(f"{s.name}={v:.3f}" for s, v in scored[:3]),
+        skill.name if skill is not None else None,
+    )
+    return skill
+
+
 @router.get("/chat/result/{job_id}")
 async def chat_result(job_id: str) -> JSONResponse:
     job = _background_jobs.get(job_id)
@@ -605,6 +650,38 @@ async def chat(
     skills: SkillRegistry = Depends(get_skill_registry),  # noqa: B008 — идиома FastAPI
     agents: AgentRegistry = Depends(get_agent_registry),  # noqa: B008 — идиома FastAPI
 ) -> Any:
+    """Граница ошибок: наружу — только понятный текст, никогда не HTTP 500.
+
+    Форма 1С показывает не тело ответа, а «Бэкенд HTTP 500», поэтому любое
+    непредвиденное исключение превращаем в обычный SSE-ответ с человеческим
+    текстом и кодом для поиска трейса в логе. Осмысленные 4xx (чужой агент,
+    битая база) отдаём как есть — у них detail уже понятный.
+    """
+    try:
+        return await _chat_impl(req, background, authorization, llm, registry, skills, agents)
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001 — последняя линия обороны чата
+        code = errors.error_code()
+        log.exception("чат: необработанная ошибка code=%s (%s)", code, type(e).__name__)
+        return _sse_error(errors.internal(code))
+
+
+def _sse_error(text: str) -> StreamingResponse:
+    """Ответ-ошибка в том же формате, что и обычный ответ (форма ждёт SSE)."""
+    result = AgentResult(answer=text, rounds=0, tool_calls=[], tool_errors=1)
+    return StreamingResponse(_events(0, result), media_type="text/event-stream")
+
+
+async def _chat_impl(
+    req: ChatRequest,
+    background: bool,
+    authorization: str | None,
+    llm: ChatLLM,
+    registry: ToolRegistry,
+    skills: SkillRegistry,
+    agents: AgentRegistry,
+) -> Any:
     # Защита от огромных вложений на уровне сериализации уже есть (max_length),
     # но дополнительно режем число вложений
     if req.attachments and len(req.attachments) > 10:
@@ -622,7 +699,10 @@ async def chat(
         raise HTTPException(status_code=401, detail=str(e)) from e
     log.debug(
         "chat base_name=%s user_id=%s agent=%s jwt=%s",
-        req.base_name, req.user_id, req.agent, "yes" if authorization else "no",
+        req.base_name,
+        req.user_id,
+        req.agent,
+        "yes" if authorization else "no",
     )
     # Создаём/находим сессию и грузим историю
     async with SessionFactory() as session:
@@ -673,7 +753,9 @@ async def chat(
             if req.agent is not None:
                 raise HTTPException(
                     status_code=403,
-                    detail=f"агент {agent_spec.name} недоступен для этой базы/пользователя ({agent_spec.access_note()})",
+                    detail=(
+                        f"агент {agent_spec.name} недоступен для этой базы/пользователя ({agent_spec.access_note()})"
+                    ),
                 )
             chat_session.agent_name = None
             default_agent = agents.get(settings.default_agent)
@@ -710,28 +792,7 @@ async def chat(
                 chat_session.skill_name = None  # файл удалён или скил чужого агента — отвязываем
                 skill = None
         if skill is None and req.skill is None:
-            embeddings = build_embeddings(
-                settings.embeddings_provider,
-                settings.embeddings_url,
-                settings.embeddings_model,
-            )
-            scoped = (
-                SkillRegistry(skills=list(skills.skills))
-                if agent_spec.allows_all_skills
-                else SkillRegistry(skills=[s for s in skills.skills if s.name in agent_spec.skills])
-            )
-            scored = await scoped.match_all(req.message, embeddings)
-            skill, _ = (None, 0.0)
-            if scored and scored[0][1] > settings.skill_match_threshold_value:
-                skill, _ = scored[0]
-            log.info(
-                "авто-матчинг скила: порог=%.2f лучший=%s score=%.3f top3=[%s] итог=%s",
-                settings.skill_match_threshold_value,
-                scored[0][0].name if scored else "-",
-                scored[0][1] if scored else 0.0,
-                ", ".join(f"{s.name}={v:.3f}" for s, v in scored[:3]),
-                skill.name if skill is not None else None,
-            )
+            skill = await _auto_skill(req.message, skills, agent_spec)
         if skill is not None:
             chat_session.skill_name = skill.name
         else:
@@ -841,8 +902,10 @@ async def chat(
                     result=result,
                     elapsed_s=elapsed_bg,
                 )
-            except Exception as e:  # noqa: BLE001
-                _background_jobs[job_id].update({"status": "error", "error": str(e)})
+            except Exception as e:  # noqa: BLE001 — фон: ошибка уходит клиенту текстом
+                code = errors.error_code()
+                log.exception("чат (фон): необработанная ошибка code=%s (%s)", code, type(e).__name__)
+                _background_jobs[job_id].update({"status": "error", "error": errors.internal(code)})
                 await _record_request(
                     user_id=req.user_id,
                     session_id=session_id,
@@ -854,13 +917,14 @@ async def chat(
                     question=req.message,
                     result=None,
                     elapsed_s=round(time.monotonic() - started, 1),
-                    error=str(e),
+                    error=f"{code} {type(e).__name__}: {e}",
                 )
 
         asyncio.create_task(_run_bg())
         return JSONResponse({"job_id": job_id, "session_id": session_id, "status": "running", "agent": agent_name})
 
     started = time.monotonic()
+    fatal_error: str | None = None
     try:
         result = await run_agent(
             llm=llm,
@@ -880,14 +944,12 @@ async def chat(
             max_repeat_calls=settings.agent_max_repeat_calls,
         )
     except Exception as e:  # noqa: BLE001 — показываем ошибку в чате, а не 500
-        # 1С ждёт SSE, поэтому отдаём ошибку как обычный answer, чтобы форма показала текст а не "HTTP 500"
-        err_text = (
-            f"Ошибка обращения к LLM ({type(e).__name__}: {e}). "
-            f"Проверь .env: LLM_BASE_URL={settings.llm_base_url}, LLM_MODEL={settings.llm_model} "
-            f"и LLM_API_KEY задан (сейчас {'пуст' if settings.llm_api_key in ('none', '') else 'задан'}). "
-            f"Для локальной модели укажи http://llama:8080/v1 и ключ none."
-        )
-        result = AgentResult(answer=err_text, rounds=0, tool_calls=[], tool_errors=1)
+        # 1С ждёт SSE, поэтому отдаём ошибку как обычный answer: форма покажет
+        # понятный текст, а не «Бэкенд HTTP 500». Трейс и адрес модели — в лог.
+        code = errors.error_code()
+        log.exception("чат: обращение к LLM не удалось code=%s (%s)", code, type(e).__name__)
+        fatal_error = f"{code} {type(e).__name__}: {e}"
+        result = AgentResult(answer=errors.llm(e), rounds=0, tool_calls=[], tool_errors=1)
 
     async with SessionFactory() as session:
         session.add(Message(session_id=session_id, role="assistant", content=result.answer))
@@ -895,9 +957,7 @@ async def chat(
 
     elapsed_s = round(time.monotonic() - started, 1)
     # Статистика и трасс раундов: пишем до отдачи SSE (быстро, не блокирует стриминг).
-    err_str = None
-    if result.rounds == 0 and result.tool_errors > 0 and "Ошибка обращения" in (result.answer or ""):
-        err_str = result.answer[:500]
+    err_str = fatal_error
     await _save_rounds(session_id, result)
     await _record_request(
         user_id=req.user_id,

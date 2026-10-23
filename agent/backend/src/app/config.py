@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     embeddings_base_url: str = "http://localhost:8081"
     # Имя модели для провайдера 'llamacpp' (llama.cpp игнорирует, но шлём).
     embeddings_model: str = ""
+    # Таймаут запроса эмбеддингов в интерактивном пути (подбор скила, поиск по
+    # базе знаний). Сервис лежит — чат не должен висеть минуты: не успели,
+    # работаем без скила/БЗ. Инжест корпуса использует свой, длинный таймаут.
+    embeddings_timeout: float = 10.0
     tei_base_url: str = "http://localhost:8081"
 
     @property

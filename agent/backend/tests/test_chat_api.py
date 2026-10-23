@@ -7,12 +7,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from typing import Any
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
+from app import errors
 from app.agent import ToolRegistry
 from app.api.chat import get_llm, get_registry
 from app.db.models import Message, User
@@ -183,3 +186,80 @@ def test_cors_open_for_chat_form() -> None:
             headers={"Origin": "null", "Access-Control-Request-Method": "POST"},
         )
         assert r.headers.get("access-control-allow-origin") == "*"
+
+
+def _answer(body: str) -> str:
+    """Склеенный текст ответа из SSE (то, что видит пользователь в 1С)."""
+    return "".join(e["delta"] for e in _parse_sse(body).get("answer", []))
+
+
+class _DownLLM:
+    """Модель недоступна: сетевой сбой на первом же вызове."""
+
+    async def complete(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> AssistantMessage:
+        raise httpx.ConnectError("connection refused")
+
+
+def test_chat_llm_down_returns_friendly_text() -> None:
+    """Сбой LLM: 200 + понятный текст, без URL модели и подсказок про .env.
+
+    Форма 1С показывает тело ответа, поэтому технические детали в чат не идут —
+    они в логе (с кодом ошибки) и в статистике запросов.
+    """
+    app.dependency_overrides[get_llm] = lambda: _DownLLM()
+    app.dependency_overrides[get_registry] = lambda: ToolRegistry(MOCK_ONEC_TOOLS)
+    client = TestClient(app)
+    try:
+        with client:
+            r = client.post("/chat", json={"message": "привет", "user_id": TEST_USER})
+            assert r.status_code == 200, r.text
+            answer = _answer(r.text)
+            assert answer == errors.LLM_UNAVAILABLE
+            assert "LLM_BASE_URL" not in answer and ".env" not in answer
+            assert "ConnectError" not in answer
+    finally:
+        _cleanup()
+
+
+class _DownEmbeddings:
+    """Сервис эмбеддингов лежит: любой запрос — сетевой сбой."""
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        raise httpx.ConnectError("embeddings refused")
+
+    async def embed_query(self, text: str, instruction: str = "") -> list[float]:
+        raise httpx.ConnectError("embeddings refused")
+
+
+def test_chat_embeddings_down_still_answers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Сервис эмбеддингов лежит: авто-подбор скила молча пропускается, чат отвечает."""
+    monkeypatch.setattr("app.api.chat.build_embeddings", lambda *a, **kw: _DownEmbeddings())
+    client = _client([AssistantMessage(content="ответ без скила")])
+    try:
+        with client:
+            r = client.post("/chat", json={"message": "привет", "user_id": TEST_USER})
+            assert r.status_code == 200, r.text
+            assert _answer(r.text) == "ответ без скила"
+            assert _parse_sse(r.text)["done"][0]["skill"] is None
+    finally:
+        _cleanup()
+
+
+def test_chat_unexpected_error_returns_200_with_code(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Непредвиденное исключение: 200 + код для поиска трейса, без текста исключения."""
+
+    async def boom(*args: Any, **kwargs: Any) -> Any:
+        raise ValueError("секретная техническая деталь")
+
+    monkeypatch.setattr("app.api.chat._auto_skill", boom)
+    client = _client([AssistantMessage(content="не дойдёт")])
+    try:
+        with client:
+            r = client.post("/chat", json={"message": "привет", "user_id": TEST_USER})
+            assert r.status_code == 200, r.text
+            answer = _answer(r.text)
+            assert "внутренняя ошибка сервера" in answer
+            assert re.search(r"код ([0-9a-f]{8})", answer)
+            assert "секретная техническая деталь" not in answer
+    finally:
+        _cleanup()
