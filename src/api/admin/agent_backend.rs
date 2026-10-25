@@ -932,11 +932,28 @@ pub async fn bases_delete(
     Ok(Json(json!({ "ok": true, "name": name })))
 }
 
+/// Понятная ошибка записи конф-файла (bases.conf / search-maps.conf):
+/// PermissionDenied — файл, скорее всего, принадлежит root (ручная правка
+/// от sudo), а сервер работает под test.
+fn conf_write_error(label: &str, path: &std::path::Path, e: &std::io::Error) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let msg = if e.kind() == std::io::ErrorKind::PermissionDenied {
+        format!(
+            "Нет прав на запись {label} ({}) — файл, вероятно, принадлежит root \
+             (ручная правка от sudo). Исправьте: sudo chown test:test {}",
+            path.display(),
+            path.display()
+        )
+    } else {
+        format!("write {label}: {e}")
+    };
+    super::AppError::msg(msg).into_response()
+}
+
 fn write_bases_conf(
     path: &std::path::Path,
     entries: &[(String, String)],
 ) -> Result<(), axum::response::Response> {
-    use axum::response::IntoResponse;
     if let Err(e) = std::fs::write(
         path,
         format!(
@@ -944,7 +961,7 @@ fn write_bases_conf(
             serialized = serialize_bases(entries)
         ),
     ) {
-        return Err(super::AppError::msg(format!("write bases.conf: {e}")).into_response());
+        return Err(conf_write_error("bases.conf", path, &e));
     }
     Ok(())
 }
@@ -1167,13 +1184,12 @@ fn write_search_maps(
     path: &std::path::Path,
     canon: &SearchMapsCanon,
 ) -> Result<(), axum::response::Response> {
-    use axum::response::IntoResponse;
     let body = format!(
         "{SEARCH_MAPS_HEADER}\n{rows}",
         rows = serialize_search_maps(canon)
     );
     if let Err(e) = std::fs::write(path, body) {
-        return Err(super::AppError::msg(format!("write search-maps.conf: {e}")).into_response());
+        return Err(conf_write_error("search-maps.conf", path, &e));
     }
     Ok(())
 }
