@@ -352,6 +352,8 @@ export interface RagStatus {
   documents: number;
   chunks: number;
   collections: { name: string; documents: number; chunks: number }[];
+  /** Файлы документов в папках коллекций на диске (имя коллекции → число). */
+  files_on_disk?: Record<string, number>;
 }
 
 export interface RagDocumentItem {
@@ -401,4 +403,6 @@ export interface RagReingestResult {
   removed: number;
   skipped: string[];
   errors: string[];
+  /** Расхождение «файлы на диске vs документы в БД» после replace-инжеста. */
+  file_count_mismatch?: { files_on_disk: number; documents_in_db: number };
 }

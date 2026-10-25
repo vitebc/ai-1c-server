@@ -230,6 +230,9 @@ export const t = {
     reingestHint: 'Папка берётся из настройки корпуса. Переинжест перезаливает коллекцию из файлов.',
     replaceExisting: 'Удалить прежние документы коллекции перед заливкой',
     working: 'Переинжест…', done: 'Готово', files: 'Файлов', removed: 'Удалено', errors: 'Ошибок',
+    filesOnDisk: 'на диске', mismatchBadge: 'расхождение',
+    mismatchHint: (disk: number, db: number) =>
+      `На диске ${disk} файлов, в базе ${db} документов — проверьте sync_kb.sh и список ошибок`,
   },
   stats: {
     title: 'Статистика обращений',

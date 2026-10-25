@@ -124,12 +124,22 @@ export default function RagTab() {
             </div>
             {status.collections.length > 0 && (
               <div className="flex flex-wrap gap-1.5 pt-1">
-                {status.collections.map(c => (
-                  <span key={c.name} className="inline-flex items-center gap-1">
-                    <Badge tone="blue">{c.name}</Badge>
-                    <span className="text-slate-500">{c.documents} / {c.chunks}</span>
-                  </span>
-                ))}
+                {status.collections.map(c => {
+                  const disk = status.files_on_disk?.[c.name];
+                  const mismatch = disk !== undefined && disk !== c.documents;
+                  return (
+                    <span key={c.name} className="inline-flex items-center gap-1" title={mismatch ? t.rag.mismatchHint(disk, c.documents) : undefined}>
+                      <Badge tone="blue">{c.name}</Badge>
+                      <span className="text-slate-500">
+                        {c.documents} / {c.chunks}
+                        {disk !== undefined && (
+                          <> · {t.rag.filesOnDisk}: {disk}</>
+                        )}
+                      </span>
+                      {mismatch && <Badge tone="amber">{t.rag.mismatchBadge}</Badge>}
+                    </span>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -372,11 +382,13 @@ function RagReingestModal({ onClose, onDone }: { onClose: () => void; onDone: ()
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string>('');
+  const [mismatch, setMismatch] = useState<{ files_on_disk: number; documents_in_db: number } | null>(null);
 
   async function submit() {
     setBusy(true);
     setError('');
     setResult('');
+    setMismatch(null);
     try {
       const r = await api.reingestRag({ collection, replace });
       if (r.error) {
@@ -387,6 +399,7 @@ function RagReingestModal({ onClose, onDone }: { onClose: () => void; onDone: ()
         `${t.rag.done}: ${r.documents} / ${r.chunks} (${t.rag.files}: ${r.files}, ${t.rag.removed}: ${r.removed})` +
         (r.errors?.length ? ` · ${t.rag.errors}: ${r.errors.length}` : ''),
       );
+      setMismatch(r.file_count_mismatch ?? null);
       onDone();
     } catch (e) {
       setError(errText(e, t.common.error));
@@ -407,6 +420,11 @@ function RagReingestModal({ onClose, onDone }: { onClose: () => void; onDone: ()
         </label>
         {error && <Alert tone="red">{error}</Alert>}
         {result && <Alert tone="green">{result}</Alert>}
+        {mismatch && (
+          <Alert tone="amber">
+            {t.rag.mismatchHint(mismatch.files_on_disk, mismatch.documents_in_db)}
+          </Alert>
+        )}
         <div className="flex justify-end gap-2">
           <Btn variant="ghost" onClick={onClose}>{t.common.close}</Btn>
           <Btn disabled={busy || !collection.trim()} onClick={submit}>

@@ -97,6 +97,11 @@ def collect_files(root: Path, limit: int | None = None) -> list[Path]:
     return files
 
 
+def count_files(root: Path) -> int:
+    """Число файлов документов под корнем (без лимита, для сверки с БД)."""
+    return sum(1 for p in root.rglob("*") if p.is_file() and p.suffix.lower() in TEXT_SUFFIXES)
+
+
 def build_chunks(text: str, title: str) -> list[str]:
     """Чанки документа: заголовок (служебный) + содержательные.
 

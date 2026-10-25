@@ -34,6 +34,7 @@ from app.rag.corpus import (
     build_chunks,
     clean_markdown,
     corpus_summary,
+    count_files,
     ingest_collection,
     purge_collection,
 )
@@ -103,19 +104,32 @@ class ReingestIn(BaseModel):
 
 @router.get("/status")
 async def rag_status() -> dict[str, object]:
-    """Состояние базы знаний: провайдер эмбеддингов и счётчики по корпусу."""
+    """Состояние базы знаний: провайдер эмбеддингов и счётчики по корпусу.
+
+    `files_on_disk` — число файлов документов в папках коллекций на диске.
+    Расхождение с `documents` (документы из файлов, без ручных загрузок)
+    подсвечивает несинхронизированный корпус: переинжест прочитал старую
+    папку, а свежие файлы ещё не свинтил sync_kb.sh.
+    """
     from app.db.models import EMBEDDING_DIM
 
     summary = await corpus_summary(SessionFactory)
+    root = _kb_root()
+    files_on_disk: dict[str, int] = {}
+    if root.is_dir():
+        for entry in sorted(root.iterdir()):
+            if entry.is_dir():
+                files_on_disk[entry.name] = count_files(entry)
     return {
         "provider": settings.embeddings_provider,
         "base_url": settings.embeddings_url,
         "model": settings.embeddings_model,
         "embedding_dim": EMBEDDING_DIM,
-        "kb_dir": str(_kb_root()),
-        "kb_dir_exists": _kb_root().is_dir(),
+        "kb_dir": str(root),
+        "kb_dir_exists": root.is_dir(),
         "skill_match_threshold": settings.skill_match_threshold_value,
         "kb_min_score": settings.kb_min_score_value,
+        "files_on_disk": files_on_disk,
         **summary,
     }
 
@@ -280,7 +294,23 @@ async def reingest(body: ReingestIn) -> dict[str, object]:
         replace=body.replace,
         limit=body.limit,
     )
-    return {"ok": not result.errors, **result.as_dict()}
+    out: dict[str, object] = {"ok": not result.errors, **result.as_dict()}
+    # Сверка «файлы на диске vs документы в БД»: расхождение после
+    # replace=True почти наверняка значит, что часть файлов не попала
+    # (ошибка/пропуск) — а до переинжеста это сигнал о несинхронизированной
+    # папке. Не ошибка: ответ остаётся 200, UI покажет предупреждение.
+    if body.replace and not body.limit:
+        files_on_disk = count_files(collection_dir)
+        db_docs = result.documents
+        if files_on_disk != db_docs:
+            out["file_count_mismatch"] = {"files_on_disk": files_on_disk, "documents_in_db": db_docs}
+            log.warning(
+                "reingest %s: файлов на диске %d, документов в БД %d — проверьте sync_kb.sh и errors",
+                body.collection,
+                files_on_disk,
+                db_docs,
+            )
+    return out
 
 
 @router.delete("/collections/{name}")
