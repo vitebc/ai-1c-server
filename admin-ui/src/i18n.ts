@@ -230,9 +230,11 @@ export const t = {
     reingestHint: 'Папка берётся из настройки корпуса. Переинжест перезаливает коллекцию из файлов.',
     replaceExisting: 'Удалить прежние документы коллекции перед заливкой',
     working: 'Переинжест…', done: 'Готово', files: 'Файлов', removed: 'Удалено', errors: 'Ошибок',
-    filesOnDisk: 'на диске', mismatchBadge: 'расхождение',
+    filesOnDisk: 'на диске', uniqueShort: 'уник.', mismatchBadge: 'расхождение',
     mismatchHint: (disk: number, db: number) =>
       `На диске ${disk} файлов, в базе ${db} документов — проверьте sync_kb.sh и список ошибок`,
+    duplicatesHint: (total: number, unique: number) =>
+      `В папке ${total} файлов, но только ${unique} уникальных — дубли. Зачистите rsync --delete из папки скрапера и переинжестните`,
   },
   stats: {
     title: 'Статистика обращений',

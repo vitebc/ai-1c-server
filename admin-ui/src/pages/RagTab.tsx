@@ -126,14 +126,15 @@ export default function RagTab() {
               <div className="flex flex-wrap gap-1.5 pt-1">
                 {status.collections.map(c => {
                   const disk = status.files_on_disk?.[c.name];
-                  const mismatch = disk !== undefined && disk !== c.documents;
+                  const mismatch = disk !== undefined && disk.unique !== c.documents;
+                  const hint = mismatch ? (disk.count > disk.unique ? t.rag.duplicatesHint(disk.count, disk.unique) : t.rag.mismatchHint(disk.unique, c.documents)) : undefined;
                   return (
-                    <span key={c.name} className="inline-flex items-center gap-1" title={mismatch ? t.rag.mismatchHint(disk, c.documents) : undefined}>
+                    <span key={c.name} className="inline-flex items-center gap-1" title={hint}>
                       <Badge tone="blue">{c.name}</Badge>
                       <span className="text-slate-500">
                         {c.documents} / {c.chunks}
                         {disk !== undefined && (
-                          <> · {t.rag.filesOnDisk}: {disk}</>
+                          <> · {t.rag.filesOnDisk}: {disk.count}{disk.count > disk.unique ? ` (${t.rag.uniqueShort}: ${disk.unique})` : ''}</>
                         )}
                       </span>
                       {mismatch && <Badge tone="amber">{t.rag.mismatchBadge}</Badge>}
@@ -382,7 +383,7 @@ function RagReingestModal({ onClose, onDone }: { onClose: () => void; onDone: ()
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string>('');
-  const [mismatch, setMismatch] = useState<{ files_on_disk: number; documents_in_db: number } | null>(null);
+  const [mismatch, setMismatch] = useState<{ files_on_disk: number; unique_files: number; documents_in_db: number } | null>(null);
 
   async function submit() {
     setBusy(true);
@@ -422,7 +423,9 @@ function RagReingestModal({ onClose, onDone }: { onClose: () => void; onDone: ()
         {result && <Alert tone="green">{result}</Alert>}
         {mismatch && (
           <Alert tone="amber">
-            {t.rag.mismatchHint(mismatch.files_on_disk, mismatch.documents_in_db)}
+            {mismatch.files_on_disk > mismatch.unique_files
+              ? t.rag.duplicatesHint(mismatch.files_on_disk, mismatch.unique_files)
+              : t.rag.mismatchHint(mismatch.unique_files, mismatch.documents_in_db)}
           </Alert>
         )}
         <div className="flex justify-end gap-2">

@@ -97,9 +97,16 @@ def collect_files(root: Path, limit: int | None = None) -> list[Path]:
     return files
 
 
-def count_files(root: Path) -> int:
-    """Число файлов документов под корнем (без лимита, для сверки с БД)."""
-    return sum(1 for p in root.rglob("*") if p.is_file() and p.suffix.lower() in TEXT_SUFFIXES)
+def count_files(root: Path) -> tuple[int, int]:
+    """Файлы документов под корнем (без лимита): (всего, уникальных имён).
+
+    Уникальные имена — защита от дублей в папке (например, rsync без
+    --delete после ручного копирования): 604 файла при 302 уникальных —
+    это не «несинхронизированная папка», а дубли.
+    """
+    total = sum(1 for p in root.rglob("*") if p.is_file() and p.suffix.lower() in TEXT_SUFFIXES)
+    unique = len({p.name for p in root.rglob("*") if p.is_file() and p.suffix.lower() in TEXT_SUFFIXES})
+    return total, unique
 
 
 def build_chunks(text: str, title: str) -> list[str]:

@@ -106,20 +106,21 @@ class ReingestIn(BaseModel):
 async def rag_status() -> dict[str, object]:
     """Состояние базы знаний: провайдер эмбеддингов и счётчики по корпусу.
 
-    `files_on_disk` — число файлов документов в папках коллекций на диске.
-    Расхождение с `documents` (документы из файлов, без ручных загрузок)
-    подсвечивает несинхронизированный корпус: переинжест прочитал старую
-    папку, а свежие файлы ещё не свинтил sync_kb.sh.
+    `files_on_disk` — файлы документов в папках коллекций на диске:
+    {коллекция: {count, unique}}. Расхождение unique с `documents`
+    подсвечивает несинхронизированный корпус (свежие файлы ещё не свинтил
+    sync_kb.sh), а count > unique — дубли в папке (rsync без --delete).
     """
     from app.db.models import EMBEDDING_DIM
 
     summary = await corpus_summary(SessionFactory)
     root = _kb_root()
-    files_on_disk: dict[str, int] = {}
+    files_on_disk: dict[str, dict[str, int]] = {}
     if root.is_dir():
         for entry in sorted(root.iterdir()):
             if entry.is_dir():
-                files_on_disk[entry.name] = count_files(entry)
+                total, unique = count_files(entry)
+                files_on_disk[entry.name] = {"count": total, "unique": unique}
     return {
         "provider": settings.embeddings_provider,
         "base_url": settings.embeddings_url,
@@ -300,14 +301,19 @@ async def reingest(body: ReingestIn) -> dict[str, object]:
     # (ошибка/пропуск) — а до переинжеста это сигнал о несинхронизированной
     # папке. Не ошибка: ответ остаётся 200, UI покажет предупреждение.
     if body.replace and not body.limit:
-        files_on_disk = count_files(collection_dir)
+        total, unique = count_files(collection_dir)
         db_docs = result.documents
-        if files_on_disk != db_docs:
-            out["file_count_mismatch"] = {"files_on_disk": files_on_disk, "documents_in_db": db_docs}
+        if unique != db_docs:
+            out["file_count_mismatch"] = {
+                "files_on_disk": total,
+                "unique_files": unique,
+                "documents_in_db": db_docs,
+            }
             log.warning(
-                "reingest %s: файлов на диске %d, документов в БД %d — проверьте sync_kb.sh и errors",
+                "reingest %s: файлов на диске %d (уникальных %d), документов в БД %d — проверьте sync_kb.sh и errors",
                 body.collection,
-                files_on_disk,
+                total,
+                unique,
                 db_docs,
             )
     return out
