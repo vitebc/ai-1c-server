@@ -2592,6 +2592,28 @@ async fn handle_search_files(
             if total == 0 && scope_prefix.is_some() {
                 summary.push_str("\n💡 `scope` — это путь от корня индекса (например, «ТП601 УПП/ТП603 ПС»), а не только имя папки. Попробуйте поиск без параметра `scope` или уточните путь.");
             }
+            // Сводка по объектам: оригинальные имена объектов и их каталоги
+            // (папка объекта — то, что видит пользователь в выгрузке). Имя из
+            // [скобок] у файла может отличаться от имени папки (объект из
+            // GeneratedType XML), поэтому для выбора показываем оба уровня.
+            let mut objects: Vec<(String, String)> = page
+                .iter()
+                .filter_map(|fi| {
+                    fi.object_name.as_ref().map(|n| {
+                        let dir = fi.filepath.rsplit_once('/').map(|(d, _)| d.to_string()).unwrap_or_default();
+                        (n.clone(), dir)
+                    })
+                })
+                .collect();
+            objects.sort();
+            objects.dedup();
+            if !objects.is_empty() && objects.len() < 15 {
+                summary.push_str(&format!("Объекты ({}):\n", objects.len()));
+                for (name, dir) in &objects {
+                    summary.push_str(&format!("- `{}` — в каталоге `{}`\n", name, dir));
+                }
+                summary.push('\n');
+            }
             for fi in &page {
                 let obj_label = match (&fi.object_type, &fi.object_name) {
                     (Some(_t), Some(n)) => format!(" [{}]", n),
@@ -2714,6 +2736,34 @@ async fn handle_search_files(
         if !query.is_empty() { format!(" по «{}»", query) } else { String::new() },
         if truncated { format!(" (показаны {}-{})", offset + 1, offset + returned) } else { String::new() }
     );
+    // Сводка по объектам — оригинальные имена объектов и их каталоги (то же,
+    // что в DB-ветке выше: имя объекта может отличаться от имени папки).
+    let mut objects: Vec<(String, String)> = page
+        .iter()
+        .filter_map(|item| {
+            item["object_name"]
+                .as_str()
+                .filter(|n| !n.is_empty())
+                .map(|n| (
+                    n.to_string(),
+                    item["file"]
+                        .as_str()
+                        .unwrap_or("")
+                        .rsplit_once('/')
+                        .map(|(d, _)| d.to_string())
+                        .unwrap_or_default(),
+                ))
+        })
+        .collect();
+    objects.sort();
+    objects.dedup();
+    if !objects.is_empty() && objects.len() < 15 {
+        summary.push_str(&format!("Объекты ({}):\n", objects.len()));
+        for (name, dir) in &objects {
+            summary.push_str(&format!("- `{}` — в каталоге `{}`\n", name, dir));
+        }
+        summary.push('\n');
+    }
     for item in &page {
         let obj_name = item["object_name"].as_str().unwrap_or("");
         let obj_label = if !obj_name.is_empty() { format!(" [{}]", obj_name) } else { String::new() };
