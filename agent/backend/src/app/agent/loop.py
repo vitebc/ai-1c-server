@@ -268,6 +268,8 @@ async def run_agent(
     # Серия пустых ответов одного инструмента (аргументы могут отличаться).
     consec_empty = 0
     last_empty_tool = ""
+    # Инструменты, для которых уже вставлена подсказка про неоднозначный поиск.
+    ambiguous_tools: set[str] = set()
     prompt_tokens = 0
     completion_tokens = 0
     # Шаги петли для записи в agent_rounds (просмотр раундов в админке).
@@ -369,6 +371,31 @@ async def run_agent(
                 )
             )
             messages.append({"role": "tool", "tool_call_id": call.id, "content": feedback})
+            # Неоднозначный поиск: файл из разных корневых папок (объектов) —
+            # механическая страховка от «молча ковал оба». Промпт агента уже
+            # требует уточнить, но слабая модель его игнорирует; подсказка в
+            # контексте сильнее. Один раз на объект: повторный inject при каждом
+            # поиске только шумит (модель и так видит оба результата).
+            if consec_errors == 0:
+                roots = _ambiguous_objects(feedback)
+                if roots is not None and call.name not in ambiguous_tools:
+                    ambiguous_tools.add(call.name)
+                    hint = (
+                        "ВНИМАНИЕ: поиск нашёл файлы из разных объектов/выгрузок: "
+                        + ", ".join(roots)
+                        + ". Прежде чем читать код, задай пользователю ОДИН уточняющий "
+                        "вопрос — какой именно объект (база/папка) имеется в виду. "
+                        "Определять «где есть нужная колонка» самостоятельно нельзя: "
+                        "одинаковый заголовок может быть в обоих макетах."
+                    )
+                    messages.append({"role": "system", "content": hint})
+                    log.info(
+                        "user=%s round=%d ambiguous objects in %s result: %s — injected clarification hint",
+                        user_id,
+                        round_no,
+                        call.name,
+                        ", ".join(roots),
+                    )
             # Проверяем повтор только пока остались раунды: если раунды всё равно
             # кончились, честнее сказать про лимит раундов, а не про повтор.
             rounds_left = round_no < max_rounds
@@ -377,9 +404,13 @@ async def run_agent(
             # кончились, честнее сказать про лимит раундов.
             if rounds_left and consec_errors == 0 and 0 < max_repeat_calls <= consec_empty:
                 log.warning(
-                    "user=%s base=%s agent=%s skill=%s пустых ответов: %s вернул «не найдено» "
-                    "%d раз подряд, стоп",
-                    user_id, base, agent, skill, call.name, consec_empty,
+                    "user=%s base=%s agent=%s skill=%s пустых ответов: %s вернул «не найдено» %d раз подряд, стоп",
+                    user_id,
+                    base,
+                    agent,
+                    skill,
+                    call.name,
+                    consec_empty,
                 )
                 return await _finish_with_final_answer(
                     llm=llm,
@@ -402,8 +433,7 @@ async def run_agent(
                 )
             if rounds_left and consec_errors == 0 and 0 < max_repeat_calls <= repeat_calls[repeat_key]:
                 log.warning(
-                    "user=%s base=%s agent=%s skill=%s повтор: %s %s вызван %d раз подряд "
-                    "с одними аргументами, стоп",
+                    "user=%s base=%s agent=%s skill=%s повтор: %s %s вызван %d раз подряд с одними аргументами, стоп",
                     user_id,
                     base,
                     agent,
@@ -490,6 +520,8 @@ _EMPTY_MARKERS = (
 )
 
 _FILES_COUNT_RE = re.compile(r"найдено\s+(\d+)\s+файлов?", re.IGNORECASE)
+#: Пути в результатах поиска: `- `ТП601 УПП/ТП603 ПС/...`` или голый `папка/файл.bsl`.
+_PATH_LINE_RE = re.compile(r"^\s*(?:[-*•]\s*)?`?([A-Za-zА-Яа-яЁё][\w .\-]*?/[A-Za-zА-Яа-яЁё][^`\n]*)`?\s*$")
 
 
 def _is_empty_result(feedback: str) -> bool:
@@ -501,6 +533,25 @@ def _is_empty_result(feedback: str) -> bool:
     if m:
         return int(m.group(1)) == 0
     return any(marker in head for marker in _EMPTY_MARKERS)
+
+
+def _ambiguous_objects(feedback: str) -> list[str] | None:
+    """Найдено ли несколько файлов из разных корневых папок (объектов).
+
+    Живой случай (ПС44): `search_files` вернул 8 файлов, среди них два объекта
+    с одинаковым именем в разных папках («ТП601 КА ТД/…» и «ТП601 УПП/…»).
+    Модель не уточнила у пользователя, какой нужен, и ковала оба — до лимита
+    раундов. Возвращает список корневых папок (для подсказки) или None.
+    """
+    paths: list[str] = []
+    for line in feedback.splitlines():
+        m = _PATH_LINE_RE.match(line)
+        if m:
+            paths.append(m.group(1).strip().rstrip("`").strip())
+    # Корневая папка — первая компонента пути (в индексе это корень выгрузки:
+    # «ТП601 УПП», «ТП601 КА ТД»). Разные корни = разные объекты/выгрузки.
+    roots = {p.split("/", 1)[0] for p in paths if "/" in p}
+    return sorted(roots) if len(roots) >= 2 else None
 
 
 def _norm_args(arguments: Any) -> str:

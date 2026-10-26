@@ -210,16 +210,14 @@ def test_repeat_breaker_gives_model_final_answer() -> None:
 
 def test_repeat_breaker_final_call_has_no_tools() -> None:
     """Финальный ответ идёт с пустым списком схем — звать тулзы больше нельзя."""
-    llm = FakeLLM(
-        _same_args_script(3, '{"sku": "ВС11"}') + [AssistantMessage(content="Итог.")]
-    )
+    llm = FakeLLM(_same_args_script(3, '{"sku": "ВС11"}') + [AssistantMessage(content="Итог.")])
     _run_repeat(llm, max_repeat_calls=3)
     assert llm.seen_messages, "LLM не вызывался"
     last_seen, last_tools = llm.last_call
     assert last_tools == [], "в финальном вызове инструменты должны быть отключены"
-    assert any(
-        "Ответь пользователю СЕЙЧАС" in str(m.get("content", "")) for m in last_seen
-    ), "в финальный промпт должно попасть требование ответить сейчас"
+    assert any("Ответь пользователю СЕЙЧАС" in str(m.get("content", "")) for m in last_seen), (
+        "в финальный промпт должно попасть требование ответить сейчас"
+    )
 
 
 def test_repeat_breaker_fallback_when_model_silent() -> None:
@@ -367,3 +365,117 @@ def test_system_prompt_has_anti_hallucination_rule() -> None:
     from app.agent.loop import SYSTEM_PROMPT
 
     assert "выдумывать результаты инструментов" in SYSTEM_PROMPT
+
+
+def _ambiguous_search_reg() -> ToolRegistry:
+    """Тулза с живым форматом результата search_files: файлы из разных выгрузок."""
+    from pydantic import BaseModel, Field
+
+    from app.agent.tools import ToolDefinition
+
+    class QueryArgs(BaseModel):
+        query: str = Field(min_length=1)
+
+    async def ambiguous(args: QueryArgs, ctx: object) -> str:
+        return (
+            "Найдено 8 файлов по «пс44»\n"
+            "\n"
+            "- `ТП601 КА ТД/ТП603 ПС/ПС44_ОтчетПоСвободнымОстаткамИРезервам/Ext/ObjectModule.bsl`\n"
+            "- `ТП601 УПП/ТП603 ПС/ПС44_ОтчетПоСвободнымОстаткамИРезервамГП/Ext/ObjectModule.bsl`\n"
+            "- `ТП601 УПП/ТП603 ПС/ПС44_ОтчетПоСвободнымОстаткамИРезервамГП/Forms/Форма/Ext/Form.module.bsl`\n"
+        )
+
+    return ToolRegistry(
+        [ToolDefinition(name="search_files", description="поиск файлов", args_model=QueryArgs, handler=ambiguous)]
+    )
+
+
+def _run_ambiguous(llm: FakeLLM) -> AgentResult:
+    return asyncio.run(
+        run_agent(
+            llm=llm,
+            registry=_ambiguous_search_reg(),
+            user_message="как считается колонка Резерв на 3.3 в отчете ПС44",
+            max_rounds=6,
+        )
+    )
+
+
+def test_ambiguous_search_injects_clarification_hint() -> None:
+    """Живой случай (ПС44): поиск нашёл объект в КА ТД и УПП — модель не уточнила.
+
+    После tool-результата с файлами из разных корневых папок в контекст должна
+    попасть system-подсказка «задай уточняющий вопрос»."""
+    llm = FakeLLM(
+        [
+            AssistantMessage(
+                content=None, tool_calls=[ToolCall(id="c1", name="search_files", arguments='{"query": "ПС44"}')]
+            ),
+            AssistantMessage(content="Нашёл два объекта ПС44 — уточните, какой?"),
+        ]
+    )
+    _run_ambiguous(llm)
+    second = llm.seen_messages[1]
+    hints = [str(m.get("content", "")) for m in second if m.get("role") == "system"]
+    assert any("уточняющий вопрос" in h and "ТП601 КА ТД" in h and "ТП601 УПП" in h for h in hints), (
+        "в контекст второго раунда должна попасть подсказка про неоднозначный поиск"
+    )
+
+
+def test_ambiguous_hint_injected_once_per_tool() -> None:
+    """Подсказка — один раз на инструмент: повторный inject только шумит."""
+    llm = FakeLLM(
+        [
+            AssistantMessage(
+                content=None, tool_calls=[ToolCall(id="c1", name="search_files", arguments='{"query": "ПС44"}')]
+            ),
+            AssistantMessage(
+                content=None,
+                tool_calls=[ToolCall(id="c2", name="search_files", arguments='{"query": "ПС44 остаткам"}')],
+            ),
+            AssistantMessage(content="Уточните объект."),
+        ]
+    )
+    _run_ambiguous(llm)
+    second = llm.seen_messages[1]
+    third = llm.seen_messages[2]
+    # Подсказка остаётся в контексте (это нормально — модель видит её дальше),
+    # но повторного inject нет: число подсказок не растёт.
+    hints_second = [m for m in second if m.get("role") == "system" and "уточняющий вопрос" in str(m.get("content", ""))]
+    hints_third = [m for m in third if m.get("role") == "system" and "уточняющий вопрос" in str(m.get("content", ""))]
+    assert len(hints_second) == 1, "после первого неоднозначного поиска — ровно одна подсказка"
+    assert len(hints_third) == 1, "повторный inject одного и того же инструмента не нужен"
+
+
+def test_single_root_search_has_no_hint() -> None:
+    """Файлы из одной выгрузки — неоднозначности нет, подсказка не нужна."""
+    from pydantic import BaseModel, Field
+
+    from app.agent.tools import ToolDefinition
+
+    class QueryArgs(BaseModel):
+        query: str = Field(min_length=1)
+
+    async def single(args: QueryArgs, ctx: object) -> str:
+        return (
+            "Найдено 3 файла по «фс192»\n"
+            "\n"
+            "- `ТП601 УПП/ТП603 ПС/ФС192_Расходы/Ext/ObjectModule.bsl`\n"
+            "- `ТП601 УПП/ТП603 ПС/ФС192_Расходы/Forms/Форма/Ext/Form.module.bsl`\n"
+        )
+
+    reg = ToolRegistry(
+        [ToolDefinition(name="search_files", description="поиск файлов", args_model=QueryArgs, handler=single)]
+    )
+    llm = FakeLLM(
+        [
+            AssistantMessage(
+                content=None, tool_calls=[ToolCall(id="c1", name="search_files", arguments='{"query": "ФС192"}')]
+            ),
+            AssistantMessage(content="Нашёл один объект."),
+        ]
+    )
+    asyncio.run(run_agent(llm=llm, registry=reg, user_message="тест", max_rounds=6))
+    second = llm.seen_messages[1]
+    hints = [m for m in second if m.get("role") == "system" and "уточняющий вопрос" in str(m.get("content", ""))]
+    assert hints == [], "при одной выгрузке подсказка не нужна"
