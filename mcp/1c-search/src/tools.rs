@@ -2600,7 +2600,7 @@ async fn handle_search_files(
                 .iter()
                 .filter_map(|fi| {
                     fi.object_name.as_ref().map(|n| {
-                        let dir = fi.filepath.rsplit_once('/').map(|(d, _)| d.to_string()).unwrap_or_default();
+                        let dir = object_folder(&fi.filepath);
                         (n.clone(), dir)
                     })
                 })
@@ -2746,12 +2746,7 @@ async fn handle_search_files(
                 .filter(|n| !n.is_empty())
                 .map(|n| (
                     n.to_string(),
-                    item["file"]
-                        .as_str()
-                        .unwrap_or("")
-                        .rsplit_once('/')
-                        .map(|(d, _)| d.to_string())
-                        .unwrap_or_default(),
+                    object_folder(item["file"].as_str().unwrap_or("")),
                 ))
         })
         .collect();
@@ -2785,6 +2780,19 @@ async fn handle_search_files(
             "items": page
         }
     }))
+}
+
+/// Каталог объекта: путь до папки, в которой лежит объект, без хвостов модулей.
+/// `ТП601 УПП/.../ПС44_ОтчетПоСвободнымОстаткамИРезервамГП/Ext/ObjectModule.bsl`
+/// → `ТП601 УПП/.../ПС44_ОтчетПоСвободнымОстаткамИРезервамГП`;
+/// `.../Forms/Форма/Ext/Form.module.bsl` → `.../ПС44_ОтчетПоСвободнымОстаткамИРезервамГП`.
+fn object_folder(filepath: &str) -> String {
+    let dir = filepath.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
+    if let Some(pos) = dir.find("/Forms/") {
+        return dir[..pos].to_string();
+    }
+    let trimmed = dir.strip_suffix("/Ext").unwrap_or(dir);
+    trimmed.to_string()
 }
 
 /// Infer (object_type, object_name, module_kind) from a 1С config dump relative path.
