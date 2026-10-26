@@ -370,32 +370,36 @@ async def run_agent(
                     is_error=consec_errors > 0,
                 )
             )
-            messages.append({"role": "tool", "tool_call_id": call.id, "content": feedback})
             # Неоднозначный поиск: файл из разных корневых папок (объектов) —
             # механическая страховка от «молча ковал оба». Промпт агента уже
             # требует уточнить, но слабая модель его игнорирует; подсказка в
             # контексте сильнее. Один раз на объект: повторный inject при каждом
             # поиске только шумит (модель и так видит оба результата).
+            # ВАЖНО: подсказка прикрепляется к tool-результату, а НЕ отдельным
+            # system-сообщением — llama.cpp требует system только в начале
+            # диалога («System message must be at the beginning»), system в
+            # середине роняет запрос (500).
+            hint = ""
             if consec_errors == 0:
                 roots = _ambiguous_objects(feedback)
                 if roots is not None and call.name not in ambiguous_tools:
                     ambiguous_tools.add(call.name)
                     hint = (
-                        "ВНИМАНИЕ: поиск нашёл файлы из разных объектов/выгрузок: "
+                        "\n\n[Система: поиск нашёл файлы из разных объектов/выгрузок: "
                         + ", ".join(roots)
                         + ". Прежде чем читать код, задай пользователю ОДИН уточняющий "
                         "вопрос — какой именно объект (база/папка) имеется в виду. "
                         "Определять «где есть нужная колонка» самостоятельно нельзя: "
-                        "одинаковый заголовок может быть в обоих макетах."
+                        "одинаковый заголовок может быть в обоих макетах.]"
                     )
-                    messages.append({"role": "system", "content": hint})
                     log.info(
-                        "user=%s round=%d ambiguous objects in %s result: %s — injected clarification hint",
+                        "user=%s round=%d ambiguous objects in %s result: %s — appended clarification hint",
                         user_id,
                         round_no,
                         call.name,
                         ", ".join(roots),
                     )
+            messages.append({"role": "tool", "tool_call_id": call.id, "content": feedback + hint})
             # Проверяем повтор только пока остались раунды: если раунды всё равно
             # кончились, честнее сказать про лимит раундов, а не про повтор.
             rounds_left = round_no < max_rounds

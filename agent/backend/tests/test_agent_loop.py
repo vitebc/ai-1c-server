@@ -404,8 +404,9 @@ def _run_ambiguous(llm: FakeLLM) -> AgentResult:
 def test_ambiguous_search_injects_clarification_hint() -> None:
     """Живой случай (ПС44): поиск нашёл объект в КА ТД и УПП — модель не уточнила.
 
-    После tool-результата с файлами из разных корневых папок в контекст должна
-    попасть system-подсказка «задай уточняющий вопрос»."""
+    После tool-результата с файлами из разных корневых папок к нему должна
+    прикрепиться подсказка «задай уточняющий вопрос» (не отдельным system —
+    llama.cpp требует system только в начале диалога)."""
     llm = FakeLLM(
         [
             AssistantMessage(
@@ -416,9 +417,9 @@ def test_ambiguous_search_injects_clarification_hint() -> None:
     )
     _run_ambiguous(llm)
     second = llm.seen_messages[1]
-    hints = [str(m.get("content", "")) for m in second if m.get("role") == "system"]
-    assert any("уточняющий вопрос" in h and "ТП601 КА ТД" in h and "ТП601 УПП" in h for h in hints), (
-        "в контекст второго раунда должна попасть подсказка про неоднозначный поиск"
+    tool_msgs = [str(m.get("content", "")) for m in second if m.get("role") == "tool"]
+    assert any("уточняющий вопрос" in c and "ТП601 КА ТД" in c and "ТП601 УПП" in c for c in tool_msgs), (
+        "к tool-результату должна прикрепиться подсказка про неоднозначный поиск"
     )
 
 
@@ -439,12 +440,14 @@ def test_ambiguous_hint_injected_once_per_tool() -> None:
     _run_ambiguous(llm)
     second = llm.seen_messages[1]
     third = llm.seen_messages[2]
+
+    def hint_count(msgs: list[dict[str, object]]) -> int:
+        return sum(1 for m in msgs if m.get("role") == "tool" and "уточняющий вопрос" in str(m.get("content", "")))
+
     # Подсказка остаётся в контексте (это нормально — модель видит её дальше),
-    # но повторного inject нет: число подсказок не растёт.
-    hints_second = [m for m in second if m.get("role") == "system" and "уточняющий вопрос" in str(m.get("content", ""))]
-    hints_third = [m for m in third if m.get("role") == "system" and "уточняющий вопрос" in str(m.get("content", ""))]
-    assert len(hints_second) == 1, "после первого неоднозначного поиска — ровно одна подсказка"
-    assert len(hints_third) == 1, "повторный inject одного и того же инструмента не нужен"
+    # но повторного inject нет: число tool-сообщений с подсказкой не растёт.
+    assert hint_count(second) == 1, "после первого неоднозначного поиска — ровно одна подсказка"
+    assert hint_count(third) == 1, "повторный inject одного и того же инструмента не нужен"
 
 
 def test_single_root_search_has_no_hint() -> None:
@@ -477,5 +480,5 @@ def test_single_root_search_has_no_hint() -> None:
     )
     asyncio.run(run_agent(llm=llm, registry=reg, user_message="тест", max_rounds=6))
     second = llm.seen_messages[1]
-    hints = [m for m in second if m.get("role") == "system" and "уточняющий вопрос" in str(m.get("content", ""))]
+    hints = [m for m in second if m.get("role") == "tool" and "уточняющий вопрос" in str(m.get("content", ""))]
     assert hints == [], "при одной выгрузке подсказка не нужна"
