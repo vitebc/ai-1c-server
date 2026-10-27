@@ -100,13 +100,59 @@ impl McpManager {
         let session = self.sessions.read().await.get(id).cloned();
         match session {
             Some(session) => match &*session {
-                ManagedSession::Stdio(s) => s
-                    .call(JsonRpcRequest::new("ping", serde_json::json!({})))
-                    .await
-                    .is_ok(),
+                ManagedSession::Stdio(s) => s.ping().await,
                 ManagedSession::Http(_) => true,
             },
             None => false,
+        }
+    }
+
+    /// Сессия есть в карте, но не отвечает на ping (мёртвый subprocess:
+    /// pipe записывается в никуда без ошибки). Убираем труп и запускаем
+    /// заново из конфига. Возвращает true, если перезапуск удался.
+    pub async fn restart_if_dead(
+        &self,
+        db: &Arc<tokio::sync::Mutex<crate::db::Database>>,
+        id: &str,
+    ) -> bool {
+        let dead = self.sessions.read().await.contains_key(id) && !self.is_running(id).await;
+        if !dead {
+            return false;
+        }
+        let cfg: Option<McpServerConfig> = {
+            let guard = db.lock().await;
+            guard
+                .conn
+                .query_row(
+                    "SELECT id, name, description, server_type, transport, command, args, env, url, enabled, config
+                     FROM mcp_servers WHERE id = ?1",
+                    [id],
+                    |row| {
+                        Ok(McpServerConfig {
+                            id: row.get(0)?,
+                            name: row.get(1)?,
+                            description: row.get(2)?,
+                            server_type: row.get(3)?,
+                            transport: row.get(4)?,
+                            command: row.get(5)?,
+                            args: row.get(6)?,
+                            env: row.get(7)?,
+                            url: row.get(8)?,
+                            enabled: row.get::<_, i32>(9)? != 0,
+                            config: row.get(10)?,
+                        })
+                    },
+                )
+                .ok()
+        };
+        let Some(cfg) = cfg else { return false };
+        tracing::warn!("MCP server '{id}' session is dead — restarting from config");
+        match self.start_server(&cfg).await {
+            Ok(()) => true,
+            Err(e) => {
+                tracing::error!("MCP server '{id}' restart failed: {e}");
+                false
+            }
         }
     }
 

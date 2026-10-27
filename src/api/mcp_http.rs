@@ -289,6 +289,12 @@ pub fn tool_prefix(name: &str) -> String {
 async fn aggregated_list(state: &Arc<AppState>, id: Value) -> Value {
     let mut tools = Vec::new();
     for (sid, name) in enabled_servers(state).await {
+        // Self-heal: сессия могла умереть (краш, замена бинарника) —
+        // перезапускаем из конфига БД и пробуем ещё раз. Без этого клиент
+        // видел бы «сервер включён, а тулзов нет» до ручного рестарта.
+        if !state.mcp.is_running(&sid).await {
+            let _ = state.mcp.restart_if_dead(&state.db, &sid).await;
+        }
         let prefix = tool_prefix(&name);
         match state.mcp.list_tools(&sid).await {
             Ok(list) => {

@@ -27,6 +27,20 @@ export default function McpServers() {
 
   useEffect(() => { load(); }, []);
 
+  // Статусы — живой поллинг: сессия может умереть в любой момент (краш,
+  // замена бинарника), и дашборд обязан показать это без F5. Сам /status
+  // self-heal'ит мёртвые сессии, поэтому поллинг ещё и поднимает их.
+  useEffect(() => {
+    const timer = setInterval(() => {
+      api.getStatus().then(s => {
+        const map: Record<string, string> = {};
+        (s as ServerStatus[]).forEach(x => { map[x.id] = x.status; });
+        setLive(map);
+      }).catch(() => {});
+    }, 10000);
+    return () => clearInterval(timer);
+  }, []);
+
   function load() {
     api.getMcpServers().then(setItems);
     api.getStatus().then(s => {

@@ -12,7 +12,6 @@ use tracing::Level;
 
 use super::AppState;
 use crate::log_buffer::LogEntry;
-use crate::mcp::{JsonRpcRequest, McpServerConfig};
 
 pub mod agent_audit;
 pub mod agent_backend;
@@ -104,41 +103,15 @@ async fn status(State(state): State<Arc<AppState>>) -> Json<Vec<McpServerStatus>
     };
     let mut out = Vec::new();
     for (id, name) in rows {
+        // Self-heal: нет сессии ИЛИ сессия мёртвая (не отвечает на ping —
+        // например, subprocess убит заменой бинарника) — запускаем заново
+        // из конфига. После успешного рестарта показываем «running» сразу:
+        // start_server сам сделал initialize-roundtrip, сессия живая.
         let live = state.mcp.is_running(&id).await;
         if !live {
-            // Self-heal: row exists and is enabled but no live session —
-            // start it now (e.g. added directly to the DB, or a failed boot).
-            let cfg: Option<McpServerConfig> = {
-                let db = state.db.lock().await;
-                db.conn
-                    .query_row(
-                        "SELECT id, name, description, server_type, transport, command, args, env, url, enabled, config
-                         FROM mcp_servers WHERE id = ?1",
-                        [&id],
-                        |row| {
-                            Ok(McpServerConfig {
-                                id: row.get(0)?,
-                                name: row.get(1)?,
-                                description: row.get(2)?,
-                                server_type: row.get(3)?,
-                                transport: row.get(4)?,
-                                command: row.get(5)?,
-                                args: row.get(6)?,
-                                env: row.get(7)?,
-                                url: row.get(8)?,
-                                enabled: row.get::<_, i32>(9)? != 0,
-                                config: row.get(10)?,
-                            })
-                        },
-                    )
-                    .ok()
-            };
-            if let Some(c) = cfg {
-                if let Err(e) = state.mcp.start_server(&c).await {
-                    tracing::warn!("mcp status self-heal: failed to start '{id}': {e}");
-                } else {
-                    continue; // re-evaluate liveness on next dashboard refresh
-                }
+            if state.mcp.restart_if_dead(&state.db, &id).await {
+                out.push(McpServerStatus { id, name, status: "running".into() });
+                continue;
             }
         }
         out.push(McpServerStatus {

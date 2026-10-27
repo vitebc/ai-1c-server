@@ -11,6 +11,12 @@ use super::protocol::{JsonRpcRequest, JsonRpcResponse};
 /// Один MCP-вызов: сколько ждём ответа дошпросцесса.
 const CALL_TIMEOUT: Duration = Duration::from_secs(120);
 
+/// Пинг живости (is_running): короткий, чтобы дашборд не висел на мёртвых
+/// сессиях. Мёртвый subprocess держит pipe открытым (write-end у нас),
+/// поэтому запись «уходит в никуда» без ошибки — единственная честная
+/// проверка: ответили ли вообще.
+const PING_TIMEOUT: Duration = Duration::from_secs(3);
+
 /// Пишем в stdin только под этим локом — и только на время одной строки.
 /// Ответ читает фоновой task, поэтому долгий вызов не блокирует соседние.
 type Writer = Arc<Mutex<tokio::process::ChildStdin>>;
@@ -151,6 +157,27 @@ impl McpSession {
         &self,
         request: JsonRpcRequest,
     ) -> Result<JsonRpcResponse, Box<dyn std::error::Error>> {
+        self.call_with_timeout(request, CALL_TIMEOUT).await
+    }
+
+    /// Пинг живости: короткий таймаут + честная проверка ответа.
+    /// Мёртвый subprocess не отвечает вовсе (pipe записывается в никуда),
+    /// поэтому по таймауту — false, а не «запись прошла = жив».
+    pub async fn ping(&self) -> bool {
+        let req = JsonRpcRequest::new("ping", serde_json::json!({}));
+        match self.call_with_timeout(req, PING_TIMEOUT).await {
+            // Ответ с result — жив. Ответ с error (сервер живой, но не знает
+            // метода ping) тоже считается живым: процесс отвечает.
+            Ok(resp) => resp.result.is_some() || resp.error.is_some(),
+            Err(_) => false,
+        }
+    }
+
+    async fn call_with_timeout(
+        &self,
+        request: JsonRpcRequest,
+        timeout_dur: Duration,
+    ) -> Result<JsonRpcResponse, Box<dyn std::error::Error>> {
         let req_id = {
             let mut n = self.next_id.lock().await;
             let id = *n;
@@ -180,14 +207,14 @@ impl McpSession {
             }
         }
 
-        match timeout(CALL_TIMEOUT, rx).await {
+        match timeout(timeout_dur, rx).await {
             Ok(Ok(value)) => Ok(serde_json::from_value(value)?),
             // Фоновой ридер умер вместе с subprocess — отвечаем тем же текстом,
             // что и раньше.
             Ok(Err(_)) => Err("MCP subprocess connection closed".into()),
             Err(_) => {
                 self.pending.lock().await.remove(&req_id);
-                Err(format!("MCP call timed out after {}s", CALL_TIMEOUT.as_secs()).into())
+                Err(format!("MCP call timed out after {}s", timeout_dur.as_secs()).into())
             }
         }
     }
