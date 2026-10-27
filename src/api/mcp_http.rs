@@ -85,6 +85,12 @@ pub async fn aggregated_tools(State(state): State<Arc<AppState>>) -> Json<Value>
     let mut errors = Vec::new();
     for (sid, name) in enabled_servers(&state).await {
         let prefix = tool_prefix(&name);
+        // Self-heal (как в aggregated_list): мёртвую сессию поднимаем из
+        // конфига БД, иначе инвентарь тулзов врёт «сервер включён, тулзов нет»
+        // до ручного рестарта сервера.
+        if !state.mcp.is_running(&sid).await {
+            let _ = state.mcp.restart_if_dead(&state.db, &sid).await;
+        }
         match state.mcp.list_tools(&sid).await {
             Ok(list) => {
                 for t in list {

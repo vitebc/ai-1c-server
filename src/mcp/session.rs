@@ -34,6 +34,12 @@ pub struct McpSession {
     /// умер (ядро держит запись до reap'а), живой процесс с таким pid —
     /// только если pid перекрутился, что за секунды не происходит.
     child_pid: u32,
+    /// Ридер stdout-потока: его выход (EOF/ошибка) = смерть subprocess'а.
+    /// `processExited()` не ловит зомби, пока родитель не сделал waitpid() —
+    /// на long-running демоне такие записи живут днями и маскируют мёртвый
+    /// pipe как живой. Reader-сигнал надёжнее: поток завершился, когда
+    /// subprocess умер, независимо от того, reaped он или нет.
+    reader_done: Arc<Mutex<Option<oneshot::Receiver<()>>>>,
     writer: Writer,
     next_id: Arc<Mutex<u64>>,
     pending: Pending,
@@ -77,6 +83,7 @@ impl McpSession {
         let writer: Writer = Arc::new(Mutex::new(child.stdin.take().expect("stdin")));
         let next_id = Arc::new(Mutex::new(1u64));
         let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
+        let (reader_done_tx, reader_done) = oneshot::channel::<()>();
 
         // Фоновый ридер: единственный владелец stdout. Разбирает построчно
         // и раскидывает ответы по id, поэтому вызовы мультиплексируются —
@@ -84,6 +91,7 @@ impl McpSession {
         if let Some(stdout) = child.stdout.take() {
             let pending = pending.clone();
             tokio::spawn(async move {
+                let mut reader_done_tx = Some(reader_done_tx);
                 let mut reader = BufReader::new(stdout);
                 let mut line = String::new();
                 loop {
@@ -114,15 +122,53 @@ impl McpSession {
                         None => tracing::debug!("[mcp] late response for id {id}, dropped"),
                     }
                 }
-                // Поток закрылся: все ждущие об этом узнают по oneshot.
+                // Поток закрылся: все ждущие об этом узнают по oneshot,
+                // а сессия — по reader_done (смерть subprocess'а).
+                if let Some(tx) = reader_done_tx.take() {
+                    let _ = tx.send(());
+                }
                 pending.lock().await.clear();
+            });
+        }
+
+        let process: Arc<Mutex<Option<tokio::process::Child>>> = Arc::new(Mutex::new(Some(child)));
+
+        // Реапер: tokio не собирает exit-код, пока `Child` лежит в поле —
+        // зомби копятся днями, а причина смерти остаётся неизвестной.
+        // Раз в 3 c забираем статус: логируем код/сигнал и освобождаем поле.
+        {
+            let process = process.clone();
+            let log_id = config.id.clone();
+            tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(Duration::from_secs(3)).await;
+                    let mut guard = process.lock().await;
+                    let Some(child) = guard.as_mut() else { break };
+                    match child.try_wait() {
+                        Ok(Some(status)) => {
+                            tracing::warn!(
+                                "[mcp:{}] subprocess exited: {} — сессия мертва",
+                                log_id,
+                                status
+                            );
+                            *guard = None; // запись забрана, зомби нет
+                            break;
+                        }
+                        Ok(None) => {}
+                        Err(e) => {
+                            tracing::warn!("[mcp:{}] try_wait failed: {e}", log_id);
+                            break;
+                        }
+                    }
+                }
             });
         }
 
         let session = Self {
             id: config.id.clone(),
-            process: Arc::new(Mutex::new(Some(child))),
+            process,
             child_pid,
+            reader_done: Arc::new(Mutex::new(Some(reader_done))),
             writer,
             next_id,
             pending,
@@ -232,13 +278,28 @@ impl McpSession {
         }
     }
 
-    /// Быстрая проверка смерти subprocess без пинга: `processExited()`
-    /// ложится на `/proc/<pid>/stat` — зомби (S/Z, exit-код ещё не собран)
-    /// и живой процесс с тем же pid различаются по третьему полю.
+    /// Быстрая проверка смерти subprocess без пинга. Два независимых
+    /// сигнала: reader-поток завершился (stdout EOF — subprocess умер) или
+    /// /proc записи нет вообще. Сигнал «Z в /proc/<pid>/stat» НЕ работает:
+    /// tokio не reaps детей, пока `Child` живёт в поле `process`, поэтому
+    /// зомби живут до shutdown() и маскируют смерть как живой процесс.
     pub fn process_exited(&self) -> bool {
+        // 1) Reader-сигнал: stdout закрылся, поток завершил работу.
+        //    try_lock + take: сигнал одноразовый, дальше поле пусто и
+        //    проверка всегда «мёртв».
+        if let Ok(mut guard) = self.reader_done.try_lock() {
+            if let Some(mut rx) = guard.take() {
+                if rx.try_recv().is_ok() {
+                    return true;
+                }
+            } else {
+                return true; // сигнал уже взят ранее — сессия мёртвая
+            }
+        }
+        // 2) /proc записи нет — процесс точно мёртв (и reaped).
         let stat = match std::fs::read_to_string(format!("/proc/{}/stat", self.child_pid)) {
             Ok(s) => s,
-            Err(_) => return true, // нет /proc записи — процесс точно мёртв
+            Err(_) => return true,
         };
         // Формат: pid (comm) state ... — comm может содержать пробелы и
         // скобки, поэтому ищем последнюю закрывающую скобку.
