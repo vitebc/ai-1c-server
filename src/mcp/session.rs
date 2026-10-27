@@ -30,6 +30,10 @@ pub struct McpSession {
     /// Внутри `Mutex`, а не просто `Option`: сессия живёт под `Arc`
     /// (см. `McpManager::call`), и остановить её должен любой владелец.
     process: Arc<Mutex<Option<tokio::process::Child>>>,
+    /// PID subprocess'а на момент spawn. Зомби с тем же pid — процесс уже
+    /// умер (ядро держит запись до reap'а), живой процесс с таким pid —
+    /// только если pid перекрутился, что за секунды не происходит.
+    child_pid: u32,
     writer: Writer,
     next_id: Arc<Mutex<u64>>,
     pending: Pending,
@@ -52,6 +56,11 @@ impl McpSession {
         cmd.stderr(std::process::Stdio::piped());
 
         let mut child = cmd.spawn()?;
+
+        // Считаем PID: если process_exited() видит зомби/отсутствие записи —
+        // subprocess умер (в т.ч. от замены бинарника на месте), и пинг
+        // может вестись в никуда по мёртвому pipe.
+        let child_pid = child.id().expect("spawned process has an id");
 
         let log_id = config.id.clone();
         if let Some(stderr) = child.stderr.take() {
@@ -113,6 +122,7 @@ impl McpSession {
         let session = Self {
             id: config.id.clone(),
             process: Arc::new(Mutex::new(Some(child))),
+            child_pid,
             writer,
             next_id,
             pending,
@@ -164,6 +174,9 @@ impl McpSession {
     /// Мёртвый subprocess не отвечает вовсе (pipe записывается в никуда),
     /// поэтому по таймауту — false, а не «запись прошла = жив».
     pub async fn ping(&self) -> bool {
+        if self.process_exited() {
+            return false;
+        }
         let req = JsonRpcRequest::new("ping", serde_json::json!({}));
         match self.call_with_timeout(req, PING_TIMEOUT).await {
             // Ответ с result — жив. Ответ с error (сервер живой, но не знает
@@ -217,6 +230,23 @@ impl McpSession {
                 Err(format!("MCP call timed out after {}s", timeout_dur.as_secs()).into())
             }
         }
+    }
+
+    /// Быстрая проверка смерти subprocess без пинга: `processExited()`
+    /// ложится на `/proc/<pid>/stat` — зомби (S/Z, exit-код ещё не собран)
+    /// и живой процесс с тем же pid различаются по третьему полю.
+    pub fn process_exited(&self) -> bool {
+        let stat = match std::fs::read_to_string(format!("/proc/{}/stat", self.child_pid)) {
+            Ok(s) => s,
+            Err(_) => return true, // нет /proc записи — процесс точно мёртв
+        };
+        // Формат: pid (comm) state ... — comm может содержать пробелы и
+        // скобки, поэтому ищем последнюю закрывающую скобку.
+        let Some(open) = stat.rfind(')') else { return true };
+        let rest = &stat[open + 1..];
+        let state = rest.chars().next();
+        // Z — зомби (умер, не reaped), X/x — мёртв. S/R/D/T... — жив.
+        matches!(state, Some('Z') | Some('X') | Some('x'))
     }
 
     pub async fn shutdown(&self) {
