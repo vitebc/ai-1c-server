@@ -21,8 +21,13 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from app.agent.context import (
+    DEFAULT_CONTEXT_BUDGET_TOKENS,
+    shrink_messages,
+    truncate_tool_result,
+)
 from app.agent.tools import ToolContext, ToolRegistry
-from app.llm import AssistantMessage, ChatLLM
+from app.llm import AssistantMessage, ChatLLM, ContextOverflowError
 
 log = logging.getLogger("agent1c.loop")
 
@@ -145,6 +150,54 @@ def _args_dict(arguments: str) -> dict[str, Any] | None:
         return {"raw": str(arguments)}
 
 
+#: Ответ пользователю, когда контекст не влезает даже после сворачивания.
+#: Лучше внятный текст, чем 400 от LLM и «чат упал».
+TOO_LONG_ANSWER = (
+    "Диалог получился слишком длинным для модели — контекст не помещается в её окно. "
+    "Начните новый чат и задайте вопрос заново: в новой сессии контекст чистый. "
+    "Большой вопрос лучше разбить на части (сначала уточнить структуру объекта, потом данные)."
+)
+
+
+async def _complete_with_budget(
+    *,
+    llm: ChatLLM,
+    messages: list[dict[str, Any]],
+    schemas: list[dict[str, Any]],
+    budget_tokens: int,
+    round_no: int,
+) -> AssistantMessage:
+    """Запрос к LLM с бюджетом контекста и одним повтором после переполнения.
+
+    1. Перед запросом старые результаты инструментов сворачиваются в заглушки,
+       чтобы промпт влезал в бюджет (живой случай: 28 результатов на 91 572
+       символа + 128 схем инструментов упирались в окно 64 256 токенов).
+    2. Если провайдер всё равно ответил 400 про переполнение — сворачиваем
+       агрессивнее (последний результат тоже в заглушку) и повторяем ОДИН раз.
+    3. Второе переполнение пробрасывается: `run_agent` вернёт понятный текст,
+       а не ошибку.
+    """
+    shrank = shrink_messages(messages, budget_tokens=budget_tokens, tools=schemas)
+    if shrank:
+        log.info("round=%d бюджет контекста: свёрнуто старых результатов: %d", round_no, shrank)
+    try:
+        return await llm.complete(messages, schemas)
+    except ContextOverflowError as exc:
+        log.warning("round=%d переполнение контекста (%s) — агрессивное сворачивание и повтор", round_no, exc)
+        shrank = shrink_messages(
+            messages,
+            budget_tokens=budget_tokens,
+            tools=schemas,
+            keep_full=1,
+            stub_chars=100,
+        )
+        if not shrank:
+            # Все результаты уже заглушки — режем и последние, иначе повтор
+            # упадёт с тем же размером промпта.
+            shrink_messages(messages, budget_tokens=budget_tokens, tools=schemas, keep_full=0, stub_chars=100)
+        return await llm.complete(messages, schemas)
+
+
 async def _finish_with_final_answer(
     *,
     llm: ChatLLM,
@@ -156,6 +209,7 @@ async def _finish_with_final_answer(
     prompt_tokens: int,
     completion_tokens: int,
     round_steps: list[RoundStep] | None = None,
+    context_budget_tokens: int = DEFAULT_CONTEXT_BUDGET_TOKENS,
 ) -> AgentResult:
     """Предохранитель сработал: дать модели ОДИН шанс ответить из того, что уже есть.
 
@@ -182,7 +236,25 @@ async def _finish_with_final_answer(
     steps = list(round_steps or [])
     final_round = max([st.round_no for st in steps], default=0) + 1
     try:
-        resp = await llm.complete(final_messages, [])
+        resp = await _complete_with_budget(
+            llm=llm,
+            messages=final_messages,
+            schemas=[],
+            budget_tokens=context_budget_tokens,
+            round_no=final_round,
+        )
+    except ContextOverflowError as e:
+        # Даже свернутый контекст не влез — отдаём заготовку, а не ошибку.
+        log.warning("финальный ответ не влез в контекст (%s), отдаю заготовку", e)
+        return AgentResult(
+            answer=fallback,
+            rounds=len(called),
+            tool_calls=called,
+            tool_errors=errors,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            round_steps=steps,
+        )
     except Exception as e:  # noqa: BLE001 — LLM упал: отдаём заготовку, петлю не роняем
         log.warning("финальный ответ не удался (%s), отдаю заготовку", e)
         return AgentResult(
@@ -234,6 +306,7 @@ async def run_agent(
     base_url: str = "",
     max_consecutive_errors: int = 3,
     max_repeat_calls: int = 3,
+    context_budget_tokens: int = DEFAULT_CONTEXT_BUDGET_TOKENS,
 ) -> AgentResult:
     """Агентская петля: LLM -> вызовы инструментов -> ... -> финальный ответ.
 
@@ -242,6 +315,8 @@ async def run_agent(
     и теми же аргументами (0 = выкл). Ловит бесполезный перебор вариантов запроса,
     когда инструмент честно отвечает «ничего не найдено» и ошибкой это не считается
     (живой случай: search_files × 23 одинаковыми аргументами до лимита раундов).
+    context_budget_tokens — бюджет промпта: старые результаты инструментов
+    сворачиваются, чтобы запрос влезал в окно модели (0 = выкл).
     """
     system = base_system + ("\n\n" + extra_system.strip() if extra_system.strip() else "")
     messages: list[dict[str, Any]] = [
@@ -281,7 +356,28 @@ async def run_agent(
     log.info("user=%s base=%s agent=%s skill=%s q=%s", user_id, base, agent, skill, _preview(user_message))
 
     for round_no in range(1, max_rounds + 1):
-        resp = await llm.complete(messages, registry.schemas())
+        schemas = registry.schemas()
+        try:
+            resp = await _complete_with_budget(
+                llm=llm,
+                messages=messages,
+                schemas=schemas,
+                budget_tokens=context_budget_tokens,
+                round_no=round_no,
+            )
+        except ContextOverflowError as exc:
+            # Второе переполнение подряд: дальше сворачивать нечего — честный
+            # текст вместо 400 и «чат упал».
+            log.error("user=%s round=%d контекст не влезает даже после сворачивания: %s", user_id, round_no, exc)
+            return AgentResult(
+                answer=TOO_LONG_ANSWER,
+                rounds=len(called),
+                tool_calls=called,
+                tool_errors=errors,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                round_steps=round_steps,
+            )
         if resp.usage is not None:
             prompt_tokens += resp.usage.prompt_tokens
             completion_tokens += resp.usage.completion_tokens
@@ -399,7 +495,16 @@ async def run_agent(
                         call.name,
                         ", ".join(roots),
                     )
-            messages.append({"role": "tool", "tool_call_id": call.id, "content": feedback + hint})
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": call.id,
+                    # В контекст модели — с потолком на один результат (в трасс
+                    # админки выше уходит полный feedback): один get_metadata_tree
+                    # на 20 000 символов иначе съедает заметную часть окна.
+                    "content": truncate_tool_result(feedback + hint),
+                }
+            )
             # Проверяем повтор только пока остались раунды: если раунды всё равно
             # кончились, честнее сказать про лимит раундов, а не про повтор.
             rounds_left = round_no < max_rounds
@@ -434,6 +539,7 @@ async def run_agent(
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
                     round_steps=round_steps,
+                    context_budget_tokens=context_budget_tokens,
                 )
             if rounds_left and consec_errors == 0 and 0 < max_repeat_calls <= repeat_calls[repeat_key]:
                 log.warning(
@@ -462,6 +568,7 @@ async def run_agent(
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
                     round_steps=round_steps,
+                    context_budget_tokens=context_budget_tokens,
                 )
             if 0 < max_consecutive_errors <= consec_errors:
                 log.warning(

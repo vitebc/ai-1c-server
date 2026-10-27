@@ -25,6 +25,7 @@ from sqlalchemy import select
 
 from app import errors
 from app.agent import SYSTEM_PROMPT, AgentResult, ToolRegistry, run_agent
+from app.agent.context import compact_history
 from app.agent.tools import ToolDefinition, clean_parameters
 from app.agents import Agent, AgentRegistry
 from app.auth.jwt import extract_bearer_token, validate_hs256
@@ -558,11 +559,20 @@ async def list_skills(
 
 
 def _history_to_messages(rows: list[Message]) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    for m in rows:
-        if m.role in ("user", "assistant"):
-            out.append({"role": m.role, "content": m.content})
-    return out
+    """История диалога для промпта — с бюджетом по объёму, а не только по числу.
+
+    Выборка берёт последние N сообщений, но каждое могло быть на 20 000
+    символов (огромный ответ по коду/метаданным): одна такая история съедала
+    всё окно модели. `compact_history` режет отдельные сообщения и отбрасывает
+    самые старые, сохраняя свежие.
+    """
+    pairs = [(m.role, m.content) for m in rows if m.role in ("user", "assistant")]
+    if not pairs:
+        return []
+    kept = compact_history([content for _, content in pairs])
+    if not kept:
+        return []
+    return [{"role": role, "content": text} for (role, _), text in zip(pairs[-len(kept) :], kept, strict=True)]
 
 
 async def _auto_skill(message: str, skills: SkillRegistry, agent_spec: Agent) -> Skill | None:
@@ -884,6 +894,7 @@ async def _chat_impl(
                         base_system=base_system,
                         max_consecutive_errors=settings.agent_max_consecutive_errors,
                         max_repeat_calls=settings.agent_max_repeat_calls,
+                        context_budget_tokens=settings.agent_context_budget_tokens,
                     )
                 except Exception as e:  # noqa: BLE001 — модель недоступна: отвечаем текстом
                     code = errors.error_code()
@@ -947,6 +958,7 @@ async def _chat_impl(
             base_system=base_system,
             max_consecutive_errors=settings.agent_max_consecutive_errors,
             max_repeat_calls=settings.agent_max_repeat_calls,
+            context_budget_tokens=settings.agent_context_budget_tokens,
         )
     except Exception as e:  # noqa: BLE001 — показываем ошибку в чате, а не 500
         # 1С ждёт SSE, поэтому отдаём ошибку как обычный answer: форма покажет

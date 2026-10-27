@@ -6,10 +6,56 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, BadRequestError
+
+
+class ContextOverflowError(RuntimeError):
+    """Запрос не влез в окно модели.
+
+    llama.cpp/Ollama отвечают 400 с `exceed_context_size_error` и числом
+    `n_ctx`; облачные провайдеры — текстом про context length. Петля ловит
+    эту ошибку, сворачивает контекст и повторяет запрос вместо того, чтобы
+    отдать пользователю «чат упал».
+    """
+
+    def __init__(self, detail: str, context_limit: int | None = None) -> None:
+        super().__init__(detail)
+        #: Окно модели в токенах, если провайдер его сообщил (llama.cpp — n_ctx).
+        self.context_limit = context_limit
+
+
+#: Признаки переполнения в теле 400-го ответа провайдера.
+_OVERFLOW_MARKERS = (
+    "exceed_context_size_error",
+    "exceeds the available context size",
+    "context_length_exceeded",
+    "maximum context length",
+)
+
+_N_CTX_RE = re.compile(r'"n_ctx"\s*:\s*(\d+)')
+_N_PROMPT_RE = re.compile(r'"n_prompt_tokens"\s*:\s*(\d+)')
+
+
+def _overflow_detail(exc: Exception) -> str:
+    """Короткое описание переполнения для лога: окно и размер запроса, если есть.
+
+    llama.cpp кладёт в тело 400-го `n_ctx` и `n_prompt_tokens`; у облачных
+    провайдеров их нет — тогда остаётся текст ошибки.
+    """
+    text = str(exc)
+    n_ctx = _N_CTX_RE.search(text)
+    n_prompt = _N_PROMPT_RE.search(text)
+    if n_ctx or n_prompt:
+        return (
+            "переполнение окна модели: "
+            f"запрос {n_prompt.group(1) if n_prompt else '?'} токенов, "
+            f"окно {n_ctx.group(1) if n_ctx else '?'}"
+        )
+    return f"переполнение окна модели: {text[:300]}"
 
 
 @dataclass
@@ -141,7 +187,19 @@ class OpenAICompatibleLLM:
         }
         if tools:
             kwargs["tools"] = tools
-        resp = await self._client.chat.completions.create(**kwargs)
+        try:
+            resp = await self._client.chat.completions.create(**kwargs)
+        except BadRequestError as exc:
+            # Переполнение окна — не повод ронять чат: петля свернёт контекст
+            # и повторит запрос (см. ContextOverflowError).
+            text = str(exc)
+            if any(marker in text.lower() for marker in _OVERFLOW_MARKERS):
+                n_ctx = _N_CTX_RE.search(text)
+                raise ContextOverflowError(
+                    _overflow_detail(exc),
+                    context_limit=int(n_ctx.group(1)) if n_ctx else None,
+                ) from exc
+            raise
         msg = resp.choices[0].message
         calls = [
             ToolCall(id=c.id, name=c.function.name, arguments=c.function.arguments or "{}")
