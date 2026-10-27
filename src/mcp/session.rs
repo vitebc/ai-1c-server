@@ -16,6 +16,11 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(120);
 /// поэтому запись «уходит в никуда» без ошибки — единственная честная
 /// проверка: ответили ли вообще.
 const PING_TIMEOUT: Duration = Duration::from_secs(3);
+/// Сколько сессия может молчать в ответ на ping, прежде чем считать её
+/// зависшей (и перезапускать). Таймаут одного ping — НЕ смерть: во время
+/// синхронизации индекса на 1.5 ГБ шесть subprocess'ов не успевают ответить
+/// за 3 c, а убийство живой сессии запускает повторный sync — и так по кругу.
+const UNRESPONSIVE_LIMIT: Duration = Duration::from_secs(120);
 
 /// Пишем в stdin только под этим локом — и только на время одной строки.
 /// Ответ читает фоновой task, поэтому долгий вызов не блокирует соседние.
@@ -40,6 +45,11 @@ pub struct McpSession {
     /// pipe как живой. Reader-сигнал надёжнее: поток завершился, когда
     /// subprocess умер, независимо от того, reaped он или нет.
     reader_done: Arc<Mutex<Option<oneshot::Receiver<()>>>>,
+    /// Когда сессия впервые не ответила на ping (None — отвечает).
+    /// Отделяет «завис» от «умер»: см. `UNRESPONSIVE_LIMIT`.
+    /// std::sync::Mutex, а не tokio: значение трогается мгновенно и без
+    /// await — иначе держать его рядом с Result (Box<dyn Error> не Send) нельзя.
+    unresponsive_at: Arc<std::sync::Mutex<Option<std::time::Instant>>>,
     writer: Writer,
     next_id: Arc<Mutex<u64>>,
     pending: Pending,
@@ -169,6 +179,7 @@ impl McpSession {
             process,
             child_pid,
             reader_done: Arc::new(Mutex::new(Some(reader_done))),
+            unresponsive_at: Arc::new(std::sync::Mutex::new(None)),
             writer,
             next_id,
             pending,
@@ -224,12 +235,28 @@ impl McpSession {
             return false;
         }
         let req = JsonRpcRequest::new("ping", serde_json::json!({}));
-        match self.call_with_timeout(req, PING_TIMEOUT).await {
-            // Ответ с result — жив. Ответ с error (сервер живой, но не знает
-            // метода ping) тоже считается живым: процесс отвечает.
-            Ok(resp) => resp.result.is_some() || resp.error.is_some(),
-            Err(_) => false,
+        // Не `match <expr>.await`: временное значение Result (с Box<dyn Error>,
+        // а он не Send) живёт до конца match и ломает Send у всей future.
+        let outcome = self.call_with_timeout(req, PING_TIMEOUT).await;
+        // Ответ с result — жив. Ответ с error (сервер живой, но не знает
+        // метода ping) тоже считается живым: процесс отвечает.
+        let answered =
+            matches!(&outcome, Ok(resp) if resp.result.is_some() || resp.error.is_some());
+        drop(outcome);
+        if answered {
+            if let Ok(mut slot) = self.unresponsive_at.lock() {
+                *slot = None;
+            }
+            return true;
         }
+        // Таймаут ≠ смерть (см. UNRESPONSIVE_LIMIT): синхронизация индекса
+        // может занять минуты, а живость процесса уже подтверждена /proc и
+        // открытым stdout.
+        let Ok(mut since) = self.unresponsive_at.lock() else {
+            return true; // отравленный лок — считаем зависшей
+        };
+        let started = *since.get_or_insert_with(std::time::Instant::now);
+        started.elapsed() >= UNRESPONSIVE_LIMIT
     }
 
     async fn call_with_timeout(
