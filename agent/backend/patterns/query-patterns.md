@@ -1,6 +1,7 @@
 ---
 name: query-patterns
 description: шаблоны запросов 1С через execute_select — даты, фильтры по ссылочным полям, проверка через validate_query
+enabled: false
 ---
 
 # Шаблоны запросов 1С
