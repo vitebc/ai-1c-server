@@ -239,6 +239,21 @@ fn meta_bool(meta: &HashMap<String, Value>, key: &str) -> bool {
     }
 }
 
+/// `enabled` паттерна: ключа нет — включён, булево — как есть, строка — как в
+/// `app/patterns/loader.py` ('false'/'0'/'no'/'off' — выключен). Парсер
+/// frontmatter отдаёт безкавычное `enabled: false` как Bool, а не строку.
+fn meta_enabled(meta: &HashMap<String, Value>) -> bool {
+    match meta.get("enabled") {
+        None => true,
+        Some(Value::Bool(b)) => *b,
+        Some(Value::String(s)) => !matches!(
+            s.trim().to_lowercase().as_str(),
+            "false" | "0" | "no" | "off"
+        ),
+        Some(_) => true,
+    }
+}
+
 // ─── DTOs ───────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
@@ -567,11 +582,9 @@ fn read_pattern(path: &Path) -> PatternItem {
         }
     };
     let fname = meta_str(&meta, "name");
-    // enabled: парсер frontmatter всё читает как строку; 'enabled: false' → выключен.
-    let enabled = match meta.get("enabled") {
-        Some(Value::String(s)) => s.trim().to_lowercase() != "false",
-        _ => true, // ключа нет — включён
-    };
+    // enabled: парсер frontmatter читает безкавычное false как Bool (раньше
+    // здесь ждали строку — флаг всегда выходил true, и тумблер «не работал»).
+    let enabled = meta_enabled(&meta);
     let mut item = PatternItem {
         description: meta_str(&meta, "description"),
         body,
