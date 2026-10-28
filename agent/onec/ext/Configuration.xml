@@ -48,7 +48,7 @@
 					<v8:content>Инструменты агента 1С</v8:content>
 				</v8:item>
 			</Synonym>
-			<Comment>9cdd8f42eeefa16c49d9be7a349547ef81dd9f48</Comment>
+			<Comment>30c3d5b1e99edc43e9aeb002e7334dce84963e28</Comment>
 			<ConfigurationExtensionPurpose>AddOn</ConfigurationExtensionPurpose>
 			<KeepMappingToExtendedConfigurationObjectsByIDs>true</KeepMappingToExtendedConfigurationObjectsByIDs>
 			<NamePrefix>a1c_</NamePrefix>
@@ -59,7 +59,7 @@
 			</UsePurposes>
 			<ScriptVariant>Russian</ScriptVariant>
 			<Vendor>JVV</Vendor>
-			<Version>26.1023.02</Version>
+			<Version>26.1028.01</Version>
 			<BriefInformation/>
 			<DetailedInformation/>
 			<Copyright>
@@ -85,6 +85,7 @@
 			<Role>a1c_АгентДоступ</Role>
 			<CommonModule>a1c_МаркдаунПарсер</CommonModule>
 			<CommonModule>a1c_ЧатФоновый</CommonModule>
+			<CommonModule>a1c_ЧатOpenCodeФоновый</CommonModule>
 			<DataProcessor>a1c_ИнструментОстатки</DataProcessor>
 			<DataProcessor>a1c_ИнструментКонтрагенты</DataProcessor>
 			<DataProcessor>a1c_ИнструментОтчеты</DataProcessor>
@@ -94,6 +95,7 @@
 			<DataProcessor>a1c_ИнструментНавигация</DataProcessor>
 			<DataProcessor>a1c_ИнструментПрава</DataProcessor>
 			<DataProcessor>a1c_Чат</DataProcessor>
+			<DataProcessor>a1c_ЧатOpenCode</DataProcessor>
 		</ChildObjects>
 	</Configuration>
 </MetaDataObject>
