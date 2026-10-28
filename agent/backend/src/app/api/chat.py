@@ -41,7 +41,6 @@ from app.onec import (
     build_agg_tools,
     build_onec_tools,
     fetch_agg_tools,
-    make_ext_freshness_tool,
     make_generic_tool,
     search_maps,
     validate_base_url,
@@ -256,7 +255,6 @@ def _local_tools() -> list[ToolDefinition]:
     pattern_tool = make_pattern_tool(settings.patterns_dir)
     return [
         make_kb_search(SessionFactory, embeddings, settings.kb_min_score_value),
-        make_ext_freshness_tool(),
         make_list_registry_tool(),
         make_get_agent_tool(),
         make_get_skill_tool(),

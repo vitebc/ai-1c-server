@@ -32,7 +32,7 @@ def test_registry_live_no_initiative_to_1c(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr(McpOnecClient, "list_tools", boom)
     reg = asyncio.run(get_registry())
     assert "search_knowledge_base" in reg.names
-    assert "check_extension_freshness" in reg.names
+    assert "list_registry" in reg.names
     assert "execute_select" not in reg.names  # тулзы базы — только с base_url
 
 

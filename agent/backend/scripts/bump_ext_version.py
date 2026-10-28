@@ -16,8 +16,8 @@
 6. Подставляет хеш в строку `Версия = "<хеш>";` менеджера a1c_ИнструментДерево.
 7. Добавляет все три файла в git-индекс — коммитятся вместе с правкой BSL.
 
-Тулза get_extension_version отдаёт версию модели, check_extension_freshness
-сравнивает хеш из ExtVersion.txt (git) с хешем из базы.
+Тулза get_extension_version отдаёт версию модели; хеш из ExtVersion.txt (git)
+модель сравнивает с хешем из базы сама.
 """
 
 from __future__ import annotations
@@ -90,7 +90,7 @@ def main() -> int:
     nn = _count_commits_today()
     ext_version = f"{today.year % 100:02d}.{today.strftime('%m%d')}.{nn:02d}"
 
-    # 3. ExtVersion.txt — хеш (read_git_ext_version читает первую строку).
+    # 3. ExtVersion.txt — хеш (первая строка файла).
     VERSION_FILE.write_text(commit + "\n", encoding="utf-8")
 
     # 4. Configuration.xml — <Comment> = хеш, <Version> = YY.MMDD.NN

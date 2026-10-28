@@ -39,7 +39,7 @@ RLS применяет платформа. В **dev** `JWT_SECRET` пуст → 
 Имена из этого списка — источник правды для поля `tools` в `AGENT.md`. Тулзы агрегатора (`AGG_MCP_URL`) — полными именами `server__tool` с тегом `server`; в `AGENT.md` агент выбирает их полем `mcp: [default, search-ka-update, ...]` + именами в `tools`. Недоступный агрегатор из списка тихо выпадает (warning в лог, чат живёт на остальных тулзах); список агрегатора кешируется (`AGG_MCP_CACHE_TTL`, дефолт 300с).
 
 Поле `server` в ответе: `default` (прокси/прямой JSON-RPC в 1С), `local`
-(`search_knowledge_base`, `get_pattern`, `list_registry`, `check_extension_freshness` —
+(`search_knowledge_base`, `get_pattern`, `list_registry` —
 вне отбора по `mcp`), либо имя подсервера агрегатора.
 
 ## `GET /agents`
