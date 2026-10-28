@@ -225,7 +225,7 @@ def test_repeat_breaker_fallback_when_model_silent() -> None:
     llm = FakeLLM(_same_args_script(3, '{"sku": "ВС11"}') + [AssistantMessage(content="   ")])
     res = _run_repeat(llm, max_repeat_calls=3)
     assert res.answer.strip()
-    assert "не дал результата" in res.answer or "зациклился" in res.answer
+    assert "записей не найдено" in res.answer or "зациклился" in res.answer
 
 
 def test_repeat_breaker_fallback_when_llm_fails() -> None:
@@ -322,6 +322,131 @@ def test_empty_breaker_resets_on_different_tool() -> None:
         )
     )
     assert res.answer == "Финал."
+
+
+def _select_reg(rows_json: str) -> ToolRegistry:
+    """Тулза execute_select, возвращающая заданный JSON (как 1С: {rows, truncated})."""
+    from app.agent.tools import ToolDefinition
+    from app.onec.schemas import ExecuteSelectArgs
+
+    async def select(args: ExecuteSelectArgs, ctx: object) -> str:
+        return rows_json
+
+    return ToolRegistry(
+        [ToolDefinition(name="execute_select", description="выборка 1С", args_model=ExecuteSelectArgs, handler=select)]
+    )
+
+
+def test_empty_breaker_counts_empty_rows_json() -> None:
+    """Живой случай (МЭДОС): execute_select 3 раза подряд вернул {"rows": []} —
+    петля обязана остановиться честным сообщением, а не перебором фильтров."""
+    script = [
+        AssistantMessage(
+            content=None,
+            tool_calls=[ToolCall(id=f"c{i}", name="execute_select", arguments='{"query": "ВЫБРАТЬ ..."}')],
+        )
+        for i in range(3)
+    ] + [AssistantMessage(content="По этому фильтру записей нет.")]
+    llm = FakeLLM(script)
+    res = asyncio.run(
+        run_agent(
+            llm=llm,
+            registry=_select_reg('{"rows": [], "truncated": false}'),
+            user_message="тест",
+            max_rounds=10,
+            max_repeat_calls=3,
+        )
+    )
+    assert len(res.tool_calls) == 3  # стоп на третьем пустом результате
+    assert res.answer == "По этому фильтру записей нет."
+
+
+def test_empty_breaker_ignores_nonempty_rows_json() -> None:
+    """{"rows": [ ... ]} — это данные, не «пусто»: предохранитель молчит."""
+    script = _same_args_script(2, '{"sku": "ВС11"}') + [
+        AssistantMessage(
+            content=None,
+            tool_calls=[ToolCall(id="cx", name="execute_select", arguments='{"query": "ВЫБРАТЬ ..."}')],
+        ),
+        AssistantMessage(content="Финал."),
+    ]
+
+    async def found(args: object, ctx: object) -> str:
+        return '{"rows": [{"Номер": "Хп0К-002747", "Сумма": 163473}], "truncated": false}'
+
+    from app.agent.tools import ToolDefinition
+    from app.onec.schemas import ExecuteSelectArgs
+
+    reg = ToolRegistry(
+        [ToolDefinition(name="execute_select", description="выборка 1С", args_model=ExecuteSelectArgs, handler=found)]
+    )
+    res = asyncio.run(
+        run_agent(llm=FakeLLM(script), registry=reg, user_message="тест", max_rounds=10, max_repeat_calls=3)
+    )
+    assert res.answer == "Финал."
+
+
+def test_no_tools_answer_with_history_gets_one_retry() -> None:
+    """Живой случай (МЭДОС): в истории есть прошлый ответ с додуманными номерами,
+    а на уточняющий вопрос модель отвечает tools=[]. Один повторный запрос обязан
+    потребовать сначала выполнить инструмент; второй «без тулзов» — принимаем."""
+    llm = FakeLLM(
+        [
+            AssistantMessage(content="Август: 8 накладных на 627 538,33 руб."),  # доверять нельзя
+            AssistantMessage(
+                content=None,
+                tool_calls=[ToolCall(id="c1", name="get_stock_balance", arguments='{"sku": "стул"}')],
+            ),
+            AssistantMessage(content="По данным инструмента: остаток 42."),
+        ]
+    )
+    res = asyncio.run(
+        run_agent(
+            llm=llm,
+            registry=ToolRegistry(MOCK_ONEC_TOOLS),
+            user_message="покажи суммарно за август",
+            history=[{"role": "user", "content": "продажи по МЭДОС"}, {"role": "assistant", "content": "1 накладная"}],
+            history_has_answer=True,
+            max_rounds=6,
+        )
+    )
+    assert res.answer == "По данным инструмента: остаток 42."
+    # Повторный запрос ушёл к модели с требованием сначала выполнить инструмент.
+    retry_msgs = llm.seen_messages[1]
+    assert any("выполни запрос инструментом" in str(m.get("content", "")) for m in retry_msgs), (
+        "повторный промпт должен требовать сначала выполнить инструмент"
+    )
+
+
+def test_no_tools_answer_without_history_not_retried() -> None:
+    """Без истории с прошлым ответом финальный ответ без тулзов — обычный ответ."""
+    llm = FakeLLM([AssistantMessage(content="Привет!")])
+    res = _run(llm, "привет")
+    assert res.answer == "Привет!"
+    assert len(llm.seen_messages) == 1  # повторного запроса нет
+
+
+def test_no_tools_retry_not_repeated() -> None:
+    """Повтор «выполни инструмент» — ровно один раз: если модель всё равно
+    отвечает без тулзов, принимаем ответ как есть (не зацикливаемся)."""
+    llm = FakeLLM(
+        [
+            AssistantMessage(content="Первый ответ по памяти."),
+            AssistantMessage(content="Второй ответ тоже по памяти."),
+        ]
+    )
+    res = asyncio.run(
+        run_agent(
+            llm=llm,
+            registry=ToolRegistry(MOCK_ONEC_TOOLS),
+            user_message="итог",
+            history=[{"role": "assistant", "content": "прошлый ответ"}],
+            history_has_answer=True,
+            max_rounds=6,
+        )
+    )
+    assert res.answer == "Второй ответ тоже по памяти."
+    assert len(llm.seen_messages) == 2  # ровно два обращения к LLM
 
 
 def test_repeat_breaker_ignores_whitespace_differences() -> None:

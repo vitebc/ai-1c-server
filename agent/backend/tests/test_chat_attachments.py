@@ -134,25 +134,30 @@ def test_chat_context_size_limits_history() -> None:
             r2 = client.post("/chat", json={"message": "hello2", "user_id": TEST_USER_C, "session_id": sid})
             assert r2.status_code == 200, r2.text
             # третий запрос с context_size=1 — должен увидеть только последнюю пару до себя
-            # сбрасываем fake script для третьего вызова
-            fake2 = FakeLLM([AssistantMessage(content="final")])
+            # сбрасываем fake script для третьего вызова: первый ответ без тулзов
+            # триггерит антигаллюцинационный повтор (в истории есть прошлый ответ),
+            # второй — принимаем как финальный
+            fake2 = FakeLLM([AssistantMessage(content="final"), AssistantMessage(content="final")])
             app.dependency_overrides[get_llm] = lambda: fake2
             r3 = client.post(
                 "/chat",
                 json={"message": "hello3", "user_id": TEST_USER_C, "session_id": sid, "context_size": 1},
             )
             assert r3.status_code == 200, r3.text
-            # Проверяем что в третьем вызове история ограничена
-            assert len(fake2.seen_messages) == 1
+            # Проверяем что в третьем вызове история ограничена. Ответ без тулзов
+            # триггерит антигаллюцинационный повтор (в истории есть прошлый ответ),
+            # поэтому обращений к LLM два — смотрим первое.
+            assert len(fake2.seen_messages) == 2
             msgs = fake2.seen_messages[0]
             # system + history (2 сообщения) + user = 4
             # при context_size=1 history = 2 сообщения (последняя пара)
             assert msgs[0]["role"] == "system"
             history_slice = msgs[1:-1]
             assert len(history_slice) == 2, f"ожидали 2 сообщения истории, получили {history_slice}"
-            # должны быть последние сообщения: hello2 и ans2
+            # должны быть последние сообщения: hello2 и ans2 (ans2 — ответ
+            # второго запроса; в сценарии он «final», т.к. скрипт фейка общий)
             assert any("hello2" in str(m.get("content")) for m in history_slice)
-            assert any("ans2" in str(m.get("content")) for m in history_slice)
+            assert any("final" in str(m.get("content")) for m in history_slice)
             # hello1 не должен попасть в ограниченную историю
             assert not any("hello1" in str(m.get("content")) for m in history_slice)
     finally:

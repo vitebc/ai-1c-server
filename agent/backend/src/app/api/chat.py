@@ -556,21 +556,28 @@ async def list_skills(
     )
 
 
-def _history_to_messages(rows: list[Message]) -> list[dict[str, Any]]:
+def _history_to_messages(rows: list[Message]) -> dict[str, Any]:
     """История диалога для промпта — с бюджетом по объёму, а не только по числу.
 
     Выборка берёт последние N сообщений, но каждое могло быть на 20 000
     символов (огромный ответ по коду/метаданным): одна такая история съедала
     всё окно модели. `compact_history` режет отдельные сообщения и отбрасывает
-    самые старые, сохраняя свежие.
+    самые старые, сохраняя свежие. Возвращает словарь: список сообщений + флаг
+    `has_assistant_answer` (есть ли в истории прошлый ответ ассистента — для
+    антигаллюцинационного повтора в run_agent).
     """
     pairs = [(m.role, m.content) for m in rows if m.role in ("user", "assistant")]
+    empty: dict[str, Any] = {"messages": [], "has_assistant_answer": False}
     if not pairs:
-        return []
+        return empty
     kept = compact_history([content for _, content in pairs])
     if not kept:
-        return []
-    return [{"role": role, "content": text} for (role, _), text in zip(pairs[-len(kept) :], kept, strict=True)]
+        return empty
+    msgs = [{"role": role, "content": text} for (role, _), text in zip(pairs[-len(kept) :], kept, strict=True)]
+    # Флаг для петли: есть ли в истории прошлый ответ ассистента. На его основе
+    # run_agent не доверяет финальному ответу без единого вызова инструмента
+    # (антигаллюцинационный повтор, живой случай: МЭДОС).
+    return {"messages": msgs, "has_assistant_answer": any(role == "assistant" for role, _ in pairs)}
 
 
 async def _auto_skill(message: str, skills: SkillRegistry, agent_spec: Agent) -> Skill | None:
@@ -836,7 +843,8 @@ async def _chat_impl(
             q = select(Message).where(Message.session_id == session_id).order_by(Message.id.desc()).limit(40)
             rows = (await session.execute(q)).scalars().all()
             history_rows = list(reversed(rows))
-        history = _history_to_messages(history_rows)
+        history_data = _history_to_messages(history_rows)
+        history = history_data["messages"] or None
         # Сохраняем текущее сообщение пользователя (текст, без base64 чтобы не раздувать БД)
         stored_content = req.message
         if req.attachments:
@@ -893,6 +901,7 @@ async def _chat_impl(
                         max_consecutive_errors=settings.agent_max_consecutive_errors,
                         max_repeat_calls=settings.agent_max_repeat_calls,
                         context_budget_tokens=settings.agent_context_budget_tokens,
+                        history_has_answer=history_data["has_assistant_answer"],
                     )
                 except Exception as e:  # noqa: BLE001 — модель недоступна: отвечаем текстом
                     code = errors.error_code()
@@ -957,6 +966,7 @@ async def _chat_impl(
             max_consecutive_errors=settings.agent_max_consecutive_errors,
             max_repeat_calls=settings.agent_max_repeat_calls,
             context_budget_tokens=settings.agent_context_budget_tokens,
+            history_has_answer=history_data["has_assistant_answer"],
         )
     except Exception as e:  # noqa: BLE001 — показываем ошибку в чате, а не 500
         # 1С ждёт SSE, поэтому отдаём ошибку как обычный answer: форма покажет
