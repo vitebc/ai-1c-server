@@ -9,38 +9,39 @@ import { PageHeader, TableShell, Th, Td, Row, Badge, IconBtn, Btn, Modal, Field,
 const ROLES = ['admin', 'operator', 'viewer', 'prompter'];
 
 const SECTION_GROUPS: { title: string; items: { key: string; label: string }[] }[] = [
-  { title: 'Общее', items: [{ key: 'dashboard', label: 'dashboard — main page' }] },
+  { title: 'Общее', items: [{ key: 'dashboard', label: 'Дашборд — главная страница' }] },
   { title: 'MCP', items: [
-      { key: 'mcp-servers', label: 'mcp-servers — MCP servers' },
-      { key: 'models', label: 'models — провайдеры моделей' },
+      { key: 'mcp-servers', label: 'MCP-серверы (включая MCP-шлюз)' },
+      { key: 'models', label: 'Модели — провайдеры моделей' },
     ] },
   {
     title: 'AI Agent Studio', items: [
-      { key: 'agent-agents', label: 'agent-agents — Agents tab' },
-      { key: 'agent-skills', label: 'agent-skills — Agent Skills tab' },
-      { key: 'agent-patterns', label: 'agent-patterns — Patterns tab' },
-      { key: 'agent-backend', label: 'agent-backend — Backend tab (start/stop/logs)' },
-      { key: 'agent-rag', label: 'agent-rag — Knowledge Base tab (загрузка/переинжест)' },
-      { key: 'agent-changes', label: 'agent-changes — Изменения агентов (git-история, revert)' },
-      { key: 'env', label: 'env — Agent Studio Config (.env) tab' },
+      { key: 'agent-agents', label: 'Вкладка «Агенты» (CRUD агентов)' },
+      { key: 'agent-skills', label: 'Вкладка «Скиллы агентов»' },
+      { key: 'agent-patterns', label: 'Вкладка «Паттерны»' },
+      { key: 'agent-backend', label: 'Вкладка «Бэкенд» (запуск/остановка, логи)' },
+      { key: 'agent-rag', label: 'База знаний (RAG: загрузка/переинжест корпуса)' },
+      { key: 'agent-changes', label: 'История изменений агентов (git-история, откат)' },
+      { key: 'env', label: 'Конфиг (.env) — Agent Studio Config' },
     ],
   },
   {
     title: 'Контент', items: [
-      { key: 'skills', label: 'skills — server skills (sidebar)' },
-      { key: 'bsl-ls', label: 'bsl-ls — BSL Language Server' },
-      { key: 'configs', label: 'configs — config profiles' },
-      { key: 'client-versions', label: 'client-versions — client releases' },
-      { key: 'clients', label: 'clients — connected clients' },
+      { key: 'skills', label: 'Скиллы сервера (sidebar)' },
+      { key: 'bsl-ls', label: 'BSL Language Server' },
+      { key: 'configs', label: 'Профили конфигураций' },
+      { key: 'client-versions', label: 'Версии клиента' },
+      { key: 'clients', label: 'Клиенты (подключённые)' },
+      { key: 'bases1c', label: 'Базы 1С (мапа баз + search-мапа)' },
     ],
   },
   {
     title: 'Система', items: [
-      { key: 'logs', label: 'logs — server logs' },
-      { key: 'settings', label: 'settings — server settings' },
-      { key: 'fs', label: 'fs — file browser (pick binaries/paths)' },
-      { key: 'users', label: 'users — user management (admin)' },
-      { key: 'auth-manage', label: 'auth-manage — API token (admin)' },
+      { key: 'logs', label: 'Логи сервера' },
+      { key: 'settings', label: 'Настройки сервера' },
+      { key: 'fs', label: 'Файловый браузер (выбор путей/бинарников)' },
+      { key: 'users', label: 'Пользователи (управление, admin)' },
+      { key: 'auth-manage', label: 'API-токен (admin)' },
     ],
   },
 ];
@@ -353,15 +354,24 @@ function RolesMatrix({ roleBase, canEdit, onChanged, onError }: {
             <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">
               {role} <span className="normal-case font-normal">({(shown[role] || []).length})</span>
             </p>
-            <div className="space-y-px max-h-56 overflow-y-auto pr-1">
-              {ALL_SECTIONS.map(sec => (
-                <label key={sec} className={`flex items-center gap-2 text-xs px-1 py-0.5 rounded ${canEdit ? 'cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800' : 'opacity-70'} text-slate-700 dark:text-slate-300`}>
-                  <input type="checkbox" disabled={!canEdit}
-                    checked={(shown[role] || []).includes(sec)}
-                    onChange={() => toggle(role, sec)} className="rounded accent-blue-600" />
-                  <span className="font-mono truncate" title={sec}>{sec}</span>
-                </label>
-              ))}
+            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+              {SECTION_GROUPS.map(g => {
+                const items = g.items.filter(i => (shown[role] || []).includes(i.key) || canEdit);
+                if (!items.length) return null;
+                return (
+                  <div key={g.title}>
+                    <p className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-0.5">{g.title}</p>
+                    {items.map(({ key: sec, label }) => (
+                      <label key={sec} className={`flex items-center gap-2 text-xs px-1 py-0.5 rounded ${canEdit ? 'cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800' : 'opacity-70'} text-slate-700 dark:text-slate-300`}>
+                        <input type="checkbox" disabled={!canEdit}
+                          checked={(shown[role] || []).includes(sec)}
+                          onChange={() => toggle(role, sec)} className="rounded accent-blue-600" />
+                        <span className="truncate" title={sec}>{label}</span>
+                      </label>
+                    ))}
+                  </div>
+                );
+              })}
             </div>
           </div>
         ))}
