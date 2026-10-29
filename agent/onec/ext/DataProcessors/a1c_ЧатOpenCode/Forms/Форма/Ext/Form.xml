@@ -26,20 +26,12 @@
 					<ShowTitle>false</ShowTitle>
 					<ExtendedTooltip name="Группа5РасширеннаяПодсказка" id="114"/>
 					<ChildItems>
-						<DropDownListField name="Агент" id="92">
+						<RadioButtonField name="Агент" id="115">
 							<DataPath>Агент</DataPath>
-							<Title>
-								<v8:item>
-									<v8:lang>ru</v8:lang>
-									<v8:content>Агент</v8:content>
-								</v8:item>
-							</Title>
-							<ContextMenu name="АгентКонтекстноеМеню" id="93"/>
-							<ExtendedTooltip name="АгентРасширеннаяПодсказка" id="94"/>
-							<Events>
-								<Event name="OnChange">АгентПриИзменении</Event>
-							</Events>
-						</DropDownListField>
+							<RadioButtonType>Tumbler</RadioButtonType>
+							<ContextMenu name="АгентКонтекстноеМеню" id="116"/>
+							<ExtendedTooltip name="АгентРасширеннаяПодсказка" id="117"/>
+						</RadioButtonField>
 						<InputField name="АдресБэкенда" id="1">
 							<DataPath>АдресБэкенда</DataPath>
 							<Enabled>false</Enabled>
