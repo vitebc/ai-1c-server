@@ -25,12 +25,13 @@ const AgentChanges = lazy(() => import('./pages/AgentChanges'));
 const Bases1c = lazy(() => import('./pages/Bases1c'));
 import { Btn, Modal, TextInput } from './components/ui';
 
-const AGENT_SECTIONS = ['agent-studio', 'agent-agents', 'agent-skills', 'agent-patterns', 'agent-backend', 'env'];
+const AGENT_TAB_SECTIONS = ['agent-agents', 'agent-skills', 'agent-patterns', 'agent-backend', 'env'];
 
 function canSee(me: Me | null, section: string): boolean {
   if (!me) return true;
   if (me.sections.includes(section)) return true;
-  if (section === 'agent-studio') return AGENT_SECTIONS.some(s => me.sections.includes(s));
+  // legacy agent-studio: доступ в студию даёт любая вкладка
+  if (section === 'agent-studio') return AGENT_TAB_SECTIONS.some(s => me.sections.includes(s));
   return false;
 }
 

@@ -16,12 +16,12 @@ const SECTION_GROUPS: { title: string; items: { key: string; label: string }[] }
     ] },
   {
     title: 'AI Agent Studio', items: [
-      { key: 'agent-studio', label: 'agent-studio — legacy umbrella (all tabs)' },
       { key: 'agent-agents', label: 'agent-agents — Agents tab' },
       { key: 'agent-skills', label: 'agent-skills — Agent Skills tab' },
       { key: 'agent-patterns', label: 'agent-patterns — Patterns tab' },
       { key: 'agent-backend', label: 'agent-backend — Backend tab (start/stop/logs)' },
       { key: 'agent-rag', label: 'agent-rag — Knowledge Base tab (загрузка/переинжест)' },
+      { key: 'agent-changes', label: 'agent-changes — Изменения агентов (git-история, revert)' },
       { key: 'env', label: 'env — Agent Studio Config (.env) tab' },
     ],
   },
@@ -49,9 +49,9 @@ const ALL_SECTIONS = SECTION_GROUPS.flatMap(g => g.items.map(i => i.key));
 
 const ROLE_BASE: Record<string, string[]> = {
   admin: ALL_SECTIONS,
-  operator: ['dashboard', 'mcp-servers', 'models', 'agent-studio', 'agent-agents', 'agent-skills', 'agent-patterns', 'agent-backend', 'agent-rag', 'skills', 'bsl-ls', 'configs', 'client-versions', 'clients', 'logs', 'settings', 'fs', 'env'],
+  operator: ['dashboard', 'mcp-servers', 'models', 'agent-agents', 'agent-skills', 'agent-patterns', 'agent-changes', 'agent-backend', 'agent-rag', 'bases1c', 'skills', 'bsl-ls', 'configs', 'client-versions', 'clients', 'logs', 'settings', 'fs', 'env'],
   viewer: ['dashboard', 'mcp-servers', 'models', 'agent-agents', 'agent-skills', 'agent-patterns', 'skills', 'bsl-ls', 'configs', 'client-versions', 'clients', 'logs'],
-  prompter: ['dashboard', 'mcp-servers', 'models', 'agent-agents', 'agent-skills', 'agent-patterns', 'skills', 'bsl-ls', 'configs', 'client-versions', 'clients', 'logs'],
+  prompter: ['dashboard', 'mcp-servers', 'models', 'agent-agents', 'agent-skills', 'agent-patterns', 'agent-changes', 'bases1c', 'skills', 'bsl-ls', 'configs', 'client-versions', 'clients', 'logs'],
 };
 
 export default function Users() {
@@ -318,8 +318,9 @@ function RolesMatrix({ roleBase, canEdit, onChanged, onError }: {
   async function save() {
     if (!draft) return;
     try {
+      const known = new Set(ALL_SECTIONS);
       const roles: Record<string, string[]> = {};
-      for (const r of editable) roles[r] = [...(draft[r] || [])].sort();
+      for (const r of editable) roles[r] = [...(draft[r] || [])].filter(s => known.has(s)).sort();
       await api.updateRoles(roles);
       setSaved(true);
       setDraft(null);
@@ -329,8 +330,13 @@ function RolesMatrix({ roleBase, canEdit, onChanged, onError }: {
     }
   }
 
-  const dirty = draft !== null
-    && editable.some(r => [...(draft[r] || [])].sort().join() !== [...(roleBase[r] || [])].sort().join());
+  // Сравнение с SECTIONS: секции, которых нет в списке (legacy, напр.
+  // agent-studio), не считаются изменениями — иначе матрица была бы «грязной»
+  // сразу после загрузки из БД.
+  const known = new Set(ALL_SECTIONS);
+  const norm = (r: string) => [...(roleBase[r] || [])].filter(s => known.has(s)).sort().join();
+  const draftNorm = (r: string) => [...(draft?.[r] || [])].filter(s => known.has(s)).sort().join();
+  const dirty = draft !== null && editable.some(r => draftNorm(r) !== norm(r));
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 p-4 mb-4">
