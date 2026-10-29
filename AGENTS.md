@@ -154,7 +154,7 @@ client_versions, clients, server_settings, audit_log),
 `002_add_instruction.sql`, `003_config_parent.sql`, `004_users.sql`,
 `005_model_providers.sql`.
 
-## RBAC (кратко, детали в `src/auth/mod.rs`)
+## RBAC (кратко; полная документация — `RBAC.md`, код — `src/auth/mod.rs`)
 
 - 19 секций: `dashboard, mcp-servers, models, agent-studio, agent-agents,
   agent-skills, agent-patterns, agent-backend, skills, bsl-ls, configs,

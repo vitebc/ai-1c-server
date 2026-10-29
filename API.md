@@ -18,24 +18,15 @@
 
 ### Роли и секции
 
-| Роль | Секции по умолчанию | Право записи |
-|---|---|---|
-| `admin` | все 20 (не настраивается) | везде |
-| `operator` | все, кроме `users`, `auth-manage` | везде в рамках секций |
-| `prompter` | как `viewer` | только `agent-files/agents`, `agent-files/skills`, `agent-files/patterns` |
-| `viewer` | 13 read-only секций | только свой пароль |
+Полное описание — в [RBAC.md](RBAC.md): роли, матрица «роль → секции»,
+переопределения (матрица + per-user), псевдо-секции, маппинг путей.
 
-- Секции (20): `dashboard, mcp-servers, models, agent-studio, agent-agents,
-  agent-skills, agent-patterns, agent-changes, agent-backend, skills, bsl-ls,
-  configs, client-versions, clients, logs, settings, fs, env, users, auth-manage`.
-- Дефолты ролей переопределяются админом: `server_settings.role_sections`
-  → `GET/PUT /api/admin/users/roles`. Ключи — только `operator|viewer|prompter`.
-- Per-user `sections` — **только вычитание** из секций своей роли. Чтобы выдать
-  секцию вне роли, менять матрицу ролей (admin-only).
-- Псевдо-секции в `section_for`: `__self` (`auth/me`, `auth/password` — любой
-  залогиненный), `__agent_files_any` (обзор/тулзы/live-бэкенд/опции
-  провайдеров — достаточно любой из `agent-agents|agent-skills|agent-patterns|agent-backend`).
-- Нет секции → 403. Логин: >5 неудач с IP за 10 мин → 429 на 5 мин.
+Кратко: 4 роли (`admin` full, `operator`, `viewer` read-only, `prompter` —
+viewer + правка agent/skill/pattern-файлов); 22 секции; дефолты ролей
+переопределяются админом через `GET/PUT /api/admin/users/roles`
+(`server_settings.role_sections`, ключи только `operator|viewer|prompter`);
+per-user `sections` — только вычитание внутри роли; нет секции → 403;
+>5 неудачных логинов с IP за 10 мин → 429 на 5 мин.
 
 ```bash
 JWT=$(curl -s -X POST http://localhost:9224/api/admin/auth/login \
