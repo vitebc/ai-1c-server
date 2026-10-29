@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { BarChart3, Users, Database, Bot, Clock, Zap, RefreshCw, X, AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { api } from '../api/client';
-import type { StatsRequest, StatsSummary, ChatSessionItem, ChatSessionDetail, AgentRoundStep } from '../types';
+import type { Me, StatsRequest, StatsSummary, ChatSessionItem, ChatSessionDetail, AgentRoundStep } from '../types';
 import { t } from '../i18n';
 import { PageHeader, Card, CardBody, CardTitle, Badge, Btn, Select, Segmented, IconBtn } from '../components/ui';
 
@@ -214,8 +214,11 @@ function groupRounds(steps: AgentRoundStep[]): { round_no: number; steps: AgentR
   return out;
 }
 
-export default function Stats() {
+export default function Stats({ me }: { me: Me | null }) {
   const [tab, setTab] = useState<ViewTab>('requests');
+  // Вкладка «Диалоги» ходит в /agent-backend/sessions (секция agent-backend):
+  // без неё вкладка только давала бы 403 — не показываем её вовсе.
+  const canDialogs = !!me?.sections?.includes('agent-backend');
 
   // Фильтры
   const [fUser, setFUser] = useState('');
@@ -287,12 +290,14 @@ export default function Stats() {
 
   const isDialogs = tab === 'dialogs';
 
+  const tabOptions: { key: ViewTab; label: string }[] = [
+    { key: 'requests', label: t.stats.tabRequests },
+    ...(canDialogs ? [{ key: 'dialogs' as ViewTab, label: t.stats.tabDialogs }] : []),
+  ];
+
   return (
     <div>
-      <PageHeader title={t.stats.title} right={<Segmented value={tab} onChange={setTab} options={[
-        { key: 'requests', label: t.stats.tabRequests },
-        { key: 'dialogs', label: t.stats.tabDialogs },
-      ]} />} />
+      <PageHeader title={t.stats.title} right={<Segmented value={tab} onChange={setTab} options={tabOptions} />} />
 
       {/* Фильтры */}
       <Card className="mb-4">

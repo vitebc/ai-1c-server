@@ -68,7 +68,7 @@ JWT: HS256, claims `{sub: user_id, username, exp}`, секрет — `server_set
 | `agent-changes` | Изменения агентов (git-история, diff, revert; `agent-changes/*`) |
 | `agent-backend` | вкладка Backend: start/stop/logs бэкенда, `agent-backend/*` кроме перечисленных ниже |
 | `agent-rag` | База знаний (RAG): загрузка/переинжест/удаление корпуса, `agent-backend/rag/*` |
-| `bases1c` | Базы 1С (`Bases1c.tsx`; мапа баз) |
+| `bases1c` | Базы 1С (`Bases1c.tsx`): мапа баз и search-мапа, `agent-backend/{bases,search-maps}*` |
 | `skills` | серверные скиллы (sidebar), `skills/*` |
 | `bsl-ls` | BSL Language Server, `bsl-ls/*` |
 | `configs` | Config Profiles, `config-profiles/*` |
@@ -77,7 +77,7 @@ JWT: HS256, claims `{sub: user_id, username, exp}`, секрет — `server_set
 | `logs` | Logs (серверные логи), `logs*` |
 | `settings` | Settings, `settings` |
 | `fs` | файловый браузер для выбора путей/бинарников, `fs/browse` |
-| `env` | Agent Studio Config (.env): `agent-backend/{env,bases,search-maps}` |
+| `env` | Agent Studio Config (.env): `agent-backend/env` |
 | `users` | Users (управление пользователями), `users*` |
 | `auth-manage` | API-токен: `auth/token`, `auth/rotate` |
 
@@ -120,7 +120,7 @@ JWT: HS256, claims `{sub: user_id, username, exp}`, секрет — `server_set
 | users | ✓ | — | — | — |
 | auth-manage | ✓ | — | — | — |
 
-Итого: admin 22, operator 19, viewer 13, prompter 14.
+Итого: admin 22, operator 19, viewer 12, prompter 14.
 
 ## Переопределение матрицы (admin)
 
@@ -164,8 +164,10 @@ JWT: HS256, claims `{sub: user_id, username, exp}`, секрет — `server_set
 | `agent-files/agents*` | `agent-agents` |
 | `agent-files/skills*` | `agent-skills` |
 | `agent-files/patterns*` | `agent-patterns` |
+| `agent-files/base-users` | `agent-agents` (пользователи 1С для формы агента) |
 | `agent-changes*` | `agent-changes` |
-| `agent-backend/bases*`, `agent-backend/search-maps*`, `agent-backend/env*` | `env` |
+| `agent-backend/bases*`, `agent-backend/search-maps*` | `bases1c` |
+| `agent-backend/env*` | `env` |
 | `agent-backend/stats*` | `dashboard` |
 | `agent-backend/rag*` | `agent-rag` |
 | `agent-backend*` (остальное) | `agent-backend` |

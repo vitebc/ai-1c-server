@@ -172,7 +172,7 @@ function Shell() {
             <Route path="/bsl-ls" element={<Guard me={me} section="bsl-ls"><BslLs /></Guard>} />
             <Route path="/agent-studio" element={<Guard me={me} section="agent-studio" anyOf={['agent-agents', 'agent-skills', 'agent-patterns', 'agent-backend', 'env']}><AgentStudio me={me} /></Guard>} />
             <Route path="/rag" element={<Guard me={me} section="agent-rag"><RagTab /></Guard>} />
-            <Route path="/stats" element={<Guard me={me} section="dashboard"><Stats /></Guard>} />
+            <Route path="/stats" element={<Guard me={me} section="dashboard"><Stats me={me} /></Guard>} />
             <Route path="/agent-changes" element={<Guard me={me} section="agent-changes"><AgentChanges /></Guard>} />
             <Route path="/logs" element={<Guard me={me} section="logs"><Logs /></Guard>} />
             <Route path="/users" element={<Guard me={me} section="users"><Users /></Guard>} />

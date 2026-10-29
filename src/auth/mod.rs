@@ -203,6 +203,23 @@ fn base_sections(role: &str) -> Vec<String> {
         .iter()
         .map(|s| s.to_string())
         .collect(),
+        ROLE_VIEWER => [
+            "dashboard",
+            "mcp-servers",
+            "models",
+            "agent-agents",
+            "agent-skills",
+            "agent-patterns",
+            "skills",
+            "bsl-ls",
+            "configs",
+            "client-versions",
+            "clients",
+            "logs",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect(),
         ROLE_PROMPTER | _ => [
             "dashboard",
             "mcp-servers",
@@ -572,12 +589,16 @@ fn section_for(path: &str) -> Option<&'static str> {
         "agent-skills"
     } else if rest.starts_with("agent-files/patterns") {
         "agent-patterns"
+    } else if rest.starts_with("agent-files/base-users") {
+        // Пользователи 1С для формы агента (вкладка «Доступ»): тот же раздел,
+        // что и CRUD агентов, а не dashboard по умолчанию.
+        "agent-agents"
     } else if rest.starts_with("agent-changes") {
         "agent-changes"
     } else if rest.starts_with("agent-backend/bases") {
-        "env"
+        "bases1c"
     } else if rest.starts_with("agent-backend/search-maps") {
-        "env"
+        "bases1c"
     } else if rest.starts_with("agent-backend/stats") {
         "dashboard"
     } else if rest.starts_with("agent-backend/env") {
