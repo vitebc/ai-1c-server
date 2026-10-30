@@ -196,7 +196,12 @@ def _answer(body: str) -> str:
 class _DownLLM:
     """Модель недоступна: сетевой сбой на первом же вызове."""
 
-    async def complete(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> AssistantMessage:
+    async def complete(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        cancel_event: asyncio.Event | None = None,  # noqa: ARG002 — фейк не отменяется
+    ) -> AssistantMessage:
         raise httpx.ConnectError("connection refused")
 
 

@@ -25,6 +25,7 @@ from sqlalchemy import select
 
 from app import errors
 from app.agent import SYSTEM_PROMPT, AgentResult, ToolRegistry, run_agent
+from app.agent.cancelled import cancel_session, clear_cancel_event, get_cancel_event
 from app.agent.context import compact_history
 from app.agent.tools import ToolDefinition, clean_parameters
 from app.agents import Agent, AgentRegistry
@@ -32,7 +33,7 @@ from app.auth.jwt import extract_bearer_token, validate_hs256
 from app.config import settings
 from app.db.models import AgentRound, ChatRequestLog, ChatSession, Message, User
 from app.db.session import SessionFactory
-from app.llm import ChatLLM, OpenAICompatibleLLM
+from app.llm import ChatLLM, OpenAICompatibleLLM, RequestCancelledError
 from app.llm.client import build_user_content
 from app.onec import (
     JsonRpcOnecClient,
@@ -58,6 +59,13 @@ log = logging.getLogger("agent1c.chat")
 # In-memory store для фоновых задач (достаточно для совместимости с BSL).
 # Потокобезопасность не нужна — один процесс, GIL.
 _background_jobs: dict[str, dict[str, Any]] = {}
+
+#: Ответ при отмене запроса (кнопка «Отменить» в окне ожидания 1С).
+_CANCELLED_ANSWER = "Запрос отменён."
+
+
+def _cancelled_result() -> AgentResult:
+    return AgentResult(answer=_CANCELLED_ANSWER, rounds=0, tool_calls=[], tool_errors=0)
 
 
 # Префиксы user_id из тестов — не пишем их в статистику.
@@ -621,6 +629,30 @@ async def _auto_skill(message: str, skills: SkillRegistry, agent_spec: Agent) ->
     return skill
 
 
+@router.post("/chat/cancel/{session_id}")
+async def chat_cancel(session_id: int, authorization: str | None = Header(default=None)) -> JSONResponse:
+    """Отмена запроса по сессии (кнопка «Отменить» в окне ожидания 1С).
+
+    Ставит флаг отмены: петля агента видит его между раундами/вызовами
+    инструментов и останавливается с заглушкой. Идентификация — как в /chat:
+    JWT per-user (sub) или user_id из тела; без валидного токена — 401, чтобы
+    чужой запрос не отменили. Запрос уже завершился — флаг просто истекает (TTL).
+    """
+    try:
+        _jwt_token, _ = resolve_onec_auth(authorization)
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=str(e)) from e
+    # Отмена по сессии: сессия в БД принадлежит одному пользователю, поэтому
+    # чужую сессию отменить нельзя — событие не найдётся (404 ниже).
+    # Проверяем, что сессия существует в БД — иначе 404 (чужую/битую не отменяем).
+    async with SessionFactory() as s:
+        exists = (await s.execute(select(ChatSession.id).where(ChatSession.id == session_id))).first() is not None
+    if not exists:
+        raise HTTPException(status_code=404, detail="session not found")
+    cancel_session(session_id)
+    return JSONResponse({"ok": True, "session_id": session_id})
+
+
 @router.get("/chat/result/{job_id}")
 async def chat_result(job_id: str) -> JSONResponse:
     job = _background_jobs.get(job_id)
@@ -883,6 +915,7 @@ async def _chat_impl(
         async def _run_bg() -> None:
             started = time.monotonic()
             try:
+                cancelled_bg = False
                 try:
                     result = await run_agent(
                         llm=llm,
@@ -902,7 +935,11 @@ async def _chat_impl(
                         max_repeat_calls=settings.agent_max_repeat_calls,
                         context_budget_tokens=settings.agent_context_budget_tokens,
                         history_has_answer=history_data["has_assistant_answer"],
+                        cancel_event=get_cancel_event(session_id),
                     )
+                except RequestCancelledError:  # отмена до ошибки LLM: заглушка
+                    cancelled_bg = True
+                    result = _cancelled_result()
                 except Exception as e:  # noqa: BLE001 — модель недоступна: отвечаем текстом
                     code = errors.error_code()
                     log.exception("чат (фон): обращение к LLM не удалось code=%s (%s)", code, type(e).__name__)
@@ -910,6 +947,13 @@ async def _chat_impl(
                 async with SessionFactory() as s:
                     s.add(Message(session_id=session_id, role="assistant", content=result.answer))
                     await s.commit()
+                if cancelled_bg:
+                    # Отмена: ответ в сессию не пишем — история остаётся как до вопроса.
+                    _background_jobs[job_id].update(
+                        {"status": "done", "elapsed_s": round(time.monotonic() - started, 1), "result": result}
+                    )
+                    clear_cancel_event(session_id)
+                    return
                 elapsed_bg = round(time.monotonic() - started, 1)
                 _background_jobs[job_id].update({"status": "done", "elapsed_s": elapsed_bg, "result": result})
                 await _save_rounds(session_id, result)
@@ -928,6 +972,7 @@ async def _chat_impl(
             except Exception as e:  # noqa: BLE001 — фон: ошибка уходит клиенту текстом
                 code = errors.error_code()
                 log.exception("чат (фон): необработанная ошибка code=%s (%s)", code, type(e).__name__)
+                clear_cancel_event(session_id)
                 _background_jobs[job_id].update({"status": "error", "error": errors.internal(code)})
                 await _record_request(
                     user_id=req.user_id,
@@ -948,6 +993,7 @@ async def _chat_impl(
 
     started = time.monotonic()
     fatal_error: str | None = None
+    cancelled = False
     try:
         result = await run_agent(
             llm=llm,
@@ -967,7 +1013,11 @@ async def _chat_impl(
             max_repeat_calls=settings.agent_max_repeat_calls,
             context_budget_tokens=settings.agent_context_budget_tokens,
             history_has_answer=history_data["has_assistant_answer"],
+            cancel_event=get_cancel_event(session_id),
         )
+    except RequestCancelledError:  # отмена ДО ошибки LLM: заглушка вместо текста сбоя
+        cancelled = True
+        result = _cancelled_result()
     except Exception as e:  # noqa: BLE001 — показываем ошибку в чате, а не 500
         # 1С ждёт SSE, поэтому отдаём ошибку как обычный answer: форма покажет
         # понятный текст, а не «Бэкенд HTTP 500». Трейс и адрес модели — в лог.
@@ -976,10 +1026,13 @@ async def _chat_impl(
         fatal_error = f"{code} {type(e).__name__}: {e}"
         result = AgentResult(answer=errors.llm(e), rounds=0, tool_calls=[], tool_errors=1)
 
-    async with SessionFactory() as session:
-        session.add(Message(session_id=session_id, role="assistant", content=result.answer))
-        await session.commit()
+    if not cancelled:
+        # Отмена: ответ в сессию не пишем — история остаётся как до вопроса.
+        async with SessionFactory() as session:
+            session.add(Message(session_id=session_id, role="assistant", content=result.answer))
+            await session.commit()
 
+    clear_cancel_event(session_id)  # снимаем флаг после завершения запроса
     elapsed_s = round(time.monotonic() - started, 1)
     # Статистика и трасс раундов: пишем до отдачи SSE (быстро, не блокирует стриминг).
     err_str = fatal_error

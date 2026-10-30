@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -27,7 +28,7 @@ from app.agent.context import (
     truncate_tool_result,
 )
 from app.agent.tools import ToolContext, ToolRegistry
-from app.llm import AssistantMessage, ChatLLM, ContextOverflowError
+from app.llm import AssistantMessage, ChatLLM, ContextOverflowError, RequestCancelledError
 
 log = logging.getLogger("agent1c.loop")
 
@@ -158,6 +159,9 @@ TOO_LONG_ANSWER = (
     "Большой вопрос лучше разбить на части (сначала уточнить структуру объекта, потом данные)."
 )
 
+#: Ответ пользователю, когда запрос отменён (кнопка «Отменить» в окне ожидания 1С).
+CANCELLED_ANSWER = "Запрос отменён."
+
 
 async def _complete_with_budget(
     *,
@@ -166,6 +170,7 @@ async def _complete_with_budget(
     schemas: list[dict[str, Any]],
     budget_tokens: int,
     round_no: int,
+    cancel_event: asyncio.Event | None = None,
 ) -> AssistantMessage:
     """Запрос к LLM с бюджетом контекста и одним повтором после переполнения.
 
@@ -181,7 +186,7 @@ async def _complete_with_budget(
     if shrank:
         log.info("round=%d бюджет контекста: свёрнуто старых результатов: %d", round_no, shrank)
     try:
-        return await llm.complete(messages, schemas)
+        return await llm.complete(messages, schemas, cancel_event=cancel_event)
     except ContextOverflowError as exc:
         log.warning("round=%d переполнение контекста (%s) — агрессивное сворачивание и повтор", round_no, exc)
         shrank = shrink_messages(
@@ -195,7 +200,7 @@ async def _complete_with_budget(
             # Все результаты уже заглушки — режем и последние, иначе повтор
             # упадёт с тем же размером промпта.
             shrink_messages(messages, budget_tokens=budget_tokens, tools=schemas, keep_full=0, stub_chars=100)
-        return await llm.complete(messages, schemas)
+        return await llm.complete(messages, schemas, cancel_event=cancel_event)
 
 
 async def _finish_with_final_answer(
@@ -312,6 +317,7 @@ async def run_agent(
     max_repeat_calls: int = 3,
     context_budget_tokens: int = DEFAULT_CONTEXT_BUDGET_TOKENS,
     history_has_answer: bool = False,
+    cancel_event: asyncio.Event | None = None,
 ) -> AgentResult:
     """Агентская петля: LLM -> вызовы инструментов -> ... -> финальный ответ.
 
@@ -328,6 +334,10 @@ async def run_agent(
     выдумав номера/суммы (живой случай: МЭДОС — 26 раундов с данными, а следующие
     два ответа tools=[] с додуманными номерами накладных). Делаем один повторный
     запрос с требованием сначала выполнить инструмент.
+    cancel_event — событие отмены (кнопка «Отменить» в окне ожидания 1С):
+    проверяется между раундами и перед каждым вызовом инструмента; при отмене
+    петля бросает RequestCancelledError, эндпоинт отвечает короткой заглушкой.
+    Событие создаётся вызывающей стороной (app.agent.cancelled.get_cancel_event).
     """
     system = base_system + ("\n\n" + extra_system.strip() if extra_system.strip() else "")
     messages: list[dict[str, Any]] = [
@@ -366,7 +376,14 @@ async def run_agent(
     agent = agent_name or "-"
     log.info("user=%s base=%s agent=%s skill=%s q=%s", user_id, base, agent, skill, _preview(user_message))
 
+    def _check_cancelled() -> None:
+        """Отмена (кнопка «Отменить» в окне ожидания 1С) — стоп с заглушкой."""
+        if cancel_event is not None and cancel_event.is_set():
+            log.info("user=%s base=%s agent=%s skill=%s запрос отменён пользователем", user_id, base, agent, skill)
+            raise RequestCancelledError(f"user={user_id}")
+
     for round_no in range(1, max_rounds + 1):
+        _check_cancelled()
         schemas = registry.schemas()
         try:
             resp = await _complete_with_budget(
@@ -375,6 +392,7 @@ async def run_agent(
                 schemas=schemas,
                 budget_tokens=context_budget_tokens,
                 round_no=round_no,
+                cancel_event=cancel_event,
             )
         except ContextOverflowError as exc:
             # Второе переполнение подряд: дальше сворачивать нечего — честный
@@ -453,6 +471,7 @@ async def run_agent(
                 round_steps=round_steps,
             )
         for call in resp.tool_calls:
+            _check_cancelled()  # отмена между вызовами инструментов (тяжёлые — до минуты)
             called.append(call.name)
             feedback = await _execute_call(registry, ctx, call.name, call.arguments)
             # Нормализуем кавычки: 1С иногда возвращает ошибку уже JSON-закодированной ("Ошибка...").

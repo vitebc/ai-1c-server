@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -26,6 +27,16 @@ class ContextOverflowError(RuntimeError):
         super().__init__(detail)
         #: Окно модели в токенах, если провайдер его сообщил (llama.cpp — n_ctx).
         self.context_limit = context_limit
+
+
+class RequestCancelledError(RuntimeError):
+    """Пользователь отменил запрос (кнопка «Отменить» в окне ожидания 1С).
+
+    Бросается петлёй агента по флагу отмены: дальше не думает и не зовёт
+    инструменты, отвечает короткой заглушкой. Отдельный класс (не
+    asyncio.CancelledError) — чтобы не путать с убийством task и ловить
+    в точках, где CancelledError обязан пробрасываться.
+    """
 
 
 #: Признаки переполнения в теле 400-го ответа провайдера.
@@ -89,8 +100,14 @@ class ChatLLM(Protocol):
         self,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
+        cancel_event: asyncio.Event | None = None,
     ) -> AssistantMessage:
-        """Один шаг: сообщения + схемы инструментов -> ответ модели."""
+        """Один шаг: сообщения + схемы инструментов -> ответ модели.
+
+        cancel_event — опциональное событие отмены: если поставлено во время
+        запроса, клиент должен бросить RequestCancelledError (или прервать
+        HTTP-запрос). Фейки в тестах могут игнорировать параметр.
+        """
         ...
 
 
@@ -177,6 +194,7 @@ class OpenAICompatibleLLM:
         self,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
+        cancel_event: asyncio.Event | None = None,
     ) -> AssistantMessage:
         kwargs: dict[str, Any] = {
             "model": self._model,
@@ -188,7 +206,23 @@ class OpenAICompatibleLLM:
         if tools:
             kwargs["tools"] = tools
         try:
-            resp = await self._client.chat.completions.create(**kwargs)
+            # Отмена во время запроса к LLM: ждём либо ответ модели, либо флаг.
+            # asyncio.wait (FIRST_COMPLETED) — не убиваем task, просто перестаём ждать.
+            llm_task = asyncio.ensure_future(self._client.chat.completions.create(**kwargs))
+            if cancel_event is not None:
+                cancel_waiter = asyncio.ensure_future(cancel_event.wait())
+                done, _pending = await asyncio.wait({llm_task, cancel_waiter}, return_when=asyncio.FIRST_COMPLETED)
+                if cancel_waiter in done and not llm_task.done():
+                    # Отмена пришла раньше ответа: отменяем запрос к LLM.
+                    llm_task.cancel()
+                    try:
+                        await llm_task
+                    except (asyncio.CancelledError, Exception):  # noqa: BLE001 — ответ уже не нужен
+                        pass
+                    raise RequestCancelledError("запрос отменён во время обращения к модели")
+                if cancel_waiter not in done:
+                    cancel_waiter.cancel()
+            resp = await llm_task
         except BadRequestError as exc:
             # Переполнение окна — не повод ронять чат: петля свернёт контекст
             # и повторит запрос (см. ContextOverflowError).

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from app.llm import AssistantMessage, ContextOverflowError
@@ -20,7 +21,12 @@ class FakeLLM:
         #: >0 — проверка реактивного сворачивания; больше одного — внятный отказ.
         self.overflow_times = 0
 
-    async def complete(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> AssistantMessage:
+    async def complete(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        cancel_event: asyncio.Event | None = None,  # noqa: ARG002 — фейк не отменяется
+    ) -> AssistantMessage:
         # Копия: петля дописывает в тот же список по ходу раундов.
         self.seen_messages.append(list(messages))
         self.last_call = (list(messages), list(tools))
