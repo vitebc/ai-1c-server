@@ -120,7 +120,6 @@
 										</InputField>
 										<UsualGroup name="ГруппаВопроса" id="200">
 											<Visible>false</Visible>
-											<Group>AlwaysVertical</Group>
 											<Representation>None</Representation>
 											<ShowTitle>false</ShowTitle>
 											<HorizontalStretch>true</HorizontalStretch>
