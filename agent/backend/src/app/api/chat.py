@@ -638,16 +638,28 @@ async def chat_cancel(session_id: int, authorization: str | None = Header(defaul
     JWT per-user (sub) или user_id из тела; без валидного токена — 401, чтобы
     чужой запрос не отменили. Запрос уже завершился — флаг просто истекает (TTL).
     """
+    # JWT per-user (prod): токен обязателен и валиден; sub = onec_id владельца.
+    # Dev (JWT_SECRET пуст): resolve_onec_auth возвращает сервисного юзера —
+    # отмена открыта, как и сам чат.
     try:
-        _jwt_token, _ = resolve_onec_auth(authorization)
+        jwt_token, _ = resolve_onec_auth(authorization)
     except ValueError as e:
         raise HTTPException(status_code=401, detail=str(e)) from e
-    # Отмена по сессии: сессия в БД принадлежит одному пользователю, поэтому
-    # чужую сессию отменить нельзя — событие не найдётся (404 ниже).
-    # Проверяем, что сессия существует в БД — иначе 404 (чужую/битую не отменяем).
+    owner_sub: str | None = None
+    if settings.jwt_secret and jwt_token:
+        payload = validate_hs256(jwt_token, settings.jwt_secret)
+        if payload is None:
+            raise HTTPException(status_code=401, detail="невалидный JWT-токен")
+        owner_sub = str(payload.get("sub", "")).strip()
+        if not owner_sub:
+            raise HTTPException(status_code=401, detail="JWT без поля sub")
+    # Сессия существует и принадлежит этому пользователю — иначе 404 (чужую не отменяем).
     async with SessionFactory() as s:
-        exists = (await s.execute(select(ChatSession.id).where(ChatSession.id == session_id))).first() is not None
-    if not exists:
+        stmt = select(ChatSession.id).where(ChatSession.id == session_id)
+        if owner_sub is not None:
+            stmt = stmt.join(User, ChatSession.user_id == User.id).where(User.onec_id == owner_sub)
+        row = (await s.execute(stmt)).first()
+    if row is None:
         raise HTTPException(status_code=404, detail="session not found")
     cancel_session(session_id)
     return JSONResponse({"ok": True, "session_id": session_id})
