@@ -89,7 +89,7 @@ export default function McpServers() {
 
   async function copyServerUrl(id: string) {
     try {
-      const url = `${window.location.origin}/api/mcp/${id}/mcp`;
+      const url = `${window.location.origin}/api/mcp/${id}`;
       await copyText(url);
       setUrlCopied(id);
       setTimeout(() => setUrlCopied(null), 1500);

@@ -186,7 +186,7 @@ MCP-клиентов (заголовок `Authorization`), в админке в�
 Для **Claude Code**: `claude mcp add --transport http ai-1c-all http://<vps-ip>:9224/api/mcp-aggregated/mcp`
 Для **Cursor** (`mcp.json`): `{ "mcpServers": { "ai-1c-all": { "url": "http://<vps-ip>:9224/api/mcp-aggregated/mcp" } } }`
 
-Per-server URL: `http://<vps-ip>:9224/api/mcp/<id|name>/mcp`
+Per-server URL: `http://<vps-ip>:9224/api/mcp/<id|name>`
 (GET — SSE для legacy-клиентов, POST — Streamable HTTP).
 Кнопки копирования всех форматов — в Admin UI на странице MCP Servers.
 

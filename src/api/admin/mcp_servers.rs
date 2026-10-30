@@ -844,7 +844,7 @@ pub async fn export(
     let mut entries: Vec<(String, String)> = vec![("ai-1c-all".into(), agg_url.clone())];
     for (sid, name) in &servers {
         let key = format!("ai-1c-{}", crate::api::mcp_http::tool_prefix(name));
-        entries.push((key, format!("{base}/api/mcp/{sid}/mcp")));
+        entries.push((key, format!("{base}/api/mcp/{name}")));
     }
 
     let headers_json = {

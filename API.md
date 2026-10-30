@@ -41,8 +41,8 @@ H="Authorization: Bearer $JWT"   # далее -H "$H"
 |---|---|---|
 | POST | `/api/mcp-aggregated/mcp` | JSON-RPC единой точкой: `initialize`, `tools/list`, `tools/call`; имена тулзов `server__tool` |
 | GET | `/api/mcp-aggregated/mcp` | тот же endpoint через SSE (legacy-клиенты) |
-| POST/GET | `/api/mcp/{id\|name}/mcp` | один сервер: POST — Streamable HTTP, GET — SSE |
-| POST | `/api/mcp/{server_id}` | legacy JSON-RPC прокси одного сервера |
+| POST/GET | `/api/mcp/{id\|name}` | один сервер: POST — Streamable HTTP, GET — SSE |
+| POST/GET | `/api/mcp/{id\|name}/mcp` | алиас (назад совместим) |
 | GET/POST | `/api/mcp-skills/rpc` | серверные скиллы как MCP |
 
 ```bash

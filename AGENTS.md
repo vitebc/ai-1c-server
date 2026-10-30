@@ -58,7 +58,7 @@ start/stop/status/restart. Выкатка в prod — `scripts/deploy.sh`.
   скиллы → MCP-тулзы), `protocol.rs`, `session.rs`, `config.rs`.
 - **MCP HTTP-шлюз** — `src/api/mcp_http.rs` + `src/api/mcp.rs`:
   `POST /api/mcp-aggregated/mcp` (все серверы, имена `server__tool`),
-  `GET` там же — SSE, per-server `/api/mcp/{id|name}/mcp`,
+  `GET` там же — SSE, per-server `/api/mcp/{id|name}` (алиас `.../mcp`),
   REST-инвентарь тулзов (`/api/mcp`, `/api/mcp-aggregated/tools`,
   `/api/mcp/{id|name}/tools`). `src/api/mcp_skills.rs` — скиллы как MCP.
 - **Auth / RBAC** — `src/auth/mod.rs`: users в БД (argon2id), JWT 12h/7d,

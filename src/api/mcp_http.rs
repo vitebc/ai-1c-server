@@ -56,7 +56,7 @@ pub async fn server_sse(
     Path(key): Path<String>,
     headers: HeaderMap,
 ) -> Sse<impl tokio_stream::Stream<Item = Result<Event, Infallible>>> {
-    let post_url = absolute_url(&headers, &format!("/api/mcp/{key}/mcp"));
+    let post_url = absolute_url(&headers, &format!("/api/mcp/{key}"));
     sse_stream(&state, Target::One(key), &post_url).await
 }
 
