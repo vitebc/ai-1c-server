@@ -55,6 +55,7 @@ export const t = {
     stats: 'Статистика индекса', tools: 'Инструменты', restart: 'Перезапустить (hot-reload)',
     reindex: 'Полная переиндексация (удаляет индекс, пересобирает в фоне)',
     liveTools: 'Инструменты (live tools/list)', indexStats: 'Статистика индекса',
+    copyUrl: 'Скопировать MCP-адрес сервера',
     validJson: 'Корректный JSON', format: 'Форматировать',
   },
   skills: {

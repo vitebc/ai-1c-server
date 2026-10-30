@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, RotateCcw, Copy, Check, FolderOpen, BarChart3, DatabaseZap, Wrench } from 'lucide-react';
+import { Plus, Pencil, Trash2, RotateCcw, Copy, Check, FolderOpen, BarChart3, DatabaseZap, Wrench, Link2 } from 'lucide-react';
 import { api } from '../api/client';
 import { copyText } from '../clipboard';
 import FileBrowser from '../components/FileBrowser';
@@ -17,6 +17,7 @@ export default function McpServers() {
   const [edit, setEdit] = useState<McpServer | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  const [urlCopied, setUrlCopied] = useState<string | null>(null);
   const [copyError, setCopyError] = useState('');
   const [statsFor, setStatsFor] = useState<McpServer | null>(null);
   const [toolsFor, setToolsFor] = useState<McpServer | null>(null);
@@ -84,6 +85,15 @@ export default function McpServers() {
     } catch (e) {
       setCopyError(errText(e, 'Ошибка копирования'));
     }
+  }
+
+  async function copyServerUrl(id: string) {
+    try {
+      const url = `${window.location.origin}/api/mcp/${id}/mcp`;
+      await copyText(url);
+      setUrlCopied(id);
+      setTimeout(() => setUrlCopied(null), 1500);
+    } catch {}
   }
 
   const aggUrl = `${window.location.origin}/api/mcp-aggregated/mcp`;
@@ -181,6 +191,9 @@ export default function McpServers() {
               {item.server_type.startsWith('search') && (
                 <IconBtn title={t.mcp.reindex} onClick={() => setReindexItem(item)}><DatabaseZap size={15} /></IconBtn>
               )}
+              <IconBtn title={t.mcp.copyUrl} onClick={() => copyServerUrl(item.id)}>
+                {urlCopied === item.id ? <Check size={15} className="text-emerald-600" /> : <Link2 size={15} />}
+              </IconBtn>
               <IconBtn title={t.mcp.liveTools} onClick={() => setToolsFor(item)}><Wrench size={15} /></IconBtn>
               <IconBtn title={t.mcp.restart} onClick={() => handleRestart(item.id)}><RotateCcw size={15} /></IconBtn>
               <IconBtn title={t.common.edit} onClick={() => openEdit(item)}><Pencil size={15} /></IconBtn>
