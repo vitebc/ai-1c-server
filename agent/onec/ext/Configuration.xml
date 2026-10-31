@@ -48,7 +48,7 @@
 					<v8:content>Инструменты агента 1С</v8:content>
 				</v8:item>
 			</Synonym>
-			<Comment>2f40be87c552bcff266f6a172b68ad9329822dcc</Comment>
+			<Comment>a7885835aad64dcaef932ad8bed3b538aecfd8e0</Comment>
 			<ConfigurationExtensionPurpose>AddOn</ConfigurationExtensionPurpose>
 			<KeepMappingToExtendedConfigurationObjectsByIDs>true</KeepMappingToExtendedConfigurationObjectsByIDs>
 			<NamePrefix>a1c_</NamePrefix>
@@ -59,7 +59,7 @@
 			</UsePurposes>
 			<ScriptVariant>Russian</ScriptVariant>
 			<Vendor>JVV</Vendor>
-			<Version>26.1031.01</Version>
+			<Version>26.1031.02</Version>
 			<BriefInformation/>
 			<DetailedInformation/>
 			<Copyright>
