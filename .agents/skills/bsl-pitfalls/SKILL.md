@@ -288,7 +288,7 @@
 | `POST /api/session/{sid}/prompt` | Квитанция `data.time.created` — **время начала хода**, по нему фильтруются сообщения хода |
 | `GET /api/session/{sid}/message?order=desc&limit=50` | Сообщения: `user`, `assistant` (`content[].type = text/reasoning/tool`), `idle` (`outcome = succeeded/failed/interrupted`) |
 | `GET /api/session/{sid}/form` | Ожидающие формы-вопросы: `data[].id`, `title` (обычно `Questions` — не показывать), `fields[].key/title/description/options[]` |
-| `POST /api/session/{sid}/form/{fid}/reply` | Тело `{"answer":{"q0":"текст"}}`, ответ **204**. После reply форма исчезает, ход продолжается |
+| `POST /api/session/{sid}/form/{fid}/reply` | Тело `{"answer":{"q0":"текст"}}`, ответ **204**. После reply форма исчезает, ход продолжается. Если у формы несколько полей (`q0`, `q1`, …), ответить нужно **всем** ключам — иначе форма остаётся pending и ход не идёт дальше |
 | `GET /api/provider` | **НЕТ поля `models`** (только `id/settings`) — список моделей в `GET /api/model` (`providerID`, `modelID`), дефолт — `GET /api/model/default` |
 | `GET /api/agent` | `mode` (`primary`/`subagent`) + `hidden` — для дропдауна годятся только `primary` и не `hidden` |
 
