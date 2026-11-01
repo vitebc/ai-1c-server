@@ -47,6 +47,13 @@ body {
 .status.warn { background: #fff4d6; color: #8a6100; }
 .status.err { background: #ffebe9; color: #a40e26; }
 
+.ver {
+  color: #9a9a9a;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 10px;
+  margin-left: 8px;
+}
+
 .hdr .row { margin-top: 7px; }
 
 .pill {
