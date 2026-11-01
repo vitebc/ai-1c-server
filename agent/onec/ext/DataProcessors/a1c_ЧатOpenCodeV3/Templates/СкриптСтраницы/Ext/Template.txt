@@ -1,0 +1,166 @@
+/* Chat page functions. 1C calls them through
+   Elements.<HTMLField>.Document.defaultView.<name>(...).
+   They keep no state in variables: every call carries ids and full HTML.
+   The page is rendered once; afterwards only blocks are replaced, so the
+   scroll position and the already rendered messages are kept. */
+
+function byId(id) {
+  return document.getElementById(id);
+}
+
+function isAtBottom() {
+  var height = document.body.scrollHeight;
+  return (window.pageYOffset + window.innerHeight) >= (height - 80);
+}
+
+function toBottom() {
+  try {
+    window.scrollTo(0, document.body.scrollHeight);
+  } catch (e) {
+  }
+}
+
+/* html is a complete <div class="msg ..." id="..."> block. */
+function upsertMessage(id, html) {
+  var box = byId('feed');
+  if (!box) {
+    return;
+  }
+  var wasBottom = isAtBottom();
+  var old = byId(id);
+  var holder = document.createElement('div');
+  holder.innerHTML = String(html).replace(/^\s+/, '');
+  var node = holder.firstChild;
+  if (!node) {
+    return;
+  }
+  if (old) {
+    box.replaceChild(node, old);
+  } else {
+    box.appendChild(node);
+  }
+  if (wasBottom) {
+    toBottom();
+  }
+}
+
+function setMeta(id, text) {
+  var msg = byId(id);
+  if (!msg) {
+    return;
+  }
+  var wasBottom = isAtBottom();
+  var meta = msg.getElementsByClassName ? msg.getElementsByClassName('meta')[0] : null;
+  if (!meta) {
+    meta = document.createElement('div');
+    meta.className = 'meta';
+    msg.appendChild(meta);
+  }
+  meta.textContent = text;
+  if (wasBottom) {
+    toBottom();
+  }
+}
+
+function showQuestion(html) {
+  var box = byId('question');
+  if (!box) {
+    return;
+  }
+  box.innerHTML = html;
+  box.style.display = 'block';
+  toBottom();
+}
+
+function hideQuestion() {
+  var box = byId('question');
+  if (!box) {
+    return;
+  }
+  box.innerHTML = '';
+  box.style.display = 'none';
+}
+
+function setStatus(text, kind) {
+  var s = byId('status');
+  if (!s) {
+    return;
+  }
+  if (!text) {
+    s.textContent = '';
+    s.style.display = 'none';
+    return;
+  }
+  s.textContent = text;
+  s.className = 'status ' + (kind || '');
+  s.style.display = 'inline-block';
+}
+
+function setBusy(on) {
+  document.body.className = on ? 'busy' : '';
+}
+
+function setHeader(html) {
+  var h = byId('hdr');
+  if (h) {
+    h.innerHTML = html;
+  }
+}
+
+function clearFeed() {
+  var f = byId('feed');
+  if (f) {
+    f.innerHTML = '';
+  }
+}
+
+function clearPrompt() {
+  var p = byId('prompt');
+  if (p) {
+    p.value = '';
+  }
+  focusPrompt();
+}
+
+function focusPrompt() {
+  var p = byId('prompt');
+  if (!p) {
+    return;
+  }
+  try {
+    p.focus();
+  } catch (e) {
+  }
+}
+
+function getValue(id) {
+  var e = byId(id);
+  return e ? e.value : '';
+}
+
+function onPromptKey(e) {
+  e = e || window.event;
+  if (!e || e.keyCode !== 13 || e.shiftKey) {
+    return;
+  }
+  e.preventDefault();
+  var s = byId('send');
+  if (s) {
+    s.click();
+  }
+}
+
+/* Enter in the free-answer field answers the question. */
+function onQuestionKey(e) {
+  e = e || window.event;
+  if (!e || e.keyCode !== 13) {
+    return;
+  }
+  if (e.preventDefault) {
+    e.preventDefault();
+  }
+  var a = byId('answer');
+  if (a) {
+    a.click();
+  }
+}

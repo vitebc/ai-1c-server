@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>OpenCode</title>
+<style>{{STYLES}}</style>
+</head>
+<body>
+<div id="hdr" class="hdr">{{HEADER}}</div>
+<div id="feed" class="feed">{{FEED}}</div>
+<div id="question" class="q-wrap" style="display:none"></div>
+<div id="composer" class="composer">{{COMPOSER}}</div>
+<script>{{SCRIPT}}</script>
+</body>
+</html>

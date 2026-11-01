@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<MetaDataObject xmlns="http://v8.1c.ru/8.3/MDClasses" xmlns:app="http://v8.1c.ru/8.2/managed-application/core" xmlns:cfg="http://v8.1c.ru/8.1/data/enterprise/current-config" xmlns:cmi="http://v8.1c.ru/8.2/managed-application/cmi" xmlns:ent="http://v8.1c.ru/8.1/data/enterprise" xmlns:lf="http://v8.1c.ru/8.2/managed-application/logform" xmlns:style="http://v8.1c.ru/8.1/data/ui/style" xmlns:sys="http://v8.1c.ru/8.1/data/ui/fonts/system" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:v8ui="http://v8.1c.ru/8.1/data/ui" xmlns:web="http://v8.1c.ru/8.1/data/ui/colors/web" xmlns:win="http://v8.1c.ru/8.1/data/ui/colors/windows" xmlns:xen="http://v8.1c.ru/8.3/xcf/enums" xmlns:xpr="http://v8.1c.ru/8.3/xcf/predef" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="2.20">
+	<DataProcessor uuid="7143b2a4-193b-4b96-ac14-dd5b4a3f10eb">
+		<InternalInfo>
+			<xr:GeneratedType name="DataProcessorObject.a1c_ЧатOpenCodeV3" category="Object">
+				<xr:TypeId>66cb1690-453f-40d1-a9b6-152c6fe9846f</xr:TypeId>
+				<xr:ValueId>a774572a-5cb9-4db4-9018-c890e27441ab</xr:ValueId>
+			</xr:GeneratedType>
+			<xr:GeneratedType name="DataProcessorManager.a1c_ЧатOpenCodeV3" category="Manager">
+				<xr:TypeId>37d9a1f0-1ac3-4d50-ba8a-d030431471f2</xr:TypeId>
+				<xr:ValueId>a7bafec3-3e19-4e64-b0aa-cf32cfaf52a1</xr:ValueId>
+			</xr:GeneratedType>
+		</InternalInfo>
+		<Properties>
+			<Name>a1c_ЧатOpenCodeV3</Name>
+			<Synonym>
+				<v8:item>
+					<v8:lang>ru</v8:lang>
+					<v8:content>ИИ ассистент OpenCode V3 (HTML-страница)</v8:content>
+				</v8:item>
+			</Synonym>
+			<Comment>Чат с агентом OpenCode одной HTML-страницей в поле HTML-документа: лента, ввод, агенты, вопрос модели — в JS, 1С только опрашивает сервер и зовёт функции страницы.</Comment>
+			<UseStandardCommands>true</UseStandardCommands>
+			<DefaultForm>DataProcessor.a1c_ЧатOpenCodeV3.Form.Форма</DefaultForm>
+			<AuxiliaryForm/>
+			<IncludeHelpInContents>false</IncludeHelpInContents>
+			<ExtendedPresentation/>
+			<Explanation/>
+		</Properties>
+		<ChildObjects>
+			<Form>Форма</Form>
+			<Template>КаркасСтраницы</Template>
+			<Template>СтилиСтраницы</Template>
+			<Template>СкриптСтраницы</Template>
+		</ChildObjects>
+	</DataProcessor>
+</MetaDataObject>
