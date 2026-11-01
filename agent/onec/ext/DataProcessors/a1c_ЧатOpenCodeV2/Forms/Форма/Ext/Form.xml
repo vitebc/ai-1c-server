@@ -13,6 +13,7 @@
 	<Events>
 		<Event name="BeforeClose">ПередЗакрытием</Event>
 		<Event name="OnCreateAtServer">ПриСозданииНаСервере</Event>
+		<Event name="OnOpen">ПриОткрытии</Event>
 	</Events>
 	<ChildItems>
 		<UsualGroup name="Группа1" id="95">
