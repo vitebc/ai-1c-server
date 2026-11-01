@@ -75,20 +75,82 @@ EOF
 Не ловит: `defaultView`/`parentWindow`, `DocumentComplete`, реальные `Href`,
 движок HTML-поля конкретного клиента.
 
-## 4. Платформа: локальный стенд (по желанию)
+## 4. Платформа: локальный стенд
 
 На этой машине есть всё для настоящей проверки: 1С `8.3.27.2325`
 (`/opt/1cv8/x86_64/8.3.27.2325`: `1cv8`, `ibcmd`), лицензии в `~/.1cv8/licenses`,
-`xvfb-run`, `Apache + wsap24.so`, node 22.
-
-Пустая файловая база → загрузка расширения из XML → проверка применимости и модулей
-(скил `db-cfe-admin`, `-Checks apply,modules -Context ThinClient,Server`):
+`xvfb-run`, `Apache + wsap24.so`, node 22. Тестовая файловая база —
+`/home/test/1c/ai_base` (КА 2, ~4 ГБ). Скилы лежат в
+`/home/test/.config/ai-1c-server/skills/`; все команды запускаются под
+`xvfb-run -a` (у платформы нет дисплея) и с явным `-V8Path`:
 
 ```bash
-python3 ~/.opencode/skills/db-cfe-admin/scripts/db-cfe-admin.py \
-    -Command check -InfoBasePath /tmp/opencode/base -Name A1C_Инструменты \
-    -Checks apply,modules -Context ThinClient,Server
+SK=/home/test/.config/ai-1c-server/skills
+V8=/opt/1cv8/x86_64/8.3.27.2325
+IB=/home/test/1c/ai_base
+USER="Жеребятьев Виталий Викторович"   # логин с правами конфигуратора
+PASS=315426
 ```
+
+### 4.1 Состав расширений в базе — `db-cfe-admin list`
+
+```bash
+xvfb-run -a python3 $SK/db-cfe-admin/scripts/db-cfe-admin.py \
+    -Command list -InfoBasePath $IB -UserName "$USER" -Password $PASS -V8Path $V8
+```
+
+Вывод: таблица расширений (Имя, Назначение, Активно, Безопасный режим, Защита).
+Сейчас в `ai_base` два: `MCP_Сервер` и `A1C_Инструменты`, оба активны.
+
+### 4.2 Версия расширения в базе — дамп с `-Extension`
+
+`/DumpConfigToFiles` без флага расширений выгружает только основную конфигурацию
+(в ней 0 DataProcessors) — расширение видно только с `-Extension`:
+
+```bash
+xvfb-run -a $V8/1cv8 DESIGNER /F "$IB" /N"$USER" /P$PASS \
+    /DumpConfigToFiles /tmp/opencode/ext_dump -Extension "A1C_Инструменты" \
+    -Mode 0 /Out /dev/null /DisableStartupDialogs
+```
+
+Версия — в `Configuration.xml` (`<Version>`) и в хардкоде
+`DataProcessors/a1c_ИнструментДерево/Ext/Module.bsl` (строка `Версия = "<хеш>"`).
+Сравнивается с локальным `agent/onec/ext/ExtVersion.txt`: совпало — база свежая,
+нет — грузить (4.3). Хеш в шапке формы V3 — тот же, его можно сверить и глазами.
+
+### 4.3 Загрузка расширения из XML — `db-load-xml`
+
+```bash
+xvfb-run -a python3 $SK/db-load-xml/scripts/db-load-xml.py \
+    -V8Path $V8 -InfoBasePath $IB -UserName "$USER" -Password $PASS \
+    -ConfigDir /home/test/project/ai-1c-server/agent/onec/ext \
+    -Extension A1C_Инструменты
+```
+
+`-Extension` — загрузка в существующее расширение (обновление), без флага —
+создание нового. `-UpdateDB` не нужен: данные базы не трогаются, обновляется
+только конфигурация. После загрузки — повторить 4.2 и убедиться, что версия
+совпала с `ExtVersion.txt`.
+
+### 4.4 Проверки применимости и модулей — `db-cfe-admin check`
+
+```bash
+xvfb-run -a python3 $SK/db-cfe-admin/scripts/db-cfe-admin.py \
+    -Command check -InfoBasePath $IB -UserName "$USER" -Password $PASS -V8Path $V8 \
+    -Name A1C_Инструменты -Checks apply,modules -Context ThinClient,Server
+```
+
+- **применимость** (`/CheckCanApplyConfigurationExtensions`) — расширение можно
+  применить к конфигурации базы;
+- **модули** (`/CheckConfig -ThinClient -Server -Extension ...`) — синтаксическая
+  проверка всех модулей расширения.
+
+Ожидаемый результат (проверено 2026-11-01): применимость ОК, в модулях — только
+`Variable is not defined (mcp_Метаданные)` в менеджерах `a1c_Инструмент*`. Это
+**не ошибка**: `mcp_Метаданные` — объект ядра MCP-сервера (`MCP_Сервер`), а
+проверка идёт с `-Extension A1C_Инструменты`, то есть расширение проверяется в
+изоляции. Любые ДРУГИЕ ошибки (синтаксис, XDTO, висячие ссылки) — реальные и
+блокируют загрузку/работу.
 
 Ловит: XDTO/XML при загрузке, несобирающиеся модули, неприменимость расширения,
 ошибки формы — то, что линтеры пропускают.
@@ -96,7 +158,8 @@ python3 ~/.opencode/skills/db-cfe-admin/scripts/db-cfe-admin.py \
 
 ## 5. Живая база: ручной прогон
 
-Единственный уровень, который видит реальное поведение. Минимальный чек-лист V3:
+Единственный уровень, который видит реальное поведение. База — `ai_base` (4.1),
+открытие: **Все функции** → Обработки → `a1c_ЧатOpenCodeV3`. Минимальный чек-лист V3:
 
 1. Открытие формы — нет ошибок, в шапке виден хеш сборки.
 2. Промпт + Enter: сообщение появилось в ленте, статус «идёт ход», кнопка заблокирована.
