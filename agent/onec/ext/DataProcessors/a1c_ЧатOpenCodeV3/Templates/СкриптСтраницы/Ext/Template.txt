@@ -94,6 +94,42 @@ function selectOption(field, opt) {
   }
 }
 
+/* Switches the visible question tab. No state is kept: the caller sends the
+   full card HTML again, so this only matters for the click before the reply. */
+function showTab(idx) {
+  var tabs = document.getElementsByClassName('q-tab');
+  var panels = document.getElementsByClassName('q-panel');
+  for (var i = 0; i < tabs.length; i++) {
+    tabs[i].className = (i === idx) ? 'q-tab on' : 'q-tab';
+  }
+  for (var j = 0; j < panels.length; j++) {
+    panels[j].className = (j === idx) ? 'q-panel on' : 'q-panel';
+  }
+}
+
+/* Removes the "not answered" dot of one tab. */
+function clearTabDot(idx) {
+  var tabs = document.getElementsByClassName('q-tab');
+  if (idx < 0 || idx >= tabs.length) {
+    return;
+  }
+  var dots = tabs[idx].getElementsByClassName('q-dot');
+  while (dots.length > 0) {
+    dots[0].parentNode.removeChild(dots[0]);
+  }
+}
+
+/* Updates the "N left" counter under the answer button. Texts are passed by
+   the caller: the page templates stay pure ASCII, Cyrillic comes from BSL. */
+function setLeftCount(n, textWarn, textDone) {
+  var el = byId('qleft');
+  if (!el) {
+    return;
+  }
+  el.textContent = (n > 0) ? textWarn : textDone;
+  el.className = (n > 0) ? 'status warn' : 'status';
+}
+
 function setValue(id, value) {
   var el = byId(id);
   if (el) {

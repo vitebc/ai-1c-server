@@ -181,9 +181,28 @@ body {
 .q-desc { color: #666666; font-size: 12px; margin: 2px 0 6px 0; }
 
 .opt {
+  display: block;
+  width: 100%;
+  max-width: 480px;
+  box-sizing: border-box;
+  text-align: left;
+  margin: 0 0 6px 0;
+  padding: 5px 12px;
+  border: 1px solid #d0a72c;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #24292f;
+  text-decoration: none;
+  font-size: 12px;
+}
+
+/* Question card tabs: one tab per form field. */
+.q-tabs { margin-bottom: 10px; }
+
+.q-tab {
   display: inline-block;
-  margin: 0 6px 6px 0;
   padding: 4px 12px;
+  margin: 0 4px 6px 0;
   border: 1px solid #d0a72c;
   border-radius: 12px;
   background: #ffffff;
@@ -191,6 +210,30 @@ body {
   text-decoration: none;
   font-size: 12px;
 }
+
+.q-tab:hover { background: #ffeec2; }
+
+.q-tab.on {
+  background: #d4a72c;
+  border-color: #b8901f;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+/* Red dot on a tab whose field is not answered yet. */
+.q-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #a40e26;
+  margin-left: 5px;
+}
+
+.q-tab.on .q-dot { background: #ffffff; }
+
+.q-panel { display: none; }
+.q-panel.on { display: block; }
 
 .opt:hover { background: #ffeec2; }
 
