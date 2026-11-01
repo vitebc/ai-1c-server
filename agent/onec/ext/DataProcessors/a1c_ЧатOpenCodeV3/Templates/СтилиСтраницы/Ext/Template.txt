@@ -187,6 +187,15 @@ body {
 
 .opt:hover { background: #ffeec2; }
 
+.opt.on {
+  background: #d4a72c;
+  border-color: #b8901f;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.q-field .q-input { width: 100%; max-width: 480px; margin-top: 2px; }
+
 .q-free { margin-top: 4px; }
 
 .q-input {

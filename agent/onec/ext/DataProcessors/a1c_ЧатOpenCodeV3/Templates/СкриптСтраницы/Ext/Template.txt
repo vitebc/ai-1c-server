@@ -81,6 +81,26 @@ function hideQuestion() {
   box.style.display = 'none';
 }
 
+/* Highlights the chosen option of one field without rebuilding the card, so
+   text typed into other fields is not lost. */
+function selectOption(field, opt) {
+  var box = byId('opts_' + field);
+  if (!box) {
+    return;
+  }
+  var links = box.getElementsByTagName('a');
+  for (var i = 0; i < links.length; i++) {
+    links[i].className = (i === opt) ? 'opt on' : 'opt';
+  }
+}
+
+function setValue(id, value) {
+  var el = byId(id);
+  if (el) {
+    el.value = value;
+  }
+}
+
 function setStatus(text, kind) {
   var s = byId('status');
   if (!s) {
