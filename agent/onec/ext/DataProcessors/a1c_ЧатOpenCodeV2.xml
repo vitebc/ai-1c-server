@@ -30,7 +30,6 @@
 		<ChildObjects>
 			<Form>Форма</Form>
 			<Template>ШаблонДиалога</Template>
-			<Template>WebTransportAddIn</Template>
 		</ChildObjects>
 	</DataProcessor>
 </MetaDataObject>
