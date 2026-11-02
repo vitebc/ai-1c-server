@@ -39,6 +39,11 @@ function upsertMessage(id, html) {
   } else {
     box.appendChild(node);
   }
+  /* The pending bubble always stays at the very end of the feed. */
+  var pending = byId('pending');
+  if (pending && pending.parentNode === box) {
+    box.appendChild(pending);
+  }
   if (wasBottom) {
     toBottom();
   }
@@ -72,6 +77,12 @@ function showPending(text) {
   var content = msg.getElementsByClassName('content')[0];
   if (content) {
     content.textContent = text;
+  }
+  /* Move to the end of the feed: appended messages would otherwise push the
+     bubble to the top of the conversation. */
+  var feed = byId('feed');
+  if (feed) {
+    feed.appendChild(msg);
   }
   msg.style.display = 'block';
   toBottom();
