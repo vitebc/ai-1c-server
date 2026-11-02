@@ -19,8 +19,8 @@
 				<xr:LoadTransparent>true</xr:LoadTransparent>
 			</Picture>
 			<Content>
-				<xr:Item xsi:type="xr:MDObjectRef">DataProcessor.a1c_Чат</xr:Item>
-			</Content>
+			<xr:Item xsi:type="xr:MDObjectRef">DataProcessor.a1c_ЧатOpenCodeV3</xr:Item>
+		</Content>
 		</Properties>
 		<ChildObjects>
 			<Subsystem>mcp_КонтейнерыИнструментов</Subsystem>
