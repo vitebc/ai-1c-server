@@ -9,7 +9,7 @@
 </head>
 <body>
 <div id="hdr" class="hdr">{{HEADER}}</div>
-<div id="feed" class="feed">{{FEED}}</div>
+<div id="feed" class="feed">{{FEED}}<div id="pending" class="msg assistant" style="display:none"><div class="who">AI</div><div class="content"></div></div></div>
 <div id="question" class="q-wrap" style="display:none"></div>
 <div id="composer" class="composer">{{COMPOSER}}</div>
 <script>{{SCRIPT}}</script>

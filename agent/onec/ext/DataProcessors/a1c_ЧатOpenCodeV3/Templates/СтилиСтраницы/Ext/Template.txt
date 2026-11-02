@@ -166,6 +166,9 @@ body {
   color: #717171;
 }
 
+/* "Agent is working" bubble: dimmed while waiting for the first token. */
+#pending .content { color: #8a8f94; }
+
 .q-wrap { padding: 0 14px 10px 14px; }
 
 .q-card {
