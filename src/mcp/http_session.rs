@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::Mutex;
 
 use super::config::McpServerConfig;
 use super::protocol::{JsonRpcRequest, JsonRpcResponse};
@@ -33,29 +33,29 @@ pub struct HttpMcpSession {
 /// gateway + REST tools endpoint) must not race `initialize` on the same
 /// stateful server — only the first one initializes, the rest wait.
 struct InitializeOnce {
-    done: RwLock<bool>,
+    done: bool,
     lock: Mutex<()>,
 }
 
 impl InitializeOnce {
     fn new() -> Self {
         Self {
-            done: RwLock::new(false),
+            done: false,
             lock: Mutex::new(()),
         }
     }
 
     /// Runs `init` exactly once (first caller); concurrent callers await it.
     async fn run(&self, init: impl FnOnce() -> Result<(), Box<dyn std::error::Error>>) {
-        if *self.done.read().await {
+        if self.done {
             return;
         }
         let _guard = self.lock.lock().await;
-        if *self.done.read().await {
+        if self.done {
             return; // somebody else finished while we waited
         }
         init();
-        *self.done.write().await = true;
+        self.done = true;
     }
 }
 
