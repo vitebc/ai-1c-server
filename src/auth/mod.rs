@@ -153,6 +153,7 @@ pub const SECTIONS: &[&str] = &[
     "agent-backend",
     "agent-rag",
     "bases1c",
+    "opencode",
     "skills",
     "bsl-ls",
     "configs",
@@ -190,6 +191,7 @@ fn base_sections(role: &str) -> Vec<String> {
             "agent-backend",
             "agent-rag",
             "bases1c",
+            "opencode",
             "skills",
             "bsl-ls",
             "configs",
@@ -210,6 +212,7 @@ fn base_sections(role: &str) -> Vec<String> {
             "agent-agents",
             "agent-skills",
             "agent-patterns",
+            "opencode",
             "skills",
             "bsl-ls",
             "configs",
@@ -229,6 +232,7 @@ fn base_sections(role: &str) -> Vec<String> {
             "agent-patterns",
             "agent-changes",
             "bases1c",
+            "opencode",
             "skills",
             "bsl-ls",
             "configs",
@@ -417,6 +421,11 @@ struct Claims {
     sub: String,
     username: String,
     exp: usize,
+}
+
+/// JWT-секрет (для HMAC-токенов плагина OpenCode и т.п.).
+pub fn jwt_secret_pub(db: &Database) -> String {
+    jwt_secret(db).unwrap_or_default()
 }
 
 fn jwt_secret(db: &Database) -> Result<String, Box<dyn std::error::Error>> {
@@ -609,6 +618,9 @@ fn section_for(path: &str) -> Option<&'static str> {
         "agent-rag"
     } else if rest.starts_with("agent-backend") {
         "agent-backend"
+    } else if rest.starts_with("opencode") {
+        // Шлюз OpenCode: чтение — всем с секцией, запись — по can_write.
+        "opencode"
     } else if rest.starts_with("skills") {
         "skills"
     } else if rest.starts_with("bsl-ls") {
@@ -803,6 +815,9 @@ fn can_write(role: &str, path: &str) -> bool {
             path.starts_with("/api/admin/agent-files/agents")
                 || path.starts_with("/api/admin/agent-files/skills")
                 || path.starts_with("/api/admin/agent-files/patterns")
+                // Шлюз OpenCode: prompter правит только агентов и скилы.
+                || (path.starts_with("/api/admin/opencode/")
+                    && (path.contains("/agents/") || path.contains("/skills/")))
         }
         _ => false,
     }

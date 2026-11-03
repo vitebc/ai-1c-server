@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use axum::{Router, http::StatusCode, routing::{any, get, post}};
+use axum::{Router, http::StatusCode, routing::{any, get}};
 use serde::Serialize;
 use tokio::sync::Mutex;
 

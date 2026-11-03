@@ -4,7 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-axum = "0.8"
+axum = { version = "0.8", features = ["macros"] }
+http-body-util = "0.1"
+hmac = "0.12"
+hex = "0.4"
+bytes = "1"
 tokio = { version = "1", features = ["full"] }
 tower-http = { version = "0.6", features = ["cors", "fs"] }
 serde = { version = "1", features = ["derive"] }
@@ -17,7 +21,7 @@ notify = "7"
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
 jsonwebtoken = "9"
 argon2 = "0.5"
 rand_core = { version = "0.6", features = ["getrandom"] }

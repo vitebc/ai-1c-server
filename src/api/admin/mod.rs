@@ -407,4 +407,6 @@ pub fn routes() -> Router<Arc<AppState>> {
             "/agent-backend/rag/collections/{name}",
             delete(agent_backend::rag_collection_delete),
         )
+        // Шлюз OpenCode (секция RBAC `opencode`).
+        .nest("/opencode", crate::opencode::admin::routes())
 }

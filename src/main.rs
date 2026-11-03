@@ -3,6 +3,7 @@ mod auth;
 mod db;
 mod log_buffer;
 mod mcp;
+mod opencode;
 mod updater;
 mod watcher;
 mod web;
@@ -139,6 +140,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // (Re)build auto `search-*` rows from config_profiles, then start all.
             crate::api::admin::search_sync::resync_search_servers(&state).await;
             state.mcp.load_from_db(&state.db).await;
+
+            // Шлюз OpenCode: listener :9020 (прокси API/SSE + RLS-мост).
+            tokio::spawn(opencode::spawn(state.clone()));
 
             let mut app = api::routes(state.clone())
                 .layer(axum::middleware::from_fn_with_state(
