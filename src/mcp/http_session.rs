@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 
 use super::config::McpServerConfig;
 use super::protocol::{JsonRpcRequest, JsonRpcResponse};
@@ -26,6 +26,37 @@ pub struct HttpMcpSession {
     /// connection without it. Empty = server is stateless, don't send the header.
     session_id: Arc<Mutex<Option<String>>>,
     next_id: Arc<Mutex<u64>>,
+    initialized: InitializeOnce,
+}
+
+/// Shared initialize-once guard: several concurrent callers (aggregated
+/// gateway + REST tools endpoint) must not race `initialize` on the same
+/// stateful server — only the first one initializes, the rest wait.
+struct InitializeOnce {
+    done: RwLock<bool>,
+    lock: Mutex<()>,
+}
+
+impl InitializeOnce {
+    fn new() -> Self {
+        Self {
+            done: RwLock::new(false),
+            lock: Mutex::new(()),
+        }
+    }
+
+    /// Runs `init` exactly once (first caller); concurrent callers await it.
+    async fn run(&self, init: impl FnOnce() -> Result<(), Box<dyn std::error::Error>>) {
+        if *self.done.read().await {
+            return;
+        }
+        let _guard = self.lock.lock().await;
+        if *self.done.read().await {
+            return; // somebody else finished while we waited
+        }
+        init();
+        *self.done.write().await = true;
+    }
 }
 
 impl HttpMcpSession {
@@ -54,12 +85,30 @@ impl HttpMcpSession {
             headers,
             session_id: Arc::new(Mutex::new(None)),
             next_id: Arc::new(Mutex::new(1)),
+            initialized: InitializeOnce::new(),
         };
-        session.initialize().await?;
         Ok(session)
     }
 
-    async fn initialize(&self) -> Result<(), Box<dyn std::error::Error>> {
+    /// First call performs `initialize` + `notifications/initialized`;
+    /// concurrent callers on the same session wait for it instead of racing.
+    pub async fn ensure_initialized(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let session = self;
+        self.initialized
+            .run(|| {
+                // Blocking bridge: initialize is a short network round-trip,
+                // safe to drive with a fresh runtime from inside `call`.
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .map(|rt| rt.block_on(session.do_initialize()))
+                    .map_err(|e| format!("init runtime: {e}"))?
+            })
+            .await;
+        Ok(())
+    }
+
+    async fn do_initialize(&self) -> Result<(), Box<dyn std::error::Error>> {
         let req = JsonRpcRequest::new(
             "initialize",
             serde_json::json!({
@@ -89,6 +138,7 @@ impl HttpMcpSession {
             id
         };
         request.id = Some(serde_json::json!(req_id));
+        self.ensure_initialized().await?;
         let body = serde_json::to_value(&request)?;
         let target = serde_json::json!(req_id);
         // The session id must be known before the first non-initialize call,

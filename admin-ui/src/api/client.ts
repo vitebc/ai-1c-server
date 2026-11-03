@@ -325,17 +325,17 @@ export const api = {
   putOpencodeConfig: (id: string, content: string) =>
     request<{ ok: boolean; path: string }>(`/opencode/servers/${id}/config`, { method: 'PUT', body: JSON.stringify({ content }) }),
   getOpencodeAgents: (id: string) =>
-    request<{ server: string; dir: string; agents: { name: string; title?: string; description?: string; mode?: string; hidden?: boolean; body: string }[] }>(`/opencode/servers/${id}/agents`),
-  putOpencodeAgent: (id: string, data: { name?: string; title?: string; description?: string; mode?: string; hidden?: boolean; body: string }) =>
+    request<{ server: string; dir: string; agents: { name: string; description?: string; mode?: string; model?: string; frontmatter: string; body: string }[] }>(`/opencode/servers/${id}/agents`),
+  putOpencodeAgent: (id: string, data: { name?: string; frontmatter?: string; body: string }) =>
     request<{ ok: boolean; name: string }>(`/opencode/servers/${id}/agents/${encodeURIComponent(data.name || '')}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteOpencodeAgent: (id: string, name: string) =>
-    request<{ ok: boolean }>(`/opencode/servers/${id}/agents/${encodeURIComponent(name)}?name=${encodeURIComponent(name)}`, { method: 'DELETE' }),
+    request<{ ok: boolean }>(`/opencode/servers/${id}/agents/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   getOpencodeSkills: (id: string) =>
     request<{ server: string; dir: string; skills: { name: string; description?: string; body: string }[] }>(`/opencode/servers/${id}/skills`),
   putOpencodeSkill: (id: string, data: { name?: string; description?: string; body: string }) =>
     request<{ ok: boolean; name: string }>(`/opencode/servers/${id}/skills/${encodeURIComponent(data.name || '')}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteOpencodeSkill: (id: string, name: string) =>
-    request<{ ok: boolean }>(`/opencode/servers/${id}/skills/${encodeURIComponent(name)}?name=${encodeURIComponent(name)}`, { method: 'DELETE' }),
+    request<{ ok: boolean }>(`/opencode/servers/${id}/skills/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   opencodeToolsSync: (id: string) =>
     request<{ ok: boolean; count: number; path?: string; token?: string }>(`/opencode/servers/${id}/tools/sync`, { method: 'POST' }),
   opencodeToolsTest: (id: string, tool: string, arguments_?: Record<string, unknown>) =>

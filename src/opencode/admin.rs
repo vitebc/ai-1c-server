@@ -705,51 +705,29 @@ pub async fn agents_list(
 pub struct AgentFileBody {
     #[serde(default)]
     pub name: Option<String>,
+    /// Полный YAML frontmatter (описание, mode, model, permissions и т.д.).
+    /// Сохраняется как есть — правки полей не теряют остальные ключи.
     #[serde(default)]
-    pub title: Option<String>,
-    #[serde(default)]
-    pub description: Option<String>,
-    #[serde(default)]
-    pub mode: Option<String>,
-    #[serde(default)]
-    pub hidden: Option<bool>,
+    pub frontmatter: String,
     pub body: String,
 }
 
 fn render_agent_file(body: &AgentFileBody) -> String {
-    let mut fm = String::new();
-    fm.push_str("---\n");
-    if let Some(t) = &body.title {
-        if !t.is_empty() {
-            fm.push_str(&format!("title: {}\n", t.replace('"', "\\\"")));
-        }
+    let fm = body.frontmatter.trim();
+    if fm.is_empty() {
+        return format!("{}\n", body.body.trim_end());
     }
-    if let Some(d) = &body.description {
-        if !d.is_empty() {
-            fm.push_str(&format!("description: {}\n", d.replace('"', "\\\"")));
-        }
-    }
-    if let Some(m) = &body.mode {
-        if !m.is_empty() {
-            fm.push_str(&format!("mode: {}\n", m));
-        }
-    }
-    if body.hidden == Some(true) {
-        fm.push_str("hidden: true\n");
-    }
-    fm.push_str("---\n\n");
-    fm.push_str(body.body.trim_end());
-    fm.push('\n');
-    fm
+    // frontmatter без обрамляющих --- (клиент может прислать и с ними).
+    let inner = fm.trim_start_matches("---").trim_end_matches("---").trim();
+    format!("---\n{}\n---\n\n{}\n", inner, body.body.trim_end())
 }
 
 pub async fn agent_put(
     State(state): State<Arc<AppState>>,
-    AxPath(id): AxPath<String>,
+    AxPath((id, name)): AxPath<(String, String)>,
     Json(body): Json<AgentFileBody>,
 ) -> Result<Json<Value>, axum::response::Response> {
     use axum::response::IntoResponse;
-    let name = body.name.clone().unwrap_or_default();
     if !valid_name(&name) {
         return Err(BadRequest(
             "name: ^[a-z0-9_-]+$ (max 64)".into(),
@@ -763,10 +741,10 @@ pub async fn agent_put(
             None => return Err(NotFound.into_response()),
         }
     };
-    let dir = agents_dir(Path::new(&row.config_dir)).join(&name);
+    let dir = agents_dir(Path::new(&row.config_dir));
     std::fs::create_dir_all(&dir)
         .map_err(|e| AppError::msg(e.to_string()).into_response())?;
-    let path = dir.join("AGENT.md");
+    let path = dir.join(format!("{name}.md"));
     std::fs::write(&path, render_agent_file(&body))
         .map_err(|e| AppError::msg(e.to_string()).into_response())?;
     tracing::info!("opencode: agent {} saved for {}", name, row.name);
@@ -775,11 +753,9 @@ pub async fn agent_put(
 
 pub async fn agent_delete(
     State(state): State<Arc<AppState>>,
-    AxPath(id): AxPath<String>,
-    Query(q): Query<std::collections::HashMap<String, String>>,
+    AxPath((id, name)): AxPath<(String, String)>,
 ) -> Result<Json<Value>, axum::response::Response> {
     use axum::response::IntoResponse;
-    let name = q.get("name").cloned().unwrap_or_default();
     if !valid_name(&name) {
         return Err(BadRequest("invalid name".into()).into_response());
     }
@@ -790,11 +766,11 @@ pub async fn agent_delete(
             None => return Err(NotFound.into_response()),
         }
     };
-    let dir = agents_dir(Path::new(&row.config_dir)).join(&name);
-    if !dir.is_dir() {
+    let path = agents_dir(Path::new(&row.config_dir)).join(format!("{name}.md"));
+    if !path.is_file() {
         return Err(NotFound.into_response());
     }
-    std::fs::remove_dir_all(&dir)
+    std::fs::remove_file(&path)
         .map_err(|e| AppError::msg(e.to_string()).into_response())?;
     Ok(Json(json!({ "ok": true, "name": name })))
 }
@@ -850,11 +826,10 @@ pub struct SkillFileBody {
 
 pub async fn skill_put(
     State(state): State<Arc<AppState>>,
-    AxPath(id): AxPath<String>,
+    AxPath((id, name)): AxPath<(String, String)>,
     Json(body): Json<SkillFileBody>,
 ) -> Result<Json<Value>, axum::response::Response> {
     use axum::response::IntoResponse;
-    let name = body.name.clone().unwrap_or_default();
     if !valid_skill_name(&name) {
         return Err(BadRequest(
             "name: ^[a-z0-9]+(-[a-z0-9]+)*$ (max 64)".into(),
@@ -890,11 +865,9 @@ pub async fn skill_put(
 
 pub async fn skill_delete(
     State(state): State<Arc<AppState>>,
-    AxPath(id): AxPath<String>,
-    Query(q): Query<std::collections::HashMap<String, String>>,
+    AxPath((id, name)): AxPath<(String, String)>,
 ) -> Result<Json<Value>, axum::response::Response> {
     use axum::response::IntoResponse;
-    let name = q.get("name").cloned().unwrap_or_default();
     if !valid_skill_name(&name) {
         return Err(BadRequest("invalid name".into()).into_response());
     }
@@ -1264,9 +1237,11 @@ pub fn routes() -> Router<Arc<AppState>> {
             get(config_get).put(config_put),
         )
         .route("/servers/{id}/agents", get(agents_list))
-        .route("/servers/{id}/agents/{name}", put(agent_put).delete(agent_delete))
+        .route("/servers/{id}/agents/{name}", put(agent_put))
+        .route("/servers/{id}/agents/{name}", axum::routing::delete(agent_delete))
         .route("/servers/{id}/skills", get(skills_list))
-        .route("/servers/{id}/skills/{name}", put(skill_put).delete(skill_delete))
+        .route("/servers/{id}/skills/{name}", put(skill_put))
+        .route("/servers/{id}/skills/{name}", axum::routing::delete(skill_delete))
         .route("/servers/{id}/tools/sync", post(tools_sync))
         .route("/servers/{id}/tools/test", post(tools_test))
         .route("/servers/{id}/plugin/sync", post(plugin_sync))

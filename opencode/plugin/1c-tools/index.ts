@@ -4,7 +4,8 @@
 // POST {gateway}/onec/rpc с X-OpenCode-Token + sessionID; шлюз подставляет JWT
 // пользователя 1С из реестра сессий (per-user RLS).
 //
-// Плагин v1 API: default-export async fn → Hooks { tool: { [name]: tool({...}) } }.
+// Плагин v2 API: export const OneCToolsPlugin = { id, server }, где server —
+// async fn (input, options) → Hooks { tool: { [name]: tool({...}) } }.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -115,7 +116,7 @@ async function callGateway(
   return JSON.stringify(result).slice(0, 50000);
 }
 
-export default async (_input: any, _options?: any) => {
+async function pluginServer(_input: any, _options?: any): Promise<any> {
   const catalog = loadCatalog();
   if (!catalog || !Array.isArray(catalog.tools)) {
     // Каталог не собран — плагин молча не регистрирует инструментов.
@@ -147,4 +148,9 @@ export default async (_input: any, _options?: any) => {
     });
   }
   return { tool: tools };
+}
+
+export default {
+  id: "1c-tools",
+  setup: pluginServer,
 };

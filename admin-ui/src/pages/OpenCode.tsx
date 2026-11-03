@@ -285,10 +285,10 @@ function ConfigTab({ server }: { server: OpencodeServer }) {
 
 // ─── Агенты ─────────────────────────────────────────────────────────
 
-interface AgentForm { name: string; title: string; description: string; mode: string; hidden: boolean; body: string; }
+interface AgentForm { name: string; frontmatter: string; body: string; }
 
 function AgentsTab({ server }: { server: OpencodeServer }) {
-  const [agents, setAgents] = useState<AgentForm[]>([]);
+  const [agents, setAgents] = useState<(AgentForm & { description?: string; mode?: string })[]>([]);
   const [form, setForm] = useState<AgentForm | null>(null);
   const [isNew, setIsNew] = useState(false);
   const [del, setDel] = useState<string | null>(null);
@@ -297,7 +297,7 @@ function AgentsTab({ server }: { server: OpencodeServer }) {
   const load = useCallback(async () => {
     try {
       const r = await api.getOpencodeAgents(server.id);
-      setAgents(r.agents.map(a => ({ name: a.name, title: a.title || '', description: a.description || '', mode: a.mode || '', hidden: !!a.hidden, body: a.body })));
+      setAgents(r.agents.map(a => ({ name: a.name, frontmatter: a.frontmatter || '', body: a.body, description: a.description, mode: a.mode })));
     } catch (e) { setErr(errText(e, 'Ошибка')); }
   }, [server.id]);
 
@@ -323,17 +323,16 @@ function AgentsTab({ server }: { server: OpencodeServer }) {
       {err && <div className="mb-3"><Alert tone="red">{err}</Alert></div>}
       <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">{t.opencode.agentsHint}</p>
       <div className="flex justify-end mb-2">
-        <Btn onClick={() => { setIsNew(true); setForm({ name: '', title: '', description: '', mode: 'primary', hidden: false, body: '' }); }}>
+        <Btn onClick={() => { setIsNew(true); setForm({ name: '', frontmatter: 'mode: primary\n', body: '' }); }}>
           <Plus size={15} /> {t.opencode.newAgent}
         </Btn>
       </div>
-      <TableShell colSpan={4} empty={agents.length === 0 ? { text: t.studio.noAgents } : null}
-        head={<><Th>{t.opencode.agentName}</Th><Th>{t.opencode.agentTitle}</Th><Th>Режим</Th><Th right>{t.common.actions}</Th></>}>
+      <TableShell colSpan={3} empty={agents.length === 0 ? { text: t.studio.noAgents } : null}
+        head={<><Th>{t.opencode.agentName}</Th><Th>{t.skills.description}</Th><Th className="text-right">{t.common.actions}</Th></>}>
         {agents.map(a => (
           <Row key={a.name}>
-            <Td><span className={monoCls + ' text-xs'}>{a.name}</span>{a.hidden && <Badge tone="amber"> hidden</Badge>}</Td>
-            <Td><span className="text-sm">{a.title || '—'}</span></Td>
-            <Td><Badge tone="neutral">{a.mode || '—'}</Badge></Td>
+            <Td><span className={monoCls + ' text-xs'}>{a.name}</span>{a.mode && <Badge tone="neutral">{a.mode}</Badge>}</Td>
+            <Td><span className="text-sm">{a.description || '—'}</span></Td>
             <Td className="text-right">
               <div className="flex gap-0.5 justify-end">
                 <IconBtn title={t.common.edit} onClick={() => { setIsNew(false); setForm({ ...a }); }}><Pencil size={14} /></IconBtn>
@@ -346,16 +345,11 @@ function AgentsTab({ server }: { server: OpencodeServer }) {
 
       {form && (
         <Modal title={isNew ? t.opencode.newAgent : `Агент: ${form.name}`} onClose={() => setForm(null)} xwide fill>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label={t.opencode.agentName} hint="^[a-z0-9_-]+$"><TextInput mono value={form.name} disabled={!isNew} onChange={e => setForm({ ...form, name: e.target.value.toLowerCase() })} /></Field>
-            <Field label={t.opencode.agentTitle}><TextInput value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} /></Field>
-            <Field label={t.skills.description}><TextInput value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></Field>
-            <Field label={t.opencode.agentMode}><TextInput mono value={form.mode} onChange={e => setForm({ ...form, mode: e.target.value })} placeholder="primary | subagent" /></Field>
-          </div>
-          <label className="flex items-center gap-2 text-sm mt-3">
-            <input type="checkbox" checked={form.hidden} onChange={e => setForm({ ...form, hidden: e.target.checked })} /> {t.opencode.agentHidden}
-          </label>
-          <TextArea mono value={form.body} onChange={e => setForm({ ...form, body: e.target.value })} rows={18} className="mt-3" spellCheck={false} />
+          <Field label={t.opencode.agentName} hint="^[a-z0-9_-]+$"><TextInput mono value={form.name} disabled={!isNew} onChange={e => setForm({ ...form, name: e.target.value.toLowerCase() })} /></Field>
+          <Field label="Frontmatter (YAML)" hint="description, mode, model, permissions — как в agents/<имя>.md" className="mt-3">
+            <TextArea mono value={form.frontmatter} onChange={e => setForm({ ...form, frontmatter: e.target.value })} rows={8} spellCheck={false} placeholder={'description: …\nmode: primary\nmodel: local-12600/qwen3.8'} />
+          </Field>
+          <TextArea mono value={form.body} onChange={e => setForm({ ...form, body: e.target.value })} rows={14} className="mt-3" spellCheck={false} placeholder="Системный промпт агента (Markdown)" />
           <div className="flex justify-end gap-2 mt-4">
             <Btn variant="outline" onClick={() => setForm(null)}>{t.common.cancel}</Btn>
             <Btn onClick={doSave}><Check size={15} /> {t.common.save}</Btn>
