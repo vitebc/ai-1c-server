@@ -44,19 +44,6 @@ impl InitializeOnce {
             lock: Mutex::new(()),
         }
     }
-
-    /// Runs `init` exactly once (first caller); concurrent callers await it.
-    async fn run(&self, init: impl FnOnce() -> Result<(), Box<dyn std::error::Error>>) {
-        if self.done.load(std::sync::atomic::Ordering::Relaxed) {
-            return;
-        }
-        let _guard = self.lock.lock().await;
-        if self.done.load(std::sync::atomic::Ordering::Relaxed) {
-            return; // somebody else finished while we waited
-        }
-        init();
-        self.done.store(true, std::sync::atomic::Ordering::Relaxed);
-    }
 }
 
 impl HttpMcpSession {
@@ -93,19 +80,22 @@ impl HttpMcpSession {
     /// First call performs `initialize` + `notifications/initialized`;
     /// concurrent callers on the same session wait for it instead of racing.
     pub async fn ensure_initialized(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let session = self;
-        self.initialized
-            .run(|| {
-                // Blocking bridge: initialize is a short network round-trip,
-                // safe to drive with a fresh runtime from inside `call`.
-                tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .map(|rt| rt.block_on(session.do_initialize()))
-                    .map_err(|e| format!("init runtime: {e}"))?
-            })
-            .await;
-        Ok(())
+        if self.initialized.done.load(std::sync::atomic::Ordering::Relaxed) {
+            return Ok(());
+        }
+        let _guard = self.initialized.lock.lock().await;
+        if self.initialized.done.load(std::sync::atomic::Ordering::Relaxed) {
+            return Ok(()); // somebody else finished while we waited
+        }
+        match self.do_initialize().await {
+            Ok(()) => {
+                self.initialized
+                    .done
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                Ok(())
+            }
+            Err(e) => Err(e), // not marked done: the next call retries
+        }
     }
 
     async fn do_initialize(&self) -> Result<(), Box<dyn std::error::Error>> {
