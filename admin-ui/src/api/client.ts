@@ -304,4 +304,47 @@ export const api = {
   getRoles: () => request<{ roles: Record<string, string[]> }>('/users/roles'),
   updateRoles: (roles: Record<string, string[]>) =>
     request<{ ok: boolean }>('/users/roles', { method: 'PUT', body: JSON.stringify({ roles }) }),
+
+  // ─── OpenCode gateway ──────────────────────────────────────────────
+  getOpencodeStatus: () =>
+    request<{ gateway: string; ok: boolean; servers: string[]; sessions: number; project_root?: string; gateway_url?: string }>('/opencode/status'),
+  getOpencodeServers: () => request<import('../types').OpencodeServer[]>('/opencode/servers'),
+  createOpencodeServer: (data: Partial<import('../types').OpencodeServer>) =>
+    request<import('../types').OpencodeServer>('/opencode/servers', { method: 'POST', body: JSON.stringify(data) }),
+  updateOpencodeServer: (id: string, data: Partial<import('../types').OpencodeServer>) =>
+    request<import('../types').OpencodeServer>(`/opencode/servers/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteOpencodeServer: (id: string) => request<void>(`/opencode/servers/${id}`, { method: 'DELETE' }),
+  opencodeLifecycle: (id: string, action: 'up' | 'stop' | 'restart') =>
+    request<{ ok: boolean; output?: string }>(`/opencode/servers/${id}/${action}`, {
+      method: 'POST', body: JSON.stringify({ server: id }),
+    }),
+  getOpencodeLogs: (id: string, tail = 200) =>
+    request<{ server: string; logs: string }>(`/opencode/servers/${id}/logs?tail=${tail}`),
+  getOpencodeConfig: (id: string) =>
+    request<{ exists: boolean; content: string | null; error?: string | null }>(`/opencode/servers/${id}/config`),
+  putOpencodeConfig: (id: string, content: string) =>
+    request<{ ok: boolean; path: string }>(`/opencode/servers/${id}/config`, { method: 'PUT', body: JSON.stringify({ content }) }),
+  getOpencodeAgents: (id: string) =>
+    request<{ server: string; dir: string; agents: { name: string; title?: string; description?: string; mode?: string; hidden?: boolean; body: string }[] }>(`/opencode/servers/${id}/agents`),
+  putOpencodeAgent: (id: string, data: { name?: string; title?: string; description?: string; mode?: string; hidden?: boolean; body: string }) =>
+    request<{ ok: boolean; name: string }>(`/opencode/servers/${id}/agents/${encodeURIComponent(data.name || '')}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteOpencodeAgent: (id: string, name: string) =>
+    request<{ ok: boolean }>(`/opencode/servers/${id}/agents/${encodeURIComponent(name)}?name=${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  getOpencodeSkills: (id: string) =>
+    request<{ server: string; dir: string; skills: { name: string; description?: string; body: string }[] }>(`/opencode/servers/${id}/skills`),
+  putOpencodeSkill: (id: string, data: { name?: string; description?: string; body: string }) =>
+    request<{ ok: boolean; name: string }>(`/opencode/servers/${id}/skills/${encodeURIComponent(data.name || '')}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteOpencodeSkill: (id: string, name: string) =>
+    request<{ ok: boolean }>(`/opencode/servers/${id}/skills/${encodeURIComponent(name)}?name=${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  opencodeToolsSync: (id: string) =>
+    request<{ ok: boolean; count: number; path?: string; token?: string }>(`/opencode/servers/${id}/tools/sync`, { method: 'POST' }),
+  opencodeToolsTest: (id: string, tool: string, arguments_?: Record<string, unknown>) =>
+    request<{ ok: boolean; status: number; elapsed_ms: number; result: unknown }>(`/opencode/servers/${id}/tools/test`, { method: 'POST', body: JSON.stringify({ tool, arguments: arguments_ }) }),
+  opencodePluginSync: (id: string) =>
+    request<{ ok: boolean; path?: string }>(`/opencode/servers/${id}/plugin/sync`, { method: 'POST' }),
+  getOpencodePluginToken: (id: string) => request<{ token: string }>(`/opencode/servers/${id}/plugin/token`),
+  getOpencodeSessions: () =>
+    request<{ count: number; sessions: { session_id: string; server: string; user?: string | null; base?: string | null; has_jwt: boolean; expires_at: number }[] }>('/opencode/sessions'),
+  dropOpencodeSession: (session_id: string) =>
+    request<{ ok: boolean }>('/opencode/sessions/drop', { method: 'POST', body: JSON.stringify({ session_id }) }),
 };

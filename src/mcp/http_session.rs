@@ -21,6 +21,10 @@ pub struct HttpMcpSession {
     url: String,
     client: reqwest::Client,
     headers: HashMap<String, String>,
+    /// Streamable HTTP session id (response header `mcp-session-id`): some
+    /// servers (e.g. code-index-mcp) reject non-initialize requests on a
+    /// connection without it. Empty = server is stateless, don't send the header.
+    session_id: Arc<Mutex<Option<String>>>,
     next_id: Arc<Mutex<u64>>,
 }
 
@@ -48,6 +52,7 @@ impl HttpMcpSession {
                 .read_timeout(Duration::from_secs(90))
                 .build()?,
             headers,
+            session_id: Arc::new(Mutex::new(None)),
             next_id: Arc::new(Mutex::new(1)),
         };
         session.initialize().await?;
@@ -86,6 +91,8 @@ impl HttpMcpSession {
         request.id = Some(serde_json::json!(req_id));
         let body = serde_json::to_value(&request)?;
         let target = serde_json::json!(req_id);
+        // The session id must be known before the first non-initialize call,
+        // but initialize itself is what provides it — so post() captures it.
         let value = self.post(&body).await?;
         // Plain JSON-RPC response.
         if value.get("id").map_or(false, |id| id == &target) {
@@ -109,7 +116,17 @@ impl HttpMcpSession {
         for (k, v) in &self.headers {
             req = req.header(k.as_str(), v.as_str());
         }
+        if let Some(sid) = self.session_id.lock().await.clone() {
+            req = req.header("mcp-session-id", sid);
+        }
         let resp = req.send().await?;
+        // Streamable HTTP servers may open a session on `initialize`: remember
+        // the id and echo it back on every subsequent request.
+        if let Some(sid) = resp.headers().get("mcp-session-id").and_then(|v| v.to_str().ok()) {
+            if !sid.is_empty() {
+                *self.session_id.lock().await = Some(sid.to_string());
+            }
+        }
         if !resp.status().is_success() {
             let code = resp.status();
             let text = resp.text().await.unwrap_or_default();

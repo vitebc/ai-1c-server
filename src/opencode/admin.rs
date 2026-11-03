@@ -674,24 +674,25 @@ pub async fn agents_list(
     if let Ok(rd) = std::fs::read_dir(&dir) {
         for entry in rd.flatten() {
             let p = entry.path();
-            if !p.is_dir() || p.file_name().map(|n| n.to_string_lossy().starts_with('.')).unwrap_or(true) {
+            // Плоские файлы: agents/<имя>.md (frontmatter + Markdown).
+            if !p.is_file() || p.extension().and_then(|e| e.to_str()) != Some("md") {
                 continue;
             }
-            let md = p.join("AGENT.md");
-            if !md.is_file() {
-                continue;
-            }
-            let content = match std::fs::read_to_string(&md) {
+            let name = match p.file_stem().and_then(|n| n.to_str()).map(str::to_string) {
+                Some(n) if !n.starts_with('.') => n,
+                _ => continue,
+            };
+            let content = match std::fs::read_to_string(&p) {
                 Ok(c) => c,
                 Err(_) => continue,
             };
             let (meta, body) = parse_frontmatter(&content);
             agents.push(json!({
-                "name": p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
-                "title": fm_str(&meta, "title"),
+                "name": name,
                 "description": fm_str(&meta, "description"),
                 "mode": fm_str(&meta, "mode"),
-                "hidden": meta.get("hidden").and_then(|v| v.as_bool()).unwrap_or(false),
+                "model": fm_str(&meta, "model"),
+                "frontmatter": serde_yaml::to_string(&meta).unwrap_or_default(),
                 "body": body,
             }));
         }

@@ -17,6 +17,7 @@ const ClientVersions = lazy(() => import('./pages/ClientVersions'));
 const Clients = lazy(() => import('./pages/Clients'));
 const Logs = lazy(() => import('./pages/Logs'));
 const BslLs = lazy(() => import('./pages/BslLs'));
+const OpenCode = lazy(() => import('./pages/OpenCode'));
 const AgentStudio = lazy(() => import('./pages/AgentStudio'));
 const RagTab = lazy(() => import('./pages/RagTab'));
 const Users = lazy(() => import('./pages/Users'));
@@ -47,6 +48,7 @@ const nav = [
   { to: '/client-versions', label: t.nav.versions, icon: Package, section: 'client-versions' },
   { to: '/clients', label: t.nav.clients, icon: UsersIcon, section: 'clients' },
   { to: '/bases-1c', label: t.nav.bases1c, icon: Database, section: 'bases1c' },
+  { to: '/opencode', label: t.nav.opencode, icon: GitBranch, section: 'opencode' },
   { to: '/stats', label: t.nav.stats, icon: BarChart3, section: 'dashboard' },
   { to: '/agent-changes', label: t.nav.agentChanges, icon: History, section: 'agent-changes' },
   { to: '/logs', label: t.nav.logs, icon: ScrollText, section: 'logs' },
@@ -169,6 +171,7 @@ function Shell() {
             <Route path="/client-versions" element={<Guard me={me} section="client-versions"><ClientVersions /></Guard>} />
             <Route path="/clients" element={<Guard me={me} section="clients"><Clients /></Guard>} />
             <Route path="/bases-1c" element={<Guard me={me} section="bases1c"><Bases1c /></Guard>} />
+            <Route path="/opencode" element={<Guard me={me} section="opencode"><OpenCode /></Guard>} />
             <Route path="/bsl-ls" element={<Guard me={me} section="bsl-ls"><BslLs /></Guard>} />
             <Route path="/agent-studio" element={<Guard me={me} section="agent-studio" anyOf={['agent-agents', 'agent-skills', 'agent-patterns', 'agent-backend', 'env']}><AgentStudio me={me} /></Guard>} />
             <Route path="/rag" element={<Guard me={me} section="agent-rag"><RagTab /></Guard>} />

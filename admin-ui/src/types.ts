@@ -406,3 +406,24 @@ export interface RagReingestResult {
   /** Расхождение «файлы на диске vs документы в БД» после replace-инжеста. */
   file_count_mismatch?: { files_on_disk: number; unique_files: number; documents_in_db: number };
 }
+
+// ─── OpenCode gateway ──────────────────────────────────────────────
+
+export interface OpencodeServer {
+  id: string;
+  name: string;
+  title: string;
+  config_dir: string;
+  url: string;
+  username: string;
+  password_set: boolean;
+  bases: string[];
+  compose_service: string;
+  compose_profile: string;
+  onec_user: string;
+  onec_password_set: boolean;
+  enabled: boolean;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+}
