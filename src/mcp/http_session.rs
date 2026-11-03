@@ -33,29 +33,29 @@ pub struct HttpMcpSession {
 /// gateway + REST tools endpoint) must not race `initialize` on the same
 /// stateful server — only the first one initializes, the rest wait.
 struct InitializeOnce {
-    done: bool,
+    done: std::sync::atomic::AtomicBool,
     lock: Mutex<()>,
 }
 
 impl InitializeOnce {
     fn new() -> Self {
         Self {
-            done: false,
+            done: std::sync::atomic::AtomicBool::new(false),
             lock: Mutex::new(()),
         }
     }
 
     /// Runs `init` exactly once (first caller); concurrent callers await it.
     async fn run(&self, init: impl FnOnce() -> Result<(), Box<dyn std::error::Error>>) {
-        if self.done {
+        if self.done.load(std::sync::atomic::Ordering::Relaxed) {
             return;
         }
         let _guard = self.lock.lock().await;
-        if self.done {
+        if self.done.load(std::sync::atomic::Ordering::Relaxed) {
             return; // somebody else finished while we waited
         }
         init();
-        self.done = true;
+        self.done.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
