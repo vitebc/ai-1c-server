@@ -87,6 +87,9 @@ impl HttpMcpSession {
         if self.initialized.done.load(std::sync::atomic::Ordering::Relaxed) {
             return Ok(()); // somebody else finished while we waited
         }
+        // `call_inner` directly: initialize is the only request that must not
+        // pass through ensure_initialized (it IS the initialization), so there
+        // is no call -> ensure -> call cycle.
         match self.do_initialize().await {
             Ok(()) => {
                 self.initialized
@@ -107,7 +110,8 @@ impl HttpMcpSession {
                 "clientInfo": { "name": "ai-1c-server", "version": "0.1.0" }
             }),
         );
-        self.call(req).await?;
+        // call_inner: initialize must not re-enter ensure_initialized (cycle).
+        self.call_inner(req).await?;
         // Notification: no id, server answers 202/empty — ignore the outcome.
         let notif = serde_json::json!({
             "jsonrpc": "2.0",
