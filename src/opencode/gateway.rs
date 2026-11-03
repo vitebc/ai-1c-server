@@ -360,11 +360,15 @@ async fn gateway_any(
     .await;
 
     // POST /api/session: запоминаем созданную сессию (id из ответа).
+    // OpenCode v2 оборачивает ответ в {data: {...}} — смотрим и туда.
     if method == Method::POST && path == "/api/session" {
         if let Some((status, body_bytes)) = peek_json(&resp) {
-            if status == StatusCode::OK {
+            if status.is_success() {
                 if let Ok(v) = serde_json::from_slice::<Value>(&body_bytes) {
-                    if let Some(sid) = v.get("id").and_then(|i| i.as_str()) {
+                    let sid = v.get("id")
+                        .or_else(|| v.get("data").and_then(|d| d.get("id")))
+                        .and_then(|i| i.as_str());
+                    if let Some(sid) = sid {
                         record_session(
                             sid,
                             &server.id,
@@ -544,33 +548,40 @@ async fn onec_rpc(
 
     // 3. База: явная → из сессии → первая из bases сервера.
     let base = body.base.clone().or(entry.base.clone()).map(|b| b.to_lowercase());
-    let (onec_url, base_final) = {
+    let bases_raw: Option<String> = {
         let db = state.db.lock().await;
-        let row: Option<String> = db
-            .conn
-            .query_row("SELECT bases FROM opencode_servers WHERE name = ?1", [&server_name], |r| r.get(0))
-            .ok();
-        let bases_raw = match row {
-            Some(r) => r,
-            None => return (StatusCode::NOT_FOUND, Json(json!({ "error": "сервер не найден" }))).into_response(),
-        };
-        let bases: Vec<String> = serde_json::from_str(&bases_raw).unwrap_or_default();
-        let base = match base {
-            Some(b) => b,
-            None => bases.first().cloned().unwrap_or_default(),
-        };
-        if base.is_empty() {
-            return (StatusCode::BAD_REQUEST, Json(json!({ "error": "база не указана и не задана у сервера" }))).into_response();
-        }
-        match resolve_onec_url(&state, &base).await {
-            Some(u) => (u.trim_end_matches('/').to_string(), base),
-            None => return (StatusCode::NOT_FOUND, Json(json!({ "error": format!("база {base:?} не найдена в мапе ONEC_BASES") }))).into_response(),
-        }
+        db.conn
+            .query_row("SELECT bases FROM opencode_servers WHERE name = ?1", [&server_name], |r| r.get::<_, String>(0))
+            .ok()
+    };
+    let bases_raw = match bases_raw {
+        Some(r) => r,
+        None => return (StatusCode::NOT_FOUND, Json(json!({ "error": "сервер не найден" }))).into_response(),
+    };
+    let bases: Vec<String> = serde_json::from_str(&bases_raw).unwrap_or_default();
+    let base_final = match base {
+        Some(b) => b,
+        None => bases.first().cloned().unwrap_or_default(),
+    };
+    if base_final.is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(json!({ "error": "база не указана и не задана у сервера" }))).into_response();
+    }
+    // resolve_onec_url сам берёт db-лок — вызываем БЕЗ удержанного лока.
+    let onec_url = match resolve_onec_url(&state, &base_final).await {
+        Some(u) => u.trim_end_matches('/').to_string(),
+        None => return (StatusCode::NOT_FOUND, Json(json!({ "error": format!("база {base_final:?} не найдена в мапе ONEC_BASES") }))).into_response(),
     };
 
     // 4. JSON-RPC в 1С под JWT пользователя (per-user RLS).
+    // 1С /hs/mcp/rpc — MCP-совместимый: {jsonrpc, id, method: "tools/call",
+    // params: {name, arguments}}. Плагин шлёт params.name/arguments.
     let rpc_url = format!("{}/hs/mcp/rpc", onec_url);
-    let payload = json!({ "jsonrpc": "2.0", "id": 1, "params": body.params });
+    let payload = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": body.params,
+    });
     let client = match reqwest::Client::builder().timeout(Duration::from_secs(120)).build() {
         Ok(c) => c,
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
