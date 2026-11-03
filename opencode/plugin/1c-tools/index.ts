@@ -150,7 +150,4 @@ async function pluginServer(_input: any, _options?: any): Promise<any> {
   return { tool: tools };
 }
 
-export default {
-  id: "1c-tools",
-  setup: pluginServer,
-};
+export default { id: "1c-tools", effect: pluginServer };
