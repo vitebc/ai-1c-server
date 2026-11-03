@@ -121,6 +121,7 @@ impl HttpMcpSession {
         &self,
         mut request: JsonRpcRequest,
     ) -> Result<JsonRpcResponse, Box<dyn std::error::Error>> {
+        self.ensure_initialized().await?;
         let req_id = {
             let mut n = self.next_id.lock().await;
             let id = *n;
@@ -128,7 +129,6 @@ impl HttpMcpSession {
             id
         };
         request.id = Some(serde_json::json!(req_id));
-        self.ensure_initialized().await?;
         let body = serde_json::to_value(&request)?;
         let target = serde_json::json!(req_id);
         // The session id must be known before the first non-initialize call,
