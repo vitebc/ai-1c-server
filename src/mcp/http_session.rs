@@ -121,6 +121,17 @@ impl HttpMcpSession {
         &self,
         mut request: JsonRpcRequest,
     ) -> Result<JsonRpcResponse, Box<dyn std::error::Error>> {
+        // Thin wrapper: guarantees one-shot initialize before the real work.
+        // Kept separate from `call_inner` so the async recursion stays finite
+        // (ensure_initialized -> do_initialize -> call -> ... -> post).
+        self.ensure_initialized().await?;
+        self.call_inner(request).await
+    }
+
+    async fn call_inner(
+        &self,
+        mut request: JsonRpcRequest,
+    ) -> Result<JsonRpcResponse, Box<dyn std::error::Error>> {
         let req_id = {
             let mut n = self.next_id.lock().await;
             let id = *n;
@@ -128,11 +139,6 @@ impl HttpMcpSession {
             id
         };
         request.id = Some(serde_json::json!(req_id));
-        // First non-initialize request on a stateful server: make sure the
-        // session exists (initialize was skipped at start to avoid racing
-        // concurrent callers; see ensure_initialized). `call` itself is not
-        // involved, so this does not recurse.
-        self.ensure_initialized().await?;
         let body = serde_json::to_value(&request)?;
         let target = serde_json::json!(req_id);
         // The session id must be known before the first non-initialize call,
