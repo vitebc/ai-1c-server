@@ -66,9 +66,17 @@ start/stop/status/restart. Выкатка в prod — `scripts/deploy.sh`.
 - **Admin CRUD API** — `src/api/admin/`: mcp_servers, skills,
   config_profiles, client_versions, clients, status, dashboard, settings,
   logs, fs, users, model_providers, bsl_ls, agent_files, agent_backend.
+- **OpenCode Gateway** — `src/opencode/`: шлюз :9020 к серверам OpenCode
+  (по одному на базу 1С). `admin.rs` — CRUD серверов + управление
+  конфигами/агентами/скилами/тулзами (`/api/admin/opencode/*`, секция RBAC
+  `opencode`); `gateway.rs` — listener :9020 (прокси REST/SSE, реестр сессий,
+  RLS-мост `/onec/rpc`). Инструменты 1С в OpenCode — штатный плагин v2
+  (`Plugin.define` + `ctx.tool.transform`), генерируется кнопкой «Применить»
+  (sync из 1С → generate index.ts → restart контейнера). RLS: JWT пользователя
+  из формы подставляется шлюзом в запрос к `{base}/hs/mcp/rpc`.
 - **Admin UI** (React 19 + Vite 7 + Tailwind CSS v4 + react-router 7):
   Dashboard, MCP Servers, Models, Agent Studio, Skills, BSL LS, Configs,
-  Client Versions, Clients, Logs, Users. Тёмная тема, i18n (ru),
+  Client Versions, Clients, Logs, Users, OpenCode. Тёмная тема, i18n (ru),
   общие компоненты в `components/ui.tsx`.
 
 Заглушки (модули есть, логики нет): `src/watcher/` (fsnotify-реиндекс),
@@ -142,6 +150,7 @@ main.rs           — точка входа, clap CLI
 │   └── mod.rs    — сборка роутов, 404 для неизвестных /api/*
 ├── db/           — SQLite через rusqlite (bundled) + миграции
 ├── mcp/          — lifecycle сессий (stdio|http), JSON-RPC, BSL LS, скиллы
+├── opencode/     — шлюз :9020 к серверам OpenCode (admin.rs + gateway.rs)
 ├── auth/         — argon2 + JWT + RBAC (роли, секции, rate-limit)
 ├── log_buffer.rs — кольцевой буфер логов + distinct targets
 ├── watcher/      — заглушка (fsnotify для авто-реиндекса)
@@ -152,13 +161,14 @@ main.rs           — точка входа, clap CLI
 Миграции: `001_initial.sql` (mcp_servers, skills, config_profiles,
 client_versions, clients, server_settings, audit_log),
 `002_add_instruction.sql`, `003_config_parent.sql`, `004_users.sql`,
-`005_model_providers.sql`.
+`005_model_providers.sql`, `008_opencode.sql` (opencode_servers).
 
 ## RBAC (кратко; полная документация — `RBAC.md`, код — `src/auth/mod.rs`)
 
-- 19 секций: `dashboard, mcp-servers, models, agent-studio, agent-agents,
-  agent-skills, agent-patterns, agent-backend, skills, bsl-ls, configs,
-  client-versions, clients, logs, settings, fs, env, users, auth-manage`.
+- 20 секций: `dashboard, mcp-servers, models, agent-studio, agent-agents,
+  agent-skills, agent-patterns, agent-backend, opencode, skills, bsl-ls,
+  configs, client-versions, clients, logs, settings, fs, env, users,
+  auth-manage`.
 - 4 роли: `admin` (всегда full, не настраивается), `operator` (все
   рабочие разделы), `viewer` (read-only), `prompter` (read-only, но пишет
   `agent-files/agents|skills|patterns`).
@@ -205,6 +215,13 @@ client_versions, clients, server_settings, audit_log),
   не перетирать при правках.
 - **Известный долг**: в `AgentStudio.tsx` / `McpServers.tsx` встречаются
   склеенные строки (мои правки без отступов) — работает, но неаккуратно.
+- **OpenCode Gateway** — шлюз :9020 (один порт для dev и prod). Серверы
+  OpenCode живут в `1C-opencode` (docker compose, порты 4040–4043).
+  Инструменты 1С — штатный плагин v2 (`Plugin.define` + `ctx.tool.transform`),
+  генерируется кнопкой «Применить» (sync из 1С → generate index.ts → restart).
+  RLS: JWT пользователя из формы подставляется шлюзом в `{base}/hs/mcp/rpc`.
+  Кастомные тулзы из `tools/` и плагин v1 (`{id, server}`) в OpenCode 2.1.4
+  не работают — не использовать.
 
 ## Документация
 

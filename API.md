@@ -263,6 +263,57 @@ Authorization: Bearer <JWT HS256, sub = onec_id>
 `/agent-backend/env`, `/agent-backend/bases*` → `env`; `/agent-backend/stats*`
 → `dashboard`; `/agent-backend/live/*` → `__agent_files_any`.
 
+### OpenCode Gateway (шлюз :9020)
+
+Единый шлюз к серверам OpenCode (по одному на базу 1С): прокси API/SSE,
+маршрутизация по базе (claim `base` из JWT → `X-1C-Base` → `?base=` →
+путь `/b/{base}/api/...` → сервер по умолчанию), реестр сессий и RLS-мост
+инструментов 1С.
+
+**Админ API** (`/api/admin/opencode/*`, секция RBAC `opencode`):
+
+| Метод | Путь | Описание |
+|---|---|---|
+| GET | `/opencode/status` | `{project_root, gateway_url, port, servers[]}` — на каждом сервере `healthy`, `plugin_generated`, `deps_installed` |
+| GET/POST | `/opencode/servers` | список / создать `{name, title, config_dir, url, username, password, bases[], compose_service, compose_profile, onec_user, onec_password, enabled, is_default}` |
+| GET/PUT/DELETE | `/opencode/servers/{id}` | по id или name; PUT — частичное (пустой `password`/`onec_password` = оставить) |
+| POST | `/opencode/servers/{id}/up\|stop\|restart` | `docker compose <action> <compose_service>` в `project_root` |
+| GET | `/opencode/servers/{id}/logs?tail=` | compose-логи |
+| GET/PUT | `/opencode/servers/{id}/config` | `opencode.jsonc` (JSONC, валидация при записи) |
+| GET | `/opencode/servers/{id}/agents` | плоские агенты `config/<server>/agents/*.md` (frontmatter + body) |
+| PUT/DELETE | `/opencode/servers/{id}/agents/{name}` | создать/изменить / удалить агент |
+| GET | `/opencode/servers/{id}/skills` | скилы `config/<server>/skills/*.md` |
+| PUT/DELETE | `/opencode/servers/{id}/skills/{name}` | создать/изменить / удалить скилл |
+| POST | `/opencode/servers/{id}/tools/sync` | 1С → `plugins/1c-tools/catalog.json` (Basic из `onec_user/onec_password`, база = первая из `bases`) → `{ok, count, path, token}` |
+| POST | `/opencode/servers/{id}/tools/generate` | `catalog.json` → `plugins/1c-tools/index.ts` (плагин v2, каталог вшит литералом) + `package.json` (`@opencode/plugin: 2.1.4`) → `{ok, count, dir}` |
+| POST | `/opencode/servers/{id}/tools/apply` | **одна кнопка**: sync → generate → `docker compose restart` (только если каталог изменился; без compose-сервиса — пропускаем) → `{ok, synced, generated, changed, restarted, dir}` |
+| POST | `/opencode/servers/{id}/tools/install-deps` | `npm install @opencode/plugin` в конфиг-каталоге (один раз при первом развёртывании) |
+| POST | `/opencode/servers/{id}/tools/test` | `{tool, arguments}` — прямой вызов 1С (не через плагин), для проверки до генерации |
+| GET | `/opencode/servers/{id}/plugin/token` | токен плагина `X-OpenCode-Token` (HMAC от `JWT_SECRET` + name) |
+| GET | `/opencode/sessions` | реестр сессий шлюза: `{session_id, server, user, base, has_jwt, expires_at}` |
+| POST | `/opencode/sessions/drop` | `{session_id}` — убрать из реестра (после рестарта шлюза JWT теряется) |
+
+**Gateway listener** (`:9020`, один порт для dev и prod):
+
+- `POST /api/session` — создаёт сессию на целевом сервере OpenCode; шлюз
+  кладёт в реестр `sessionID → {base, sub, JWT, exp}` (id из `data.id`).
+- `POST /api/session/{id}/prompt`, `/wait`, `/message` — обновляют реестр.
+- **RLS-мост** `POST /onec/rpc` — плагин `1c-tools` шлёт `{session_id, base?, params:{name, arguments}}` + `X-OpenCode-Token`; шлюз подставляет JWT пользователя 1С из реестра → `Authorization: Bearer <JWT>` на `{base}/hs/mcp/rpc`. Это per-user RLS: запрос в 1С идёт под пользователем из формы, а не сервисным.
+
+**Плагин 1c-tools (OpenCode v2):** `config/<server>/plugins/1c-tools/index.ts`
+— `Plugin.define({id: "onec-tools", setup(ctx) { ctx.tool.transform(...) }})`.
+Каталог инструментов вшит литералом (без `fs`/`fetch` в `setup` — активация
+не подвисает). Тулзы видны модели напрямую (`options.codemode: false`,
+неймспейс `onec`). Вызовы через шлюз `/onec/rpc`.
+
+**Кнопка «Применить»** (UI, вкладка Инструменты) = `POST /tools/apply`:
+синхронизация каталога из 1С + генерация плагина + рестарт контейнера
+(если каталог изменился). При добавлении/удалении тулзы в 1С — один клик.
+
+**Маршрутизация по базе:** claim `base` из JWT → заголовок `X-1C-Base` →
+query `?base=` → путь `/b/{base}/api/...` → сервер по умолчанию
+(`is_default=true`). Неизвестная база — 404 со списком настроенных.
+
 ### Собственный API бэкенда агента (Python, `agent/`)
 
 Админка ходит в бэкенд агента (FastAPI) не напрямую, а через
