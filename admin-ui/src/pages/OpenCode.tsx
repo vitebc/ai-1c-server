@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, Play, Square, RotateCw, Terminal, Check, X, RefreshCw, KeyRound } from 'lucide-react';
+import { Plus, Pencil, Trash2, Play, Square, RotateCw, Terminal, Check, X, RefreshCw, KeyRound, Package } from 'lucide-react';
 import { api } from '../api/client';
 import type { OpencodeServer } from '../types';
 import { t } from '../i18n';
@@ -454,6 +454,8 @@ function ToolsTab({ server, onChanged }: { server: OpencodeServer; onChanged: ()
   const [testTool, setTestTool] = useState('');
   const [testArgs, setTestArgs] = useState('{}');
   const [testResult, setTestResult] = useState<string>('');
+  const [pluginGenerated, setPluginGenerated] = useState(false);
+  const [depsInstalled, setDepsInstalled] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -462,7 +464,12 @@ function ToolsTab({ server, onChanged }: { server: OpencodeServer; onChanged: ()
       const r = await api.getOpencodePluginToken(server.id);
       setToken(r.token);
     } catch { /* нет токена — ок */ }
-  }, [server.id]);
+    try {
+      const st = await api.getOpencodeStatus();
+      const me = (st.servers as any[]).find((s: any) => s.id === server.id || s.name === server.name);
+      if (me) { setPluginGenerated(!!me.plugin_generated); setDepsInstalled(!!me.deps_installed); }
+    } catch { /* status недоступен — ок */ }
+  }, [server.id, server.name]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -479,11 +486,22 @@ function ToolsTab({ server, onChanged }: { server: OpencodeServer; onChanged: ()
   }
 
   async function doToolsGenerate() {
-    setErr('');
+    setErr(''); setBusy(true);
     try {
       const r = await api.opencodeToolsGenerate(server.id);
-      setSyncMsg(`Сгенерировано ${r.count} тулзов: ${r.dir}`);
+      setSyncMsg(`Сгенерирован плагин (${r.count} тулзов): ${r.dir}`);
+      onChanged();
     } catch (e) { setErr(errText(e, 'Ошибка генерации')); }
+    finally { setBusy(false); }
+  }
+
+  async function doInstallDeps() {
+    setErr(''); setBusy(true);
+    try {
+      const r = await api.opencodeToolsInstallDeps(server.id);
+      setSyncMsg(`Зависимости установлены: ${r.dir}`);
+    } catch (e) { setErr(errText(e, 'Ошибка npm install')); }
+    finally { setBusy(false); }
   }
 
   async function doTest() {
@@ -503,13 +521,18 @@ function ToolsTab({ server, onChanged }: { server: OpencodeServer; onChanged: ()
       {toolCount !== null && (
         <div className="mb-3"><Badge tone="green">В каталоге: {toolCount} инструментов</Badge></div>
       )}
+      <div className="flex gap-2 mb-3">
+        <Badge tone={pluginGenerated ? 'green' : 'amber'}>{t.opencode.pluginState(pluginGenerated)}</Badge>
+        <Badge tone={depsInstalled ? 'green' : 'amber'}>{t.opencode.depsState(depsInstalled)}</Badge>
+      </div>
       {syncMsg && <div className="mb-3"><Alert tone="blue">{syncMsg}</Alert></div>}
       {err && <div className="mb-3"><Alert tone="red">{err}</Alert></div>}
       <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">{t.opencode.toolsHint}</p>
 
       <div className="flex gap-2 mb-4">
         <Btn onClick={doSync} disabled={busy}><RefreshCw size={15} className={busy ? 'animate-spin' : ''} /> {t.opencode.toolsSync}</Btn>
-        <Btn variant="outline" onClick={doToolsGenerate}><Terminal size={15} /> {t.opencode.toolsGenerate}</Btn>
+        <Btn variant="outline" onClick={doToolsGenerate} disabled={busy}><Terminal size={15} /> {t.opencode.toolsGenerate}</Btn>
+        <Btn variant="outline" onClick={doInstallDeps} disabled={busy}><Package size={15} /> {t.opencode.toolsInstallDeps}</Btn>
         {token && (
           <span className="inline-flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
             <KeyRound size={13} /> {t.opencode.pluginToken}: <code className={monoCls}>{token.slice(0, 16)}…</code>

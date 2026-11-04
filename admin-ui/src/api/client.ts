@@ -307,7 +307,7 @@ export const api = {
 
   // ─── OpenCode gateway ──────────────────────────────────────────────
   getOpencodeStatus: () =>
-    request<{ gateway: string; ok: boolean; servers: string[]; sessions: number; project_root?: string; gateway_url?: string }>('/opencode/status'),
+    request<{ gateway: string; ok: boolean; servers: Array<Record<string, any>>; sessions: number; project_root?: string; gateway_url?: string }>('/opencode/status'),
   getOpencodeServers: () => request<import('../types').OpencodeServer[]>('/opencode/servers'),
   createOpencodeServer: (data: Partial<import('../types').OpencodeServer>) =>
     request<import('../types').OpencodeServer>('/opencode/servers', { method: 'POST', body: JSON.stringify(data) }),
@@ -342,6 +342,8 @@ export const api = {
     request<{ ok: boolean; status: number; elapsed_ms: number; result: unknown }>(`/opencode/servers/${id}/tools/test`, { method: 'POST', body: JSON.stringify({ tool, arguments: arguments_ }) }),
   opencodeToolsGenerate: (id: string) =>
     request<{ ok: boolean; count: number; dir?: string }>(`/opencode/servers/${id}/tools/generate`, { method: 'POST' }),
+  opencodeToolsInstallDeps: (id: string) =>
+    request<{ ok: boolean; dir?: string }>(`/opencode/servers/${id}/tools/install-deps`, { method: 'POST' }),
   getOpencodePluginToken: (id: string) => request<{ token: string }>(`/opencode/servers/${id}/plugin/token`),
   getOpencodeSessions: () =>
     request<{ count: number; sessions: { session_id: string; server: string; user?: string | null; base?: string | null; has_jwt: boolean; expires_at: number }[] }>('/opencode/sessions'),

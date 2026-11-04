@@ -1103,31 +1103,33 @@ pub async fn tools_test(
     })))
 }
 
-// ─── генерация тулзов 1С (config/<server>/tools/*.ts) ──────────────
+// ─── генерация плагина тулзов 1С (config/<server>/plugins/1c-tools/index.ts) ─
 
-/// Исходник _shared.ts (единый для всех серверов).
-pub const SHARED_TS_SOURCE: &str = include_str!("../../opencode/plugin/1c-tools/_shared.ts");
-
-fn tools_dir(config_dir: &Path) -> PathBuf {
-    config_dir.join("tools")
+/// Путь каталога плагинов OpenCode в конфиг-директории сервера.
+fn plugins_dir(config_dir: &Path) -> PathBuf {
+    config_dir.join("plugins")
 }
 
-/// Генерация кастомных тулзов 1С в config/<server>/tools/.
-/// Каждый инструмент — отдельный .ts файл (имя файла = имя инструмента).
-fn generate_tools(config_dir: &Path, catalog_json: &str) -> Result<usize, String> {
-    let dir = tools_dir(config_dir);
+/// Генерация плагина 1c-tools (OpenCode v2 API: Plugin.define + ctx.tool.transform).
+/// Каталог инструментов вшивается в index.ts литералом — без fs/fetch в setup,
+/// чтобы активация не подвисала. Вызовы идут через шлюз /onec/rpc с
+/// X-OpenCode-Token + sessionID; шлюз подставляет JWT пользователя 1С (RLS).
+fn generate_plugin(
+    config_dir: &Path,
+    catalog_json: &str,
+    server_name: &str,
+    gateway_url: &str,
+    plugin_token: &str,
+) -> Result<usize, String> {
+    let dir = plugins_dir(config_dir).join("1c-tools");
     std::fs::create_dir_all(&dir)
-        .map_err(|e| format!("mkdir tools: {e}"))?;
-
-    // _shared.ts — общий модуль.
-    std::fs::write(dir.join("_shared.ts"), SHARED_TS_SOURCE)
-        .map_err(|e| format!("write _shared.ts: {e}"))?;
+        .map_err(|e| format!("mkdir plugins/1c-tools: {e}"))?;
 
     let catalog: Value = serde_json::from_str(catalog_json)
         .map_err(|e| format!("parse catalog: {e}"))?;
     let tools = catalog["tools"].as_array().cloned().unwrap_or_default();
 
-    let mut count = 0;
+    let mut entries = Vec::new();
     for t in &tools {
         let name = match t.get("name").and_then(|v| v.as_str()) {
             Some(n) if !n.is_empty() => n,
@@ -1135,43 +1137,104 @@ fn generate_tools(config_dir: &Path, catalog_json: &str) -> Result<usize, String
         };
         let desc_owned = t.get("description").and_then(|v| v.as_str()).map(|s| s.to_string())
             .unwrap_or_else(|| format!("Инструмент 1С: {name}"));
-        let safe_desc = serde_json::to_string(&desc_owned).unwrap_or_default();
         let schema = t.get("inputSchema").cloned().unwrap_or(Value::Null);
-        let safe_name = serde_json::to_string(name).unwrap_or_default();
+        entries.push(format!(
+            "  {{ name: {}, description: {}, input: {} }}",
+            serde_json::to_string(name).unwrap_or_default(),
+            serde_json::to_string(&desc_owned).unwrap_or_default(),
+            serde_json::to_string(&schema).unwrap_or_else(|_| "null".into()),
+        ));
+    }
 
-        let src = format!(
-            r#"// Инструмент 1С: {name} (сгенерировано из catalog.json)
-import {{ tool }} from "@opencode-ai/plugin";
-import {{ schemaToShape, callGateway }} from "./_shared.ts";
+    let src = format!(
+        r#"// Плагин 1c-tools (OpenCode v2): инструменты базы {server} как нативные тулзы.
+// Сгенерировано админкой ai-1c-server — не редактировать вручную: кнопка
+// «Сгенерировать плагин» перезапишет файл. Вызовы идут через шлюз /onec/rpc,
+// который подставляет JWT пользователя 1С из реестра сессий (per-user RLS).
+import {{ Plugin }} from "@opencode/plugin";
 
-export default tool({{
-  description: {safe_desc},
-  args: schemaToShape({schema_json}, tool.schema),
-  async execute(args, context) {{
-    const token = (process.env.ONEC_GATEWAY_TOKEN || "").trim();
-    if (!token) return "ОШИБКА: нет токена плагина (ONEC_GATEWAY_TOKEN)";
-    const gateway = (process.env.ONEC_GATEWAY_URL || "http://127.0.0.1:9020").trim();
-    try {{
-      return await callGateway(gateway, token, context.sessionID, {safe_name}, args, context.abort);
-    }} catch (e) {{
-      if (context.aborted || e?.name === "AbortError") return "ОТМЕНЕНО пользователем";
-      return `ОШИБКА вызова: ${{String(e?.message || e)}}`;
-    }}
+const GATEWAY = {gateway_url_json};
+const TOKEN = {token_json};
+
+const CATALOG: Array<{{ name: string; description: string; input: any }}> = [
+{entries}
+];
+
+function rpcText(v: any): string {{
+  if (v == null) return "(пустой ответ)";
+  if (typeof v === "string") return v;
+  const c = v?.result?.content;
+  if (Array.isArray(c)) {{
+    return c.map((b: any) => (b && typeof b.text === "string" ? b.text : JSON.stringify(b))).join("\n");
+  }}
+  if (v.error) return `ОШИБКА 1С: ${{JSON.stringify(v.error)}}`;
+  return JSON.stringify(v);
+}}
+
+export default Plugin.define({{
+  id: "onec-tools",
+  async setup(ctx) {{
+    await ctx.tool.transform((editor) => {{
+      editor.namespace({{ name: "onec", description: `Инструменты 1С, база {server}` }});
+      for (const t of CATALOG) {{
+        editor.add({{
+          name: t.name,
+          description: t.description,
+          input: t.input ?? {{ type: "object", properties: {{}} }},
+          options: {{ namespace: "onec", codemode: false }},
+          execute: async (input: any, context: any) => {{
+            try {{
+              const r = await fetch(GATEWAY + "/onec/rpc", {{
+                method: "POST",
+                headers: {{ "Content-Type": "application/json", "X-OpenCode-Token": TOKEN }},
+                body: JSON.stringify({{ session_id: context.sessionID, params: {{ name: t.name, arguments: input }} }}),
+                signal: context.signal,
+              }});
+              const v = await r.json().catch(() => null);
+              if (!r.ok) return {{ content: `ОШИБКА шлюза ${{r.status}}: ${{v?.error ?? JSON.stringify(v)}}`, metadata: {{ error: true }} }};
+              return {{ content: rpcText(v) }};
+            }} catch (e: any) {{
+              if (context?.signal?.aborted || e?.name === "AbortError") return {{ content: "ОТМЕНЕНО пользователем" }};
+              return {{ content: `ОШИБКА вызова 1С: ${{String(e?.message || e)}}`, metadata: {{ error: true }} }};
+            }}
+          }},
+        }});
+      }}
+    }});
   }},
 }});
 "#,
-            name = name,
-            safe_desc = safe_desc,
-            schema_json = serde_json::to_string(&schema).unwrap_or("null".into()),
-            safe_name = safe_name,
-        );
+        server = server_name,
+        gateway_url_json = serde_json::to_string(gateway_url).unwrap_or_default(),
+        token_json = serde_json::to_string(plugin_token).unwrap_or_default(),
+        entries = entries.join(",\n"),
+    );
 
-        let filename = format!("{name}.ts");
-        std::fs::write(dir.join(&filename), src)
-            .map_err(|e| format!("write {filename}: {e}"))?;
-        count += 1;
+    std::fs::write(dir.join("index.ts"), src)
+        .map_err(|e| format!("write index.ts: {e}"))?;
+
+    // package.json в конфиг-директории: зависимость @opencode/plugin.
+    let pkg_path = config_dir.join("package.json");
+    let mut pkg: Value = std::fs::read_to_string(&pkg_path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| json!({ "name": format!("opencode-config-{server_name}"), "private": true }));
+    let deps = pkg
+        .get_mut("dependencies")
+        .and_then(|d| d.as_object_mut())
+        .map(|d| {
+            d.insert("@opencode/plugin".into(), json!("2.1.4"));
+            d.remove("@opencode-ai/plugin");
+            true
+        })
+        .unwrap_or(false);
+    if !deps {
+        pkg["dependencies"] = json!({ "@opencode/plugin": "2.1.4" });
     }
-    Ok(count)
+    std::fs::write(&pkg_path, serde_json::to_string_pretty(&pkg).unwrap_or_default())
+        .map_err(|e| format!("write package.json: {e}"))?;
+
+    Ok(entries.len())
 }
 
 pub async fn tools_generate(
@@ -1179,20 +1242,75 @@ pub async fn tools_generate(
     AxPath(id): AxPath<String>,
 ) -> Result<Json<Value>, axum::response::Response> {
     use axum::response::IntoResponse;
-    let (config_dir, catalog_path) = {
+    let (config_dir, catalog_path, name, gateway_url, token) = {
         let db = state.db.lock().await;
         let row = match read_row(&db, &id) {
             Some(r) => r,
             None => return Err(NotFound.into_response()),
         };
-        (row.config_dir.clone(), tools_catalog_path(Path::new(&row.config_dir)))
+        let secret = crate::auth::jwt_secret_pub(&db);
+        (
+            row.config_dir.clone(),
+            tools_catalog_path(Path::new(&row.config_dir)),
+            row.name.clone(),
+            crate::opencode::gateway_url(&db),
+            crate::opencode::plugin_token(&secret, &row.name),
+        )
     };
     let catalog_json = std::fs::read_to_string(&catalog_path)
         .map_err(|e| AppError::msg(format!("каталог не найден: {e}")).into_response())?;
-    match generate_tools(Path::new(&config_dir), &catalog_json) {
-        Ok(count) => Ok(Json(json!({ "ok": true, "count": count, "dir": tools_dir(Path::new(&config_dir)).to_string_lossy().to_string() }))),
+    let config_dir = Path::new(&config_dir);
+    match generate_plugin(config_dir, &catalog_json, &name, &gateway_url, &token) {
+        Ok(count) => Ok(Json(json!({
+            "ok": true,
+            "count": count,
+            "dir": plugins_dir(config_dir).join("1c-tools").to_string_lossy().to_string(),
+        }))),
         Err(e) => Err(AppError::msg(e).into_response()),
     }
+}
+
+/// Установка зависимостей плагина (@opencode/plugin) в node_modules конфиг-директории.
+pub async fn tools_install_deps(
+    State(state): State<Arc<AppState>>,
+    AxPath(id): AxPath<String>,
+) -> Result<Json<Value>, axum::response::Response> {
+    use axum::response::IntoResponse;
+    let config_dir = {
+        let db = state.db.lock().await;
+        match read_row(&db, &id) {
+            Some(r) => r.config_dir.clone(),
+            None => return Err(NotFound.into_response()),
+        }
+    };
+    let dir = Path::new(&config_dir);
+    if !dir.join("node_modules/@opencode/plugin").exists() {
+        let out = match tokio::time::timeout(
+            std::time::Duration::from_secs(300),
+            tokio::process::Command::new("npm")
+                .arg("install")
+                .args(["--no-audit", "--no-fund"])
+                .current_dir(dir)
+                .output(),
+        )
+        .await
+        {
+            Ok(out) => out.map_err(|e| AppError::msg(format!("npm install: {e}"))),
+            Err(_) => return Err(AppError::msg("npm install: таймаут 300с").into_response()),
+        };
+        let out = match out {
+            Ok(o) => o,
+            Err(e) => return Err(e.into_response()),
+        };
+        if !out.status.success() {
+            return Err(AppError::msg(format!(
+                "npm install: {}",
+                String::from_utf8_lossy(&out.stderr).chars().take(400).collect::<String>()
+            ))
+            .into_response());
+        }
+    }
+    Ok(Json(json!({ "ok": true, "dir": dir.join("node_modules").to_string_lossy().to_string() })))
 }
 
 /// Токен тулзов сервера (для отладки/проверки).
@@ -1266,7 +1384,19 @@ pub async fn status(State(state): State<Arc<AppState>>) -> Json<Value> {
                 .unwrap_or(false),
             Err(_) => false,
         };
-        servers.push(json!({ "id": id, "name": name, "url": url, "healthy": healthy }));
+        let config_dir = {
+            let db = state.db.lock().await;
+            read_row(&db, id).map(|r| r.config_dir.clone()).unwrap_or_default()
+        };
+        let cfg_path = Path::new(&config_dir);
+        servers.push(json!({
+            "id": id,
+            "name": name,
+            "url": url,
+            "healthy": healthy,
+            "plugin_generated": cfg_path.join("plugins/1c-tools/index.ts").exists(),
+            "deps_installed": cfg_path.join("node_modules/@opencode/plugin").exists(),
+        }));
     }
     Json(json!({
         "project_root": root.to_string_lossy().to_string(),
@@ -1301,6 +1431,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/servers/{id}/skills/{name}", axum::routing::delete(skill_delete))
         .route("/servers/{id}/tools/sync", post(tools_sync))
         .route("/servers/{id}/tools/generate", post(tools_generate))
+        .route("/servers/{id}/tools/install-deps", post(tools_install_deps))
         .route("/servers/{id}/tools/test", post(tools_test))
         .route("/servers/{id}/plugin/token", get(plugin_token_endpoint))
         .route("/sessions", get(sessions_list))
