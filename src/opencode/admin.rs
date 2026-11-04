@@ -1270,6 +1270,94 @@ pub async fn tools_generate(
     }
 }
 
+/// Одна кнопка: sync (1С → catalog.json) + generate (index.ts) + restart контейнера.
+/// Если каталог не менялся — рестарт пропускаем (флаг restarted=false).
+pub async fn tools_apply(
+    State(state): State<Arc<AppState>>,
+    AxPath(id): AxPath<String>,
+) -> Result<Json<Value>, axum::response::Response> {
+    use axum::response::IntoResponse;
+
+    // 1. Каталог до синхронизации (для сравнения).
+    let catalog_path = {
+        let db = state.db.lock().await;
+        match read_row(&db, &id) {
+            Some(r) => tools_catalog_path(Path::new(&r.config_dir)),
+            None => return Err(NotFound.into_response()),
+        }
+    };
+    let old_tools: Option<Vec<Value>> = std::fs::read_to_string(&catalog_path)
+        .ok()
+        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+        .and_then(|v| v["tools"].as_array().cloned());
+
+    // 2. Sync: 1С → catalog.json (пишет сам).
+    let sync_resp = tools_sync(State(state.clone()), AxPath(id.clone())).await;
+    let sync_val = match sync_resp {
+        Ok(Json(v)) => v,
+        Err(r) => return Err(r),
+    };
+
+    // 3. Generate: catalog.json → plugins/1c-tools/index.ts.
+    let gen_resp = tools_generate(State(state.clone()), AxPath(id.clone())).await;
+    let gen_val = match gen_resp {
+        Ok(Json(v)) => v,
+        Err(r) => return Err(r),
+    };
+
+    // 4. Рестарт контейнера — только если каталог реально изменился.
+    let new_tools: Vec<Value> = std::fs::read_to_string(&catalog_path)
+        .ok()
+        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+        .and_then(|v| v["tools"].as_array().cloned())
+        .unwrap_or_default();
+    let changed = match &old_tools {
+        None => true, // каталога не было — считаем изменённым
+        Some(old) => old.len() != new_tools.len()
+            || old.iter().zip(new_tools.iter()).any(|(a, b)| a["name"] != b["name"]),
+    };
+    let mut restarted = false;
+    if changed {
+        let row = {
+            let db = state.db.lock().await;
+            read_row(&db, &id)
+        };
+        match row {
+            Some(r) if !r.compose_service.is_empty() => {
+                let root = {
+                    let db = state.db.lock().await;
+                    project_root(&db)
+                };
+                if root.join("docker-compose.yml").is_file() {
+                    let (ok, text) = compose(
+                        &root,
+                        &[
+                            "restart",
+                            r.compose_service.as_str(),
+                        ],
+                    )
+                    .await
+                    .map_err(|e| AppError::msg(e).into_response())?;
+                    if !ok {
+                        return Err(AppError::msg(format!("docker compose restart: {}", text.chars().take(400).collect::<String>())).into_response());
+                    }
+                    restarted = true;
+                }
+            }
+            _ => {} // без compose-сервиса — рестарт не делаем (плагин подхватится при следующем старте)
+        }
+    }
+
+    Ok(Json(json!({
+        "ok": true,
+        "synced": sync_val["count"],
+        "generated": gen_val["count"],
+        "changed": changed,
+        "restarted": restarted,
+        "dir": gen_val["dir"],
+    })))
+}
+
 /// Установка зависимостей плагина (@opencode/plugin) в node_modules конфиг-директории.
 pub async fn tools_install_deps(
     State(state): State<Arc<AppState>>,
@@ -1431,6 +1519,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/servers/{id}/skills/{name}", axum::routing::delete(skill_delete))
         .route("/servers/{id}/tools/sync", post(tools_sync))
         .route("/servers/{id}/tools/generate", post(tools_generate))
+        .route("/servers/{id}/tools/apply", post(tools_apply))
         .route("/servers/{id}/tools/install-deps", post(tools_install_deps))
         .route("/servers/{id}/tools/test", post(tools_test))
         .route("/servers/{id}/plugin/token", get(plugin_token_endpoint))

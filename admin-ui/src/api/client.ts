@@ -342,6 +342,8 @@ export const api = {
     request<{ ok: boolean; status: number; elapsed_ms: number; result: unknown }>(`/opencode/servers/${id}/tools/test`, { method: 'POST', body: JSON.stringify({ tool, arguments: arguments_ }) }),
   opencodeToolsGenerate: (id: string) =>
     request<{ ok: boolean; count: number; dir?: string }>(`/opencode/servers/${id}/tools/generate`, { method: 'POST' }),
+  opencodeToolsApply: (id: string) =>
+    request<{ ok: boolean; synced: number; generated: number; changed: boolean; restarted: boolean; dir?: string }>(`/opencode/servers/${id}/tools/apply`, { method: 'POST' }),
   opencodeToolsInstallDeps: (id: string) =>
     request<{ ok: boolean; dir?: string }>(`/opencode/servers/${id}/tools/install-deps`, { method: 'POST' }),
   getOpencodePluginToken: (id: string) => request<{ token: string }>(`/opencode/servers/${id}/plugin/token`),

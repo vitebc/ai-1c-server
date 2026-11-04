@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, Play, Square, RotateCw, Terminal, Check, X, RefreshCw, KeyRound, Package } from 'lucide-react';
+import { Plus, Pencil, Trash2, Play, Square, RotateCw, Check, X, RefreshCw, KeyRound, Package } from 'lucide-react';
 import { api } from '../api/client';
 import type { OpencodeServer } from '../types';
 import { t } from '../i18n';
@@ -473,34 +473,26 @@ function ToolsTab({ server, onChanged }: { server: OpencodeServer; onChanged: ()
 
   useEffect(() => { load(); }, [load]);
 
-  async function doSync() {
-    setBusy(true); setErr(''); setSyncMsg('');
-    try {
-      const r = await api.opencodeToolsSync(server.id);
-      setToolCount(r.count);
-      setSyncMsg(`Синхронизировано: ${r.count} инструментов → ${r.path}`);
-      if (r.token) setToken(r.token);
-      onChanged();
-    } catch (e) { setErr(errText(e, 'Ошибка синхронизации')); }
-    finally { setBusy(false); }
-  }
-
-  async function doToolsGenerate() {
-    setErr(''); setBusy(true);
-    try {
-      const r = await api.opencodeToolsGenerate(server.id);
-      setSyncMsg(`Сгенерирован плагин (${r.count} тулзов): ${r.dir}`);
-      onChanged();
-    } catch (e) { setErr(errText(e, 'Ошибка генерации')); }
-    finally { setBusy(false); }
-  }
-
   async function doInstallDeps() {
     setErr(''); setBusy(true);
     try {
       const r = await api.opencodeToolsInstallDeps(server.id);
       setSyncMsg(`Зависимости установлены: ${r.dir}`);
     } catch (e) { setErr(errText(e, 'Ошибка npm install')); }
+    finally { setBusy(false); }
+  }
+
+  async function doApply() {
+    setErr(''); setBusy(true);
+    try {
+      const r = await api.opencodeToolsApply(server.id);
+      setToolCount(r.synced);
+      const parts = [`Синхронизировано: ${r.synced}`, `Сгенерирован плагин: ${r.generated}`];
+      if (r.changed) parts.push(r.restarted ? 'Контейнер перезапущен' : 'Каталог изменился, но контейнер не перезапущен (нет compose-сервиса)');
+      else parts.push('Каталог не изменился — рестарт пропущен');
+      setSyncMsg(parts.join(' · '));
+      onChanged();
+    } catch (e) { setErr(errText(e, 'Ошибка применения')); }
     finally { setBusy(false); }
   }
 
@@ -530,8 +522,7 @@ function ToolsTab({ server, onChanged }: { server: OpencodeServer; onChanged: ()
       <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">{t.opencode.toolsHint}</p>
 
       <div className="flex gap-2 mb-4">
-        <Btn onClick={doSync} disabled={busy}><RefreshCw size={15} className={busy ? 'animate-spin' : ''} /> {t.opencode.toolsSync}</Btn>
-        <Btn variant="outline" onClick={doToolsGenerate} disabled={busy}><Terminal size={15} /> {t.opencode.toolsGenerate}</Btn>
+        <Btn onClick={doApply} disabled={busy}><RefreshCw size={15} className={busy ? 'animate-spin' : ''} /> {t.opencode.toolsApply}</Btn>
         <Btn variant="outline" onClick={doInstallDeps} disabled={busy}><Package size={15} /> {t.opencode.toolsInstallDeps}</Btn>
         {token && (
           <span className="inline-flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
