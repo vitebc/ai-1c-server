@@ -320,16 +320,31 @@ async fn gateway_any(
         }
     }
 
+    // Маршрут сессии: запрос к /api/session/{id}/... ИЛИ
+    // /api/experimental/session/{id}/... идёт на сервер, где сессия создана
+    // (реестр). Иначе GET-опросы формы (message/form/wait) уходят на сервер по
+    // умолчанию и дают 404 SessionNotFound — форма не может передать X-1C-Base
+    // (заголовок занят Basic-конструктором HTTPСоединения).
+    let session_id = path
+        .strip_prefix("/api/session/")
+        .or_else(|| path.strip_prefix("/api/experimental/session/"))
+        .and_then(|rest| rest.split('/').next().map(|s| s.to_string()))
+        .filter(|s| !s.is_empty() && !s.contains(' '));
+
     let (server, jwt_info) = {
         let db = state.db.lock().await;
         let (servers, default) = load_servers(&db);
+        let from_registry = session_id.as_deref().and_then(lookup_session).map(|e| e.server_id);
         let base = base_from_request(&headers, &query, bearer.as_deref());
-        let server = match base {
-            Some(b) => servers
-                .iter()
-                .find(|s| s.name.eq_ignore_ascii_case(&b) || s.bases.iter().any(|x| x.eq_ignore_ascii_case(&b)))
-                .cloned(),
-            None => default.clone(),
+        let server = match from_registry {
+            Some(sid) => servers.iter().find(|s| s.id == sid).cloned(),
+            None => match base {
+                Some(b) => servers
+                    .iter()
+                    .find(|s| s.name.eq_ignore_ascii_case(&b) || s.bases.iter().any(|x| x.eq_ignore_ascii_case(&b)))
+                    .cloned(),
+                None => default.clone(),
+            },
         };
         let server = match server {
             Some(s) => s,
@@ -561,15 +576,44 @@ async fn onec_rpc(
             return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "сессия не найдена или истекла — отправьте новый промпт" }))).into_response()
         }
     };
-    let jwt = match &entry.jwt {
-        Some(j) => j.clone(),
-        None => {
-            return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "у сессии нет JWT пользователя 1С — отправьте новый промпт" }))).into_response()
-        }
-    };
+    if entry.jwt.is_none() {
+        return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "у сессии нет JWT пользователя 1С — отправьте новый промпт" }))).into_response();
+    }
 
     // 3. База: явная → из сессии → первая из bases сервера.
-    let base = body.base.clone().or(entry.base.clone()).map(|b| b.to_lowercase());
+    // Токен шлём в 1С переподписанным: iat — миллисекунды (как у ТокенДоступа
+    // 1С; 8.3.27 отклоняет iat в секундах), exp — не меньше +5 минут, чтобы
+    // токен сессии жил дольше исходного и RLS работал до истечения оригинала.
+    let iat_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let exp_s = entry.exp.max(iat_ms / 1000 + 300); // exp — секунды; минимум +5 мин
+    let base_claim = body.base.clone().or(entry.base.clone()).map(|b| b.to_lowercase());
+    let new_claims = json!({
+        "iss": "1c-ai-chat",
+        "aud": ["mcp"],
+        "sub": entry.sub,
+        "iat": iat_ms,
+        "exp": exp_s,
+        "base": base_claim,
+    });
+    let secret = {
+        let db = state.db.lock().await;
+        crate::auth::jwt_secret_pub(&db)
+    };
+    let jwt = if secret.is_empty() {
+        entry.jwt.clone().unwrap_or_default()
+    } else {
+        use jsonwebtoken::{EncodingKey, Header};
+        match jsonwebtoken::encode(&Header::new(jsonwebtoken::Algorithm::HS256), &new_claims, &EncodingKey::from_secret(secret.as_bytes())) {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::warn!("onec-rpc: не удалось переподписать JWT: {e}");
+                entry.jwt.clone().unwrap_or_default()
+            }
+        }
+    };
     let bases_raw: Option<String> = {
         let db = state.db.lock().await;
         db.conn
@@ -581,7 +625,7 @@ async fn onec_rpc(
         None => return (StatusCode::NOT_FOUND, Json(json!({ "error": "сервер не найден" }))).into_response(),
     };
     let bases: Vec<String> = serde_json::from_str(&bases_raw).unwrap_or_default();
-    let base_final = match base {
+    let base_final = match base_claim {
         Some(b) => b,
         None => bases.first().cloned().unwrap_or_default(),
     };
