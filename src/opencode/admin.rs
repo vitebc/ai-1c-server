@@ -1120,6 +1120,7 @@ fn generate_plugin(
     server_name: &str,
     gateway_url: &str,
     plugin_token: &str,
+    pepek: Option<&str>,
 ) -> Result<usize, String> {
     let dir = plugins_dir(config_dir).join("1c-tools");
     std::fs::create_dir_all(&dir)
@@ -1155,6 +1156,9 @@ import {{ Plugin }} from "@opencode/plugin";
 
 const GATEWAY = {gateway_url_json};
 const TOKEN = {token_json};
+// PEPK-токен: пароль шлюза (X-Onec-Pepek) — доверенный канал контейнера.
+// Пусто, если пароль шлюза не задан.
+const PEPK = {pepek_json};
 
 const CATALOG: Array<{{ name: string; description: string; input: any }}> = [
 {entries}
@@ -1184,9 +1188,11 @@ export default Plugin.define({{
           options: {{ namespace: "onec", codemode: false }},
           execute: async (input: any, context: any) => {{
             try {{
+              const headers: Record<string, string> = {{ "Content-Type": "application/json", "X-OpenCode-Token": TOKEN }};
+              if (PEPK) headers["X-Onec-Pepek"] = PEPK;
               const r = await fetch(GATEWAY + "/onec/rpc", {{
                 method: "POST",
-                headers: {{ "Content-Type": "application/json", "X-OpenCode-Token": TOKEN }},
+                headers,
                 body: JSON.stringify({{ session_id: context.sessionID, params: {{ name: t.name, arguments: input }} }}),
                 signal: context.signal,
               }});
@@ -1207,6 +1213,7 @@ export default Plugin.define({{
         server = server_name,
         gateway_url_json = serde_json::to_string(gateway_url).unwrap_or_default(),
         token_json = serde_json::to_string(plugin_token).unwrap_or_default(),
+        pepek_json = serde_json::to_string(pepek.unwrap_or("")).unwrap_or_default(),
         entries = entries.join(",\n"),
     );
 
@@ -1242,7 +1249,7 @@ pub async fn tools_generate(
     AxPath(id): AxPath<String>,
 ) -> Result<Json<Value>, axum::response::Response> {
     use axum::response::IntoResponse;
-    let (config_dir, catalog_path, name, gateway_url, token) = {
+    let (config_dir, catalog_path, name, gateway_url, token, pepek) = {
         let db = state.db.lock().await;
         let row = match read_row(&db, &id) {
             Some(r) => r,
@@ -1255,16 +1262,20 @@ pub async fn tools_generate(
             row.name.clone(),
             crate::opencode::gateway_url(&db),
             crate::opencode::plugin_token(&secret, &row.name),
+            crate::opencode::gateway_password(&db),
         )
     };
     let catalog_json = std::fs::read_to_string(&catalog_path)
         .map_err(|e| AppError::msg(format!("каталог не найден: {e}")).into_response())?;
     let config_dir = Path::new(&config_dir);
-    match generate_plugin(config_dir, &catalog_json, &name, &gateway_url, &token) {
+    match generate_plugin(config_dir, &catalog_json, &name, &gateway_url, &token, pepek.as_deref()) {
         Ok(count) => Ok(Json(json!({
             "ok": true,
             "count": count,
             "dir": plugins_dir(config_dir).join("1c-tools").to_string_lossy().to_string(),
+            // Для проверки устаревания плагина в tools_apply.
+            "gateway": gateway_url.clone(),
+            "token": token.clone(),
         }))),
         Err(e) => Err(AppError::msg(e).into_response()),
     }
@@ -1305,17 +1316,34 @@ pub async fn tools_apply(
         Err(r) => return Err(r),
     };
 
-    // 4. Рестарт контейнера — только если каталог реально изменился.
+    // 4. Рестарт контейнера — только если каталог реально изменился ИЛИ плагин
+    // не перегенерирован с актуальными константами (PEPK/GATEWAY/TOKEN).
     let new_tools: Vec<Value> = std::fs::read_to_string(&catalog_path)
         .ok()
         .and_then(|s| serde_json::from_str::<Value>(&s).ok())
         .and_then(|v| v["tools"].as_array().cloned())
         .unwrap_or_default();
-    let changed = match &old_tools {
+    let catalog_changed = match &old_tools {
         None => true, // каталога не было — считаем изменённым
         Some(old) => old.len() != new_tools.len()
             || old.iter().zip(new_tools.iter()).any(|(a, b)| a["name"] != b["name"]),
     };
+    let plugin_file = catalog_path.parent().map(|p| p.join("plugins/1c-tools/index.ts"));
+    let plugin_stale = match &plugin_file {
+        Some(p) if p.is_file() => {
+            // Плагин устарел, если нет маркера текущей генерации. Маркер — строка
+            // с PEPK-константой (появилась в версии с PEPK) и/или GATEWAY/TOKEN.
+            let src = std::fs::read_to_string(p).unwrap_or_default();
+            let has_pepek = src.contains("const PEPK");
+            let gateway_now = gen_val.get("gateway").and_then(|v| v.as_str()).unwrap_or_default();
+            let token_now = gen_val.get("token").and_then(|v| v.as_str()).unwrap_or_default();
+            let has_gateway = if gateway_now.is_empty() { true } else { src.contains(&format!("const GATEWAY = \"{}\"", gateway_now)) };
+            let has_token = if token_now.is_empty() { true } else { src.contains(&format!("const TOKEN = \"{}\"", token_now)) };
+            !(has_pepek && has_gateway && has_token)
+        }
+        _ => false, // файла нет — рестарт не поможет, сгенерировали только что
+    };
+    let changed = catalog_changed || plugin_stale;
     let mut restarted = false;
     if changed {
         let row = {
@@ -1329,19 +1357,42 @@ pub async fn tools_apply(
                     project_root(&db)
                 };
                 if root.join("docker-compose.yml").is_file() {
-                    let (ok, text) = compose(
-                        &root,
-                        &[
-                            "restart",
-                            r.compose_service.as_str(),
-                        ],
-                    )
-                    .await
-                    .map_err(|e| AppError::msg(e).into_response())?;
-                    if !ok {
-                        return Err(AppError::msg(format!("docker compose restart: {}", text.chars().take(400).collect::<String>())).into_response());
+                    // Имя сервиса в compose может отличаться от поля (например,
+                    // server-ka2 против ka2) — пробовали точное имя и префикс.
+                    let service = r.compose_service.as_str();
+                    let candidates: Vec<String> = if service.is_empty() {
+                        vec![]
+                    } else {
+                        let mut v = vec![service.to_string()];
+                        for prefix in ["server-", "opencode-"] {
+                            let c = format!("{prefix}{service}");
+                            if !v.contains(&c) {
+                                v.push(c);
+                            }
+                        }
+                        v
+                    };
+                    let mut tried: Vec<String> = vec![];
+                    for svc in candidates {
+                        let (ok, text) = compose(
+                            &root,
+                            &["restart", svc.as_str()],
+                        )
+                        .await
+                        .map_err(|e| AppError::msg(e).into_response())?;
+                        tried.push(format!("{svc}: ok={ok}"));
+                        if ok {
+                            restarted = true;
+                            break;
+                        }
                     }
-                    restarted = true;
+                    if !restarted && !tried.is_empty() {
+                        return Err(AppError::msg(format!(
+                            "docker compose restart не удался: {}",
+                            tried.join("; ")
+                        ))
+                        .into_response());
+                    }
                 }
             }
             _ => {} // без compose-сервиса — рестарт не делаем (плагин подхватится при следующем старте)

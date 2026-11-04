@@ -280,7 +280,25 @@ async fn gateway_any(
     let uri = parts.uri.clone();
     let headers = parts.headers.clone();
 
-    // Basic-auth формы 1С: если пароль шлюза задан — проверяем (кроме /health).
+    let bytes = match to_bytes(body, 10 * 1024 * 1024).await {
+        Ok(b) => b,
+        Err(_) => return (StatusCode::PAYLOAD_TOO_LARGE, "body too large").into_response(),
+    };
+
+    let path = uri.path().to_string();
+    let query = uri.query().map(|q| q.to_string()).unwrap_or_default();
+
+    // JWT формы: Bearer из заголовка ИЛИ ?onec_token= (BSL не может переопределить
+    // Authorization — он занят Basic-конструктором HTTPСоединения).
+    let bearer = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .map(|t| t.trim().to_string())
+        .or_else(|| query_param(&query, "onec_token"));
+
+    // Аутентификация шлюза (если пароль задан): Bearer-JWT / PEPK-токен контейнера
+    // / Basic. JWT проверяется ниже (decode_onec_jwt) — здесь только наличие.
     {
         let db = state.db.lock().await;
         if let Some(expected) = crate::opencode::gateway_password(&db) {
@@ -290,26 +308,17 @@ async fn gateway_any(
                 base64::engine::general_purpose::STANDARD.encode(format!("1c:{expected}"))
             );
             let got = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()).unwrap_or_default();
-            if got != want {
+            let pepek_ok = headers
+                .get("x-onec-pepek")
+                .and_then(|v| v.to_str().ok())
+                .map(|p| constant_time_eq(p, &expected))
+                .unwrap_or(false);
+            let bearer_present = bearer.is_some();
+            if !(got == want || pepek_ok || bearer_present) {
                 return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "неверный пароль шлюза" }))).into_response();
             }
         }
     }
-
-    let bytes = match to_bytes(body, 10 * 1024 * 1024).await {
-        Ok(b) => b,
-        Err(_) => return (StatusCode::PAYLOAD_TOO_LARGE, "body too large").into_response(),
-    };
-
-    let path = uri.path().to_string();
-    let query = uri.query().map(|q| q.to_string()).unwrap_or_default();
-
-    // JWT формы (если есть).
-    let bearer = headers
-        .get(header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .map(|t| t.trim().to_string());
 
     let (server, jwt_info) = {
         let db = state.db.lock().await;
@@ -438,7 +447,7 @@ async fn proxy_raw(
     if !query.is_empty() {
         let q: String = query
             .split('&')
-            .filter(|p| !p.starts_with("base="))
+            .filter(|p| !p.starts_with("base=") && !p.starts_with("onec_token="))
             .collect::<Vec<_>>()
             .join("&");
         if !q.is_empty() {
@@ -532,6 +541,19 @@ async fn onec_rpc(
         None => return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "неверный токен плагина" }))).into_response(),
     };
 
+    // 1b. Если пароль шлюза задан — контейнер обязан предъявить PEPK-токен
+    // (X-Onec-Pepek = пароль). X-OpenCode-Token идентифицирует сервер, но не
+    // аутентифицирует канал; без пароля шлюза проверка пропускается.
+    {
+        let db = state.db.lock().await;
+        if let Some(expected) = crate::opencode::gateway_password(&db) {
+            let pepek = headers.get("x-onec-pepek").and_then(|v| v.to_str().ok()).unwrap_or_default();
+            if !constant_time_eq(pepek, &expected) {
+                return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "нет PEPK-токена контейнера" }))).into_response();
+            }
+        }
+    }
+
     // 2. Сессия → JWT пользователя + база.
     let entry = match lookup_session(&body.session_id) {
         Some(e) => e,
@@ -611,6 +633,31 @@ async fn onec_rpc(
         }
         Err(e) => (StatusCode::BAD_GATEWAY, Json(json!({ "error": format!("1С: {e}") }))).into_response(),
     }
+}
+
+/// Значение query-параметра (первое вхождение) или None.
+fn query_param(query: &str, key: &str) -> Option<String> {
+    for pair in query.split('&') {
+        if let Some((k, v)) = pair.split_once('=') {
+            if k == key && !v.is_empty() {
+                return Some(urldecode(v));
+            }
+        }
+    }
+    None
+}
+
+/// Сравнение строк за константное время (для секретов).
+fn constant_time_eq(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for i in 0..a.len() {
+        diff |= a[i] ^ b[i];
+    }
+    diff == 0
 }
 
 // ─── health / app ───────────────────────────────────────────────────
