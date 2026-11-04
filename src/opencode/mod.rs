@@ -59,6 +59,23 @@ pub fn gateway_port() -> u16 {
         .unwrap_or(9020)
 }
 
+/// Жив ли listener шлюза: GET http://127.0.0.1:{port}/health (1 с).
+pub async fn gateway_alive(port: u16) -> bool {
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(1))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    client
+        .get(format!("http://127.0.0.1:{port}/health"))
+        .send()
+        .await
+        .map(|r| r.status().is_success())
+        .unwrap_or(false)
+}
+
 /// Пароль Basic-auth шлюза (форма 1С): `server_settings(opencode_gateway_password)`
 /// или env OPENCODE_GATEWAY_PASSWORD. Пусто — шлюз открыт (LAN).
 pub fn gateway_password(db: &crate::db::Database) -> Option<String> {

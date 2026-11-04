@@ -1442,10 +1442,11 @@ pub async fn session_drop(
 // ─── статус ─────────────────────────────────────────────────────────
 
 pub async fn status(State(state): State<Arc<AppState>>) -> Json<Value> {
-    let (root, gw_url) = {
+    let (root, gw_url, port) = {
         let db = state.db.lock().await;
-        (project_root(&db), gateway_url(&db))
+        (project_root(&db), gateway_url(&db), super::gateway_port())
     };
+    let alive = super::gateway_alive(port).await;
     // Живость каждого сервера: GET /global/health.
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(3))
@@ -1486,10 +1487,18 @@ pub async fn status(State(state): State<Arc<AppState>>) -> Json<Value> {
             "deps_installed": cfg_path.join("node_modules/@opencode/plugin").exists(),
         }));
     }
+    let (password_set, session_count) = {
+        let db = state.db.lock().await;
+        let pw = crate::opencode::gateway_password(&db).is_some();
+        (pw, super::gateway::sessions_snapshot().len())
+    };
     Json(json!({
         "project_root": root.to_string_lossy().to_string(),
         "gateway_url": gw_url,
-        "port": super::gateway_port(),
+        "port": port,
+        "alive": alive,
+        "password_set": password_set,
+        "session_count": session_count,
         "servers": servers,
     }))
 }

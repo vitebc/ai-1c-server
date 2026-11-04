@@ -6,10 +6,10 @@ import { t } from '../i18n';
 import { errText } from '../errors';
 import { PageHeader, Btn, IconBtn, Badge, TableShell, Th, Td, Row, TextInput, TextArea, Field, Alert, Segmented, Modal, Confirm, inputCls, monoCls } from '../components/ui';
 
-type Tab = 'servers' | 'config' | 'agents' | 'skills' | 'tools' | 'sessions';
+type Tab = 'gateway' | 'servers' | 'config' | 'agents' | 'skills' | 'tools' | 'sessions';
 
 export default function OpenCode() {
-  const [tab, setTab] = useState<Tab>('servers');
+  const [tab, setTab] = useState<Tab>('gateway');
   const [servers, setServers] = useState<OpencodeServer[]>([]);
   const [selId, setSelId] = useState<string>('');
 
@@ -37,6 +37,7 @@ export default function OpenCode() {
             value={tab}
             onChange={setTab}
             options={[
+              { key: 'gateway', label: t.opencode.tabGateway },
               { key: 'servers', label: t.opencode.tabServers },
               { key: 'config', label: t.opencode.tabConfig },
               { key: 'agents', label: t.opencode.tabAgents },
@@ -47,6 +48,7 @@ export default function OpenCode() {
           />
         }
       />
+      {tab === 'gateway' && <GatewayTab />}
       {tab === 'servers' && <ServersTab servers={servers} onChanged={load} onPick={setSelId} selId={selId} />}
       {tab === 'config' && (sel ? <ConfigTab server={sel} /> : <EmptyServer />)}
       {tab === 'agents' && (sel ? <AgentsTab server={sel} /> : <EmptyServer />)}
@@ -59,6 +61,113 @@ export default function OpenCode() {
 
 function EmptyServer() {
   return <Alert tone="amber">{t.opencode.serverMissing}</Alert>;
+}
+
+// ─── Шлюз (статус + настройки) ──────────────────────────────────────
+
+interface GatewayStatus {
+  project_root?: string; gateway_url?: string; port?: number;
+  alive?: boolean; password_set?: boolean; session_count?: number;
+  servers: Array<Record<string, any>>;
+}
+
+function GatewayTab() {
+  const [st, setSt] = useState<GatewayStatus | null>(null);
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  // Настройки (server_settings).
+  const [gwUrl, setGwUrl] = useState('');
+  const [rootDir, setRootDir] = useState('');
+  const [pw, setPw] = useState('');
+
+  const load = useCallback(async () => {
+    setErr('');
+    try {
+      const s = await api.getOpencodeStatus();
+      setSt(s);
+      setGwUrl(s.gateway_url || '');
+      setRootDir(s.project_root || '');
+    } catch (e) { setErr(errText(e, 'Ошибка статуса')); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function doSaveSettings() {
+    setBusy(true); setMsg(''); setErr('');
+    try {
+      if (gwUrl.trim()) await api.putSetting('opencode_gateway_url', gwUrl.trim());
+      if (rootDir.trim()) await api.putSetting('opencode_project_root', rootDir.trim());
+      if (pw !== '') await api.putSetting('opencode_gateway_password', pw);
+      setPw('');
+      setMsg(t.opencode.gatewaySaved);
+      load();
+    } catch (e) { setErr(errText(e, 'Ошибка сохранения')); }
+    finally { setBusy(false); }
+  }
+
+  if (!st) return <div>{err && <Alert tone="red">{err}</Alert>}</div>;
+
+  const healthyCount = st.servers.filter((s: any) => s.healthy).length;
+
+  return (
+    <div className="space-y-4">
+      {/* Статус */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <StatBox label={t.opencode.gatewayState} value={st.alive ? t.opencode.gatewayUp : t.opencode.gatewayDown} tone={st.alive ? 'green' : 'red'} />
+        <StatBox label={t.opencode.gatewayAddr} value={`${st.gateway_url || '—'}:${st.port ?? ''}`} mono />
+        <StatBox label={t.opencode.serversLabel} value={`${healthyCount}/${st.servers.length}`} tone={healthyCount === st.servers.length ? 'green' : 'amber'} />
+        <StatBox label={t.opencode.sessionsLabel} value={String(st.session_count ?? 0)} />
+      </div>
+
+      {/* Серверы (сводка) */}
+      <TableShell colSpan={5} empty={st.servers.length === 0 ? { text: t.opencode.noServers } : null}
+        head={<><Th>{t.opencode.name}</Th><Th>{t.opencode.url}</Th><Th>{t.opencode.stateCol}</Th><Th>{t.opencode.pluginCol}</Th><Th>{t.opencode.depsCol}</Th></>}>
+        {st.servers.map((s: any) => (
+          <Row key={s.id}>
+            <Td><span className="font-medium">{s.name}</span>{s.is_default && <span className="ml-2"><Badge tone="green">{t.opencode.defaultBadge}</Badge></span>}</Td>
+            <Td><span className={monoCls + ' text-xs'}>{s.url}</span></Td>
+            <Td><Badge tone={s.healthy ? 'green' : 'red'}>{s.healthy ? t.opencode.upState : t.opencode.downState}</Badge></Td>
+            <Td><Badge tone={s.plugin_generated ? 'green' : 'amber'}>{s.plugin_generated ? '✓' : '—'}</Badge></Td>
+            <Td><Badge tone={s.deps_installed ? 'green' : 'amber'}>{s.deps_installed ? '✓' : '—'}</Badge></Td>
+          </Row>
+        ))}
+      </TableShell>
+
+      {/* Настройки */}
+      {msg && <Alert tone="blue">{msg}</Alert>}
+      {err && <Alert tone="red">{err}</Alert>}
+      <div className="border border-slate-200 dark:border-slate-800 rounded-lg p-4 space-y-3">
+        <h3 className="font-medium text-sm">{t.opencode.gatewaySettings}</h3>
+        <Field label={t.opencode.gatewayUrlSetting} hint={t.opencode.gatewayUrlHint}>
+          <TextInput mono value={gwUrl} onChange={e => setGwUrl(e.target.value)} placeholder="http://192.168.60.39:9020" />
+        </Field>
+        <Field label={t.opencode.rootSetting} hint={t.opencode.rootHint}>
+          <TextInput mono value={rootDir} onChange={e => setRootDir(e.target.value)} placeholder="/home/test/project/1C-opencode" />
+        </Field>
+        <Field label={t.opencode.passwordSetting} hint={t.opencode.passwordHint}>
+          <TextInput type="password" value={pw} onChange={e => setPw(e.target.value)} placeholder={st.password_set ? '•••••• (установлен)' : ''} />
+        </Field>
+        <div className="flex justify-end">
+          <Btn onClick={doSaveSettings} disabled={busy}><Check size={15} /> {t.common.save}</Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StatBox({ label, value, tone, mono }: { label: string; value: string; tone?: 'green' | 'red' | 'amber'; mono?: boolean }) {
+  const dot = tone === 'green' ? 'bg-emerald-500' : tone === 'red' ? 'bg-red-500' : tone === 'amber' ? 'bg-amber-500' : 'bg-slate-400';
+  return (
+    <div className="border border-slate-200 dark:border-slate-800 rounded-lg p-3">
+      <div className="text-xs text-slate-500 dark:text-slate-400 mb-1">{label}</div>
+      <div className="flex items-center gap-2">
+        {tone && <span className={`inline-block w-2 h-2 rounded-full ${dot}`} />}
+        <span className={`text-sm font-medium truncate ${mono ? monoCls : ''}`}>{value}</span>
+      </div>
+    </div>
+  );
 }
 
 // ─── Серверы ────────────────────────────────────────────────────────
