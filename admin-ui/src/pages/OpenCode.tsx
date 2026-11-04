@@ -478,12 +478,12 @@ function ToolsTab({ server, onChanged }: { server: OpencodeServer; onChanged: ()
     finally { setBusy(false); }
   }
 
-  async function doPluginSync() {
+  async function doToolsGenerate() {
     setErr('');
     try {
-      const r = await api.opencodePluginSync(server.id);
-      setSyncMsg(`Плагин расложен: ${r.path}`);
-    } catch (e) { setErr(errText(e, 'Ошибка')); }
+      const r = await api.opencodeToolsGenerate(server.id);
+      setSyncMsg(`Сгенерировано ${r.count} тулзов: ${r.dir}`);
+    } catch (e) { setErr(errText(e, 'Ошибка генерации')); }
   }
 
   async function doTest() {
@@ -509,7 +509,7 @@ function ToolsTab({ server, onChanged }: { server: OpencodeServer; onChanged: ()
 
       <div className="flex gap-2 mb-4">
         <Btn onClick={doSync} disabled={busy}><RefreshCw size={15} className={busy ? 'animate-spin' : ''} /> {t.opencode.toolsSync}</Btn>
-        <Btn variant="outline" onClick={doPluginSync}><Terminal size={15} /> {t.opencode.pluginSync}</Btn>
+        <Btn variant="outline" onClick={doToolsGenerate}><Terminal size={15} /> {t.opencode.toolsGenerate}</Btn>
         {token && (
           <span className="inline-flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
             <KeyRound size={13} /> {t.opencode.pluginToken}: <code className={monoCls}>{token.slice(0, 16)}…</code>

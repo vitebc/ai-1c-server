@@ -340,8 +340,8 @@ export const api = {
     request<{ ok: boolean; count: number; path?: string; token?: string }>(`/opencode/servers/${id}/tools/sync`, { method: 'POST' }),
   opencodeToolsTest: (id: string, tool: string, arguments_?: Record<string, unknown>) =>
     request<{ ok: boolean; status: number; elapsed_ms: number; result: unknown }>(`/opencode/servers/${id}/tools/test`, { method: 'POST', body: JSON.stringify({ tool, arguments: arguments_ }) }),
-  opencodePluginSync: (id: string) =>
-    request<{ ok: boolean; path?: string }>(`/opencode/servers/${id}/plugin/sync`, { method: 'POST' }),
+  opencodeToolsGenerate: (id: string) =>
+    request<{ ok: boolean; count: number; dir?: string }>(`/opencode/servers/${id}/tools/generate`, { method: 'POST' }),
   getOpencodePluginToken: (id: string) => request<{ token: string }>(`/opencode/servers/${id}/plugin/token`),
   getOpencodeSessions: () =>
     request<{ count: number; sessions: { session_id: string; server: string; user?: string | null; base?: string | null; has_jwt: boolean; expires_at: number }[] }>('/opencode/sessions'),

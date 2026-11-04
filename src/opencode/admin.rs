@@ -252,9 +252,8 @@ pub async fn create(
         );
     }
     drop(db);
-    // Подготовить каталог + раскидать плагин.
+    // Подготовить каталог конфигурации.
     let _ = std::fs::create_dir_all(&config_dir);
-    deploy_plugin(&config_dir, &body.name).await;
     get_by_id(State(state), AxPath(id))
         .await
         .map_err(|_| AppError::msg("не удалось сохранить сервер").into_response())
@@ -1104,41 +1103,99 @@ pub async fn tools_test(
     })))
 }
 
-// ─── плагин 1c-tools ────────────────────────────────────────────────
+// ─── генерация тулзов 1С (config/<server>/tools/*.ts) ──────────────
 
-/// Исходник плагина (единый для всех серверов).
-pub const PLUGIN_SOURCE: &str = include_str!("../../opencode/plugin/1c-tools/index.ts");
+/// Исходник _shared.ts (единый для всех серверов).
+pub const SHARED_TS_SOURCE: &str = include_str!("../../opencode/plugin/1c-tools/_shared.ts");
 
-fn plugin_dir(config_dir: &Path) -> PathBuf {
-    config_dir.join("plugins").join("1c-tools")
+fn tools_dir(config_dir: &Path) -> PathBuf {
+    config_dir.join("tools")
 }
 
-/// Раскладка плагина в конфиг-каталоге сервера.
-pub async fn deploy_plugin(config_dir: &Path, _server_name: &str) {
-    let dir = plugin_dir(config_dir);
-    if std::fs::create_dir_all(&dir).is_err() {
-        return;
+/// Генерация кастомных тулзов 1С в config/<server>/tools/.
+/// Каждый инструмент — отдельный .ts файл (имя файла = имя инструмента).
+fn generate_tools(config_dir: &Path, catalog_json: &str) -> Result<usize, String> {
+    let dir = tools_dir(config_dir);
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("mkdir tools: {e}"))?;
+
+    // _shared.ts — общий модуль.
+    std::fs::write(dir.join("_shared.ts"), SHARED_TS_SOURCE)
+        .map_err(|e| format!("write _shared.ts: {e}"))?;
+
+    let catalog: Value = serde_json::from_str(catalog_json)
+        .map_err(|e| format!("parse catalog: {e}"))?;
+    let tools = catalog["tools"].as_array().cloned().unwrap_or_default();
+
+    let mut count = 0;
+    for t in &tools {
+        let name = match t.get("name").and_then(|v| v.as_str()) {
+            Some(n) if !n.is_empty() => n,
+            _ => continue,
+        };
+        let desc_owned = t.get("description").and_then(|v| v.as_str()).map(|s| s.to_string())
+            .unwrap_or_else(|| format!("Инструмент 1С: {name}"));
+        let safe_desc = serde_json::to_string(&desc_owned).unwrap_or_default();
+        let schema = t.get("inputSchema").cloned().unwrap_or(Value::Null);
+        let safe_name = serde_json::to_string(name).unwrap_or_default();
+
+        let src = format!(
+            r#"// Инструмент 1С: {name} (сгенерировано из catalog.json)
+import {{ tool }} from "@opencode-ai/plugin";
+import {{ schemaToShape, callGateway }} from "./_shared.ts";
+
+export default tool({{
+  description: {safe_desc},
+  args: schemaToShape({schema_json}, tool.schema),
+  async execute(args, context) {{
+    const token = (process.env.ONEC_GATEWAY_TOKEN || "").trim();
+    if (!token) return "ОШИБКА: нет токена плагина (ONEC_GATEWAY_TOKEN)";
+    const gateway = (process.env.ONEC_GATEWAY_URL || "http://127.0.0.1:9020").trim();
+    try {{
+      return await callGateway(gateway, token, context.sessionID, {safe_name}, args, context.abort);
+    }} catch (e) {{
+      if (context.aborted || e?.name === "AbortError") return "ОТМЕНЕНО пользователем";
+      return `ОШИБКА вызова: ${{String(e?.message || e)}}`;
+    }}
+  }},
+}});
+"#,
+            name = name,
+            safe_desc = safe_desc,
+            schema_json = serde_json::to_string(&schema).unwrap_or("null".into()),
+            safe_name = safe_name,
+        );
+
+        let filename = format!("{name}.ts");
+        std::fs::write(dir.join(&filename), src)
+            .map_err(|e| format!("write {filename}: {e}"))?;
+        count += 1;
     }
-    let _ = std::fs::write(dir.join("index.ts"), PLUGIN_SOURCE);
+    Ok(count)
 }
 
-pub async fn plugin_sync(
+pub async fn tools_generate(
     State(state): State<Arc<AppState>>,
     AxPath(id): AxPath<String>,
 ) -> Result<Json<Value>, axum::response::Response> {
     use axum::response::IntoResponse;
-    let row = {
+    let (config_dir, catalog_path) = {
         let db = state.db.lock().await;
-        match read_row(&db, &id) {
+        let row = match read_row(&db, &id) {
             Some(r) => r,
             None => return Err(NotFound.into_response()),
-        }
+        };
+        (row.config_dir.clone(), tools_catalog_path(Path::new(&row.config_dir)))
     };
-    deploy_plugin(Path::new(&row.config_dir), &row.name).await;
-    Ok(Json(json!({ "ok": true, "path": plugin_dir(Path::new(&row.config_dir)).to_string_lossy().to_string() })))
+    let catalog_json = std::fs::read_to_string(&catalog_path)
+        .map_err(|e| AppError::msg(format!("каталог не найден: {e}")).into_response())?;
+    match generate_tools(Path::new(&config_dir), &catalog_json) {
+        Ok(count) => Ok(Json(json!({ "ok": true, "count": count, "dir": tools_dir(Path::new(&config_dir)).to_string_lossy().to_string() }))),
+        Err(e) => Err(AppError::msg(e).into_response()),
+    }
 }
 
-/// Токен плагина сервера (для отладки/проверки).
+/// Токен тулзов сервера (для отладки/проверки).
 pub async fn plugin_token_endpoint(
     State(state): State<Arc<AppState>>,
     AxPath(id): AxPath<String>,
@@ -1243,8 +1300,8 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/servers/{id}/skills/{name}", put(skill_put))
         .route("/servers/{id}/skills/{name}", axum::routing::delete(skill_delete))
         .route("/servers/{id}/tools/sync", post(tools_sync))
+        .route("/servers/{id}/tools/generate", post(tools_generate))
         .route("/servers/{id}/tools/test", post(tools_test))
-        .route("/servers/{id}/plugin/sync", post(plugin_sync))
         .route("/servers/{id}/plugin/token", get(plugin_token_endpoint))
         .route("/sessions", get(sessions_list))
         .route("/sessions/drop", post(session_drop))
