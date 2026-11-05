@@ -243,6 +243,7 @@ export const t = {
     hint: 'Единый шлюз :9020 к серверам OpenCode (по одному на базу 1С): прокси API/SSE, RLS-мост инструментов 1С под JWT пользователя.',
     tabGateway: 'Шлюз', tabServers: 'Серверы', tabConfig: 'Конфиг', tabAgents: 'Агенты',
     tabSkills: 'Скилы', tabTools: 'Инструменты', tabSessions: 'Сессии',
+    treeGateway: 'Шлюз', treeServers: 'Серверы',
     addServer: 'Добавить сервер', editServer: 'Редактировать сервер', newServer: 'Новый сервер',
     name: 'Имя (НРег)', serverTitle: 'Название', configDir: 'Каталог конфигурации',
     configDirHint: 'Путь к config/<server> (агенты, скилы, opencode.jsonc). Пусто = <корень>/config/<имя>.',

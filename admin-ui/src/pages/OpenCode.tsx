@@ -1,23 +1,44 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, Play, Square, RotateCw, Check, X, RefreshCw, KeyRound, Package } from 'lucide-react';
+import { Plus, Pencil, Trash2, Play, Square, RotateCw, Check, X, RefreshCw, KeyRound, Package, Network, ChevronRight, Server as ServerIcon } from 'lucide-react';
 import { api } from '../api/client';
 import type { OpencodeServer } from '../types';
 import { t } from '../i18n';
 import { errText } from '../errors';
-import { PageHeader, Btn, IconBtn, Badge, TableShell, Th, Td, Row, TextInput, TextArea, Field, Alert, Segmented, Modal, Confirm, inputCls, monoCls } from '../components/ui';
+import { PageHeader, Btn, IconBtn, Badge, TableShell, Th, Td, Row, TextInput, TextArea, Field, Alert, Modal, Confirm, inputCls, monoCls } from '../components/ui';
 
-type Tab = 'gateway' | 'servers' | 'config' | 'agents' | 'skills' | 'tools' | 'sessions';
+type Section = 'config' | 'agents' | 'skills' | 'tools' | 'sessions';
+
+interface Selection {
+  kind: 'gateway' | 'section';
+  serverId?: string;
+  section?: Section;
+}
+
+const SECTIONS: { key: Section; label: () => string }[] = [
+  { key: 'config', label: () => t.opencode.tabConfig },
+  { key: 'agents', label: () => t.opencode.tabAgents },
+  { key: 'skills', label: () => t.opencode.tabSkills },
+  { key: 'tools', label: () => t.opencode.tabTools },
+  { key: 'sessions', label: () => t.opencode.tabSessions },
+];
 
 export default function OpenCode() {
-  const [tab, setTab] = useState<Tab>('gateway');
   const [servers, setServers] = useState<OpencodeServer[]>([]);
-  const [selId, setSelId] = useState<string>('');
+  const [sel, setSel] = useState<Selection>({ kind: 'gateway' });
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   const load = useCallback(async () => {
     try {
       const s = await api.getOpencodeServers();
       setServers(s);
-      setSelId(prev => (s.some(x => x.id === prev) ? prev : s[0]?.id || ''));
+      // При первом загрузке — раскрываем первый сервер и выбираем его конфиг.
+      setSel(prev => {
+        if (prev.kind === 'section' && prev.serverId && s.some(x => x.id === prev.serverId)) return prev;
+        const first = s[0];
+        if (!first) return { kind: 'gateway' };
+        setExpanded(e => ({ ...e, [first.id]: true }));
+        return { kind: 'section', serverId: first.id, section: 'config' };
+      });
     } catch (e) {
       console.error(e);
     }
@@ -25,42 +46,82 @@ export default function OpenCode() {
 
   useEffect(() => { load(); }, [load]);
 
-  const sel = servers.find(s => s.id === selId) || null;
+  const selServer = sel.kind === 'section' && sel.serverId ? servers.find(s => s.id === sel.serverId) || null : null;
+
+  function pickGateway() { setSel({ kind: 'gateway' }); }
+  function toggleServer(id: string) { setExpanded(e => ({ ...e, [id]: !e[id] })); }
+  function pickSection(serverId: string, section: Section) {
+    setExpanded(e => ({ ...e, [serverId]: true }));
+    setSel({ kind: 'section', serverId, section });
+  }
 
   return (
     <div>
-      <PageHeader
-        title={t.nav.opencode}
-        hint={t.opencode.hint}
-        right={
-          <Segmented<Tab>
-            value={tab}
-            onChange={setTab}
-            options={[
-              { key: 'gateway', label: t.opencode.tabGateway },
-              { key: 'servers', label: t.opencode.tabServers },
-              { key: 'config', label: t.opencode.tabConfig },
-              { key: 'agents', label: t.opencode.tabAgents },
-              { key: 'skills', label: t.opencode.tabSkills },
-              { key: 'tools', label: t.opencode.tabTools },
-              { key: 'sessions', label: t.opencode.tabSessions },
-            ]}
-          />
-        }
-      />
-      {tab === 'gateway' && <GatewayTab />}
-      {tab === 'servers' && <ServersTab servers={servers} onChanged={load} onPick={setSelId} selId={selId} />}
-      {tab === 'config' && (sel ? <ConfigTab server={sel} /> : <EmptyServer />)}
-      {tab === 'agents' && (sel ? <AgentsTab server={sel} /> : <EmptyServer />)}
-      {tab === 'skills' && (sel ? <SkillsTab server={sel} /> : <EmptyServer />)}
-      {tab === 'tools' && (sel ? <ToolsTab server={sel} onChanged={load} /> : <EmptyServer />)}
-      {tab === 'sessions' && <SessionsTab />}
+      <PageHeader title={t.nav.opencode} hint={t.opencode.hint} />
+      <div className="flex gap-4 items-start">
+        {/* Дерево слева */}
+        <aside className="w-56 shrink-0 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
+          <div className="p-2 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">{t.opencode.treeServers}</span>
+            <IconBtn title={t.opencode.addServer} onClick={() => setSel({ kind: 'section', serverId: '__new__', section: 'config' })}>
+              <Plus size={14} />
+            </IconBtn>
+          </div>
+          <nav className="p-1.5 max-h-[70vh] overflow-y-auto text-sm">
+            {/* Шлюз */}
+            <button
+              onClick={pickGateway}
+              className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left ${sel.kind === 'gateway' ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300' : 'hover:bg-slate-100 dark:hover:bg-slate-800/60'}`}
+            >
+              <Network size={14} className="shrink-0" />
+              <span>{t.opencode.treeGateway}</span>
+            </button>
+
+            {/* Серверы */}
+            {servers.map(s => (
+              <div key={s.id}>
+                <div
+                  className={`flex items-center gap-1 px-2 py-1.5 rounded-md cursor-pointer ${expanded[s.id] ? 'bg-slate-100 dark:bg-slate-800/60' : 'hover:bg-slate-100 dark:hover:bg-slate-800/40'}`}
+                  onClick={() => toggleServer(s.id)}
+                >
+                  <ChevronRight size={13} className={`shrink-0 transition-transform ${expanded[s.id] ? 'rotate-90' : ''}`} />
+                  <ServerIcon size={14} className="shrink-0" />
+                  <span className="truncate flex-1">{s.name}</span>
+                  {s.is_default && <Badge tone="green">★</Badge>}
+                </div>
+                {expanded[s.id] && (
+                  <div className="ml-5 pl-2 border-l border-slate-200 dark:border-slate-800 my-0.5">
+                    {SECTIONS.map(sec => (
+                      <button
+                        key={sec.key}
+                        onClick={() => pickSection(s.id, sec.key)}
+                        className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-left text-[13px] ${sel.kind === 'section' && sel.serverId === s.id && sel.section === sec.key ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300' : 'hover:bg-slate-100 dark:hover:bg-slate-800/60 text-slate-600 dark:text-slate-400'}`}
+                      >
+                        {sec.label()}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </nav>
+        </aside>
+
+        {/* Контент справа */}
+        <div className="flex-1 min-w-0">
+          {sel.kind === 'gateway' && <GatewayTab />}
+          {sel.kind === 'section' && sel.serverId === '__new__' && (
+            <ServersTab servers={servers} onChanged={load} onPick={(id) => pickSection(id, 'config')} selId="" />
+          )}
+          {sel.kind === 'section' && selServer && sel.section === 'config' && <ConfigTab server={selServer} />}
+          {sel.kind === 'section' && selServer && sel.section === 'agents' && <AgentsTab server={selServer} />}
+          {sel.kind === 'section' && selServer && sel.section === 'skills' && <SkillsTab server={selServer} />}
+          {sel.kind === 'section' && selServer && sel.section === 'tools' && <ToolsTab server={selServer} onChanged={load} />}
+          {sel.kind === 'section' && selServer && sel.section === 'sessions' && <SessionsTab serverId={selServer.id} />}
+        </div>
+      </div>
     </div>
   );
-}
-
-function EmptyServer() {
-  return <Alert tone="amber">{t.opencode.serverMissing}</Alert>;
 }
 
 // ─── Шлюз (статус + настройки) ──────────────────────────────────────
@@ -129,7 +190,7 @@ function GatewayTab() {
       {/* Статус */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatBox label={t.opencode.gatewayState} value={st.alive ? t.opencode.gatewayUp : t.opencode.gatewayDown} tone={st.alive ? 'green' : 'red'} />
-        <StatBox label={t.opencode.gatewayAddr} value={`${st.gateway_url || '—'}:${st.port ?? ''}`} mono />
+        <StatBox label={t.opencode.gatewayAddr} value={st.gateway_url || `http://127.0.0.1:${st.port ?? 9020}`} mono />
         <StatBox label={t.opencode.serversLabel} value={`${healthyCount}/${st.servers.length}`} tone={healthyCount === st.servers.length ? 'green' : 'amber'} />
         <StatBox label={t.opencode.sessionsLabel} value={String(st.session_count ?? 0)} />
       </div>
@@ -691,16 +752,19 @@ function ToolsTab({ server, onChanged }: { server: OpencodeServer; onChanged: ()
 
 // ─── Сессии ─────────────────────────────────────────────────────────
 
-function SessionsTab() {
-  const [sessions, setSessions] = useState<{ session_id: string; server: string; user?: string | null; base?: string | null; has_jwt: boolean; expires_at: number }[]>([]);
+function SessionsTab({ serverId }: { serverId: string }) {
+  const [all, setAll] = useState<{ session_id: string; server: string; user?: string | null; base?: string | null; has_jwt: boolean; expires_at: number }[]>([]);
   const [err, setErr] = useState('');
 
   const load = useCallback(async () => {
     try {
       const r = await api.getOpencodeSessions();
-      setSessions(r.sessions);
+      setAll(r.sessions);
     } catch (e) { setErr(errText(e, 'Ошибка')); }
   }, []);
+
+  // Фильтр по выбранному серверу (server — id сервера из реестра шлюза).
+  const sessions = all.filter(s => s.server === serverId);
 
   useEffect(() => { load(); }, [load]);
 
