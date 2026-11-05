@@ -80,7 +80,9 @@ function GatewayTab() {
   // Настройки (server_settings).
   const [gwUrl, setGwUrl] = useState('');
   const [rootDir, setRootDir] = useState('');
-  const [pw, setPw] = useState('');
+  const [pw, setPw] = useState('');          // PEPK-токен контейнера (только /onec/rpc)
+  const [vitra, setVitra] = useState('');    // токен Витра AI (анонимный режим)
+  const [vitraSet, setVitraSet] = useState(false);
 
   const load = useCallback(async () => {
     setErr('');
@@ -89,6 +91,8 @@ function GatewayTab() {
       setSt(s);
       setGwUrl(s.gateway_url || '');
       setRootDir(s.project_root || '');
+      const vt = await api.getVitraToken();
+      setVitraSet(vt.token_set);
     } catch (e) { setErr(errText(e, 'Ошибка статуса')); }
   }, []);
 
@@ -101,6 +105,15 @@ function GatewayTab() {
       if (rootDir.trim()) await api.putSetting('opencode_project_root', rootDir.trim());
       if (pw !== '') await api.putSetting('opencode_gateway_password', pw);
       setPw('');
+      // Токен Витры: пустая строка = не трогать; «__clear__» = очистить; иначе — установить.
+      if (vitra === '__clear__') {
+        await api.putVitraToken('');
+        setVitraSet(false);
+      } else if (vitra.trim() !== '') {
+        await api.putVitraToken(vitra.trim());
+        setVitraSet(true);
+      }
+      setVitra('');
       setMsg(t.opencode.gatewaySaved);
       load();
     } catch (e) { setErr(errText(e, 'Ошибка сохранения')); }
@@ -119,6 +132,14 @@ function GatewayTab() {
         <StatBox label={t.opencode.gatewayAddr} value={`${st.gateway_url || '—'}:${st.port ?? ''}`} mono />
         <StatBox label={t.opencode.serversLabel} value={`${healthyCount}/${st.servers.length}`} tone={healthyCount === st.servers.length ? 'green' : 'amber'} />
         <StatBox label={t.opencode.sessionsLabel} value={String(st.session_count ?? 0)} />
+      </div>
+
+      {/* Допуск к шлюзу */}
+      <div className="flex items-center gap-2 text-xs">
+        <Badge tone="green">{t.opencode.gatewaySecure}</Badge>
+        <span className="text-slate-500 dark:text-slate-400">
+          {vitraSet ? t.opencode.vitraTokenSet : t.opencode.vitraTokenEmpty}
+        </span>
       </div>
 
       {/* Серверы (сводка) */}
@@ -146,8 +167,18 @@ function GatewayTab() {
         <Field label={t.opencode.rootSetting} hint={t.opencode.rootHint}>
           <TextInput mono value={rootDir} onChange={e => setRootDir(e.target.value)} placeholder="/home/test/project/1C-opencode" />
         </Field>
-        <Field label={t.opencode.passwordSetting} hint={t.opencode.passwordHint}>
+        <Field label={t.opencode.pepekSetting} hint={t.opencode.pepekHint}>
           <TextInput type="password" value={pw} onChange={e => setPw(e.target.value)} placeholder={st.password_set ? '•••••• (установлен)' : ''} />
+        </Field>
+        <Field label={t.opencode.vitraSetting} hint={t.opencode.vitraHint}>
+          <div className="flex gap-2">
+            <TextInput type="password" value={vitra} onChange={e => setVitra(e.target.value)} placeholder={vitraSet ? '•••••• (установлен)' : ''} />
+            {vitraSet && (
+              <Btn variant="outline" onClick={() => setVitra('__clear__')} title={t.opencode.vitraTokenEmpty}>
+                <Trash2 size={15} />
+              </Btn>
+            )}
+          </div>
         </Field>
         <div className="flex justify-end">
           <Btn onClick={doSaveSettings} disabled={busy}><Check size={15} /> {t.common.save}</Btn>

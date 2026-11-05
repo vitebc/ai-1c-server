@@ -98,6 +98,23 @@ pub fn gateway_password(db: &crate::db::Database) -> Option<String> {
         .filter(|v| !v.is_empty())
 }
 
+/// Токен Витра AI для анонимного режима: `server_settings(vitra_ai_token)`.
+/// Клиент шлёт его в заголовке `X-Vitra-Token`; шлюз сверяет (constant-time).
+/// Пусто — допуск по Витре выключен. Без env-fallback: токен генерируется в UI.
+pub fn vitra_token(db: &crate::db::Database) -> Option<String> {
+    let from_db: Option<String> = db
+        .conn
+        .query_row(
+            "SELECT value FROM server_settings WHERE key = 'vitra_ai_token'",
+            [],
+            |row| row.get(0),
+        )
+        .ok();
+    from_db
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+}
+
 /// Токен плагина 1c-tools для сервера: HMAC-SHA256(JWT_SECRET, "opencode:<name>").
 /// Плагин шлёт его в заголовке X-OpenCode-Token; шлюз сверяет и отдаёт JWT.
 pub fn plugin_token(jwt_secret: &str, server_name: &str) -> String {

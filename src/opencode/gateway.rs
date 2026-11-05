@@ -297,26 +297,28 @@ async fn gateway_any(
         .map(|t| t.trim().to_string())
         .or_else(|| query_param(&query, "onec_token"));
 
-    // Аутентификация шлюза (если пароль задан): Bearer-JWT / PEPK-токен контейнера
-    // / Basic. JWT проверяется ниже (decode_onec_jwt) — здесь только наличие.
+    // Допуск к прокси: только два легитимных клиента.
+    // 1) Форма 1С / Витра AI с JWT пользователя 1С (HS256, aud=mcp, валидный exp) —
+    //    Bearer или ?onec_token=. Подпись проверяется здесь же (decode_onec_jwt).
+    // 2) Витра AI анонимно — статический токен X-Vitra-Token (server_settings.vitra_ai_token).
+    //    Такой сессии не будет выдан JWT → /onec/rpc отклонит инструменты 1С (только чтение).
+    // Всё остальное (браузер, curl без маркера) — 401.
     {
         let db = state.db.lock().await;
-        if let Some(expected) = crate::opencode::gateway_password(&db) {
-            use base64::Engine;
-            let want = format!(
-                "Basic {}",
-                base64::engine::general_purpose::STANDARD.encode(format!("1c:{expected}"))
-            );
-            let got = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()).unwrap_or_default();
-            let pepek_ok = headers
-                .get("x-onec-pepek")
+        let jwt_ok = bearer
+            .as_deref()
+            .map(|t| decode_onec_jwt(&db, t).is_some())
+            .unwrap_or(false);
+        let vitra_ok = match crate::opencode::vitra_token(&db) {
+            Some(expected) => headers
+                .get("x-vitra-token")
                 .and_then(|v| v.to_str().ok())
                 .map(|p| constant_time_eq(p, &expected))
-                .unwrap_or(false);
-            let bearer_present = bearer.is_some();
-            if !(got == want || pepek_ok || bearer_present) {
-                return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "неверный пароль шлюза" }))).into_response();
-            }
+                .unwrap_or(false),
+            None => false, // токен не задан — допуск по Витре выключен
+        };
+        if !jwt_ok && !vitra_ok {
+            return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "доступ только для формы 1С / Витра AI" }))).into_response();
         }
     }
 
@@ -706,14 +708,13 @@ fn constant_time_eq(a: &str, b: &str) -> bool {
 
 // ─── health / app ───────────────────────────────────────────────────
 
-async fn gateway_health(State(state): State<Arc<AppState>>) -> Json<Value> {
-    let db = state.db.lock().await;
-    let (servers, _default) = load_servers(&db);
+/// Публичный health: только «шлюз жив». Без списка серверов и сессий —
+/// это информационное раскрытие, а реальный статус админка берёт из
+/// /api/admin/opencode/status (там же зонды {url}/global/health).
+async fn gateway_health() -> Json<Value> {
     Json(json!({
         "ok": true,
         "gateway": "opencode",
-        "servers": servers.iter().map(|s| s.name.clone()).collect::<Vec<_>>(),
-        "sessions": sessions_snapshot().len(),
     }))
 }
 

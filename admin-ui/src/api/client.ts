@@ -351,4 +351,7 @@ export const api = {
     request<{ count: number; sessions: { session_id: string; server: string; user?: string | null; base?: string | null; has_jwt: boolean; expires_at: number }[] }>('/opencode/sessions'),
   dropOpencodeSession: (session_id: string) =>
     request<{ ok: boolean }>('/opencode/sessions/drop', { method: 'POST', body: JSON.stringify({ session_id }) }),
+  getVitraToken: () => request<{ token_set: boolean }>('/opencode/vitra/token'),
+  putVitraToken: (token: string) =>
+    request<{ token_set: boolean }>('/opencode/vitra/token', { method: 'PUT', body: JSON.stringify({ token }) }),
 };

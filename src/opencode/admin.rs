@@ -1490,6 +1490,48 @@ pub async fn session_drop(
     Ok(Json(json!({ "ok": true, "session_id": body.session_id })))
 }
 
+// ─── токен Витра AI (анонимный режим) ───────────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct VitraTokenStatus {
+    pub token_set: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VitraTokenBody {
+    /// Пустая строка — очистить токен (выключить анонимный допуск).
+    pub token: String,
+}
+
+/// GET /api/admin/opencode/vitra/token — только флаг, сам токен не отдаётся.
+pub async fn vitra_token_get(State(state): State<Arc<AppState>>) -> Json<VitraTokenStatus> {
+    let db = state.db.lock().await;
+    Json(VitraTokenStatus {
+        token_set: crate::opencode::vitra_token(&db).is_some(),
+    })
+}
+
+/// PUT /api/admin/opencode/vitra/token — сохранить/очистить токен.
+pub async fn vitra_token_put(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<VitraTokenBody>,
+) -> Result<Json<VitraTokenStatus>, axum::response::Response> {
+    use axum::response::IntoResponse;
+    let token = body.token.trim().to_string();
+    if token.len() > 256 {
+        return Err(BadRequest("токен слишком длинный (макс 256)".into()).into_response());
+    }
+    let db = state.db.lock().await;
+    if let Err(e) = db.conn.execute(
+        "INSERT INTO server_settings (key, value) VALUES ('vitra_ai_token', ?1)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        rusqlite::params![token],
+    ) {
+        return Err(AppError::msg(format!("db: {e}")).into_response());
+    }
+    Ok(Json(VitraTokenStatus { token_set: !token.is_empty() }))
+}
+
 // ─── статус ─────────────────────────────────────────────────────────
 
 pub async fn status(State(state): State<Arc<AppState>>) -> Json<Value> {
@@ -1585,5 +1627,6 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/servers/{id}/plugin/token", get(plugin_token_endpoint))
         .route("/sessions", get(sessions_list))
         .route("/sessions/drop", post(session_drop))
+        .route("/vitra/token", get(vitra_token_get).put(vitra_token_put))
         .route("/status", get(status))
 }
