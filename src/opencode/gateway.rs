@@ -288,6 +288,9 @@ async fn gateway_any(
     let path = uri.path().to_string();
     let query = uri.query().map(|q| q.to_string()).unwrap_or_default();
 
+    // Заполняется блоком допуска ниже (декодированный JWT формы, если есть).
+    let mut jwt_info_global: Option<(String, u64, Option<String>)> = None;
+
     // JWT формы: Bearer из заголовка ИЛИ ?onec_token= (BSL не может переопределить
     // Authorization — он занят Basic-конструктором HTTPСоединения).
     let bearer = headers
@@ -305,10 +308,7 @@ async fn gateway_any(
     // Всё остальное (браузер, curl без маркера) — 401.
     {
         let db = state.db.lock().await;
-        let jwt_ok = bearer
-            .as_deref()
-            .map(|t| decode_onec_jwt(&db, t).is_some())
-            .unwrap_or(false);
+        let jwt_info = bearer.as_deref().and_then(|t| decode_onec_jwt(&db, t));
         let vitra_ok = match crate::opencode::vitra_token(&db) {
             Some(expected) => headers
                 .get("x-vitra-token")
@@ -317,9 +317,18 @@ async fn gateway_any(
                 .unwrap_or(false),
             None => false, // токен не задан — допуск по Витре выключен
         };
-        if !jwt_ok && !vitra_ok {
+        if jwt_info.is_none() && !vitra_ok {
+            let reason = match bearer.as_deref() {
+                Some(_) => "неверный JWT",
+                None => "нет маркера (JWT / X-Vitra-Token)",
+            };
+            tracing::warn!(
+                "gateway: 401 {} {} — {}",
+                method, path, reason
+            );
             return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "доступ только для формы 1С / Витра AI" }))).into_response();
         }
+        jwt_info_global = jwt_info;
     }
 
     // Маршрут сессии: запрос к /api/session/{id}/... ИЛИ
@@ -333,17 +342,17 @@ async fn gateway_any(
         .and_then(|rest| rest.split('/').next().map(|s| s.to_string()))
         .filter(|s| !s.is_empty() && !s.contains(' '));
 
-    let (server, jwt_info) = {
+    let (server, base_routed) = {
         let db = state.db.lock().await;
         let (servers, default) = load_servers(&db);
         let from_registry = session_id.as_deref().and_then(lookup_session).map(|e| e.server_id);
         let base = base_from_request(&headers, &query, bearer.as_deref());
         let server = match from_registry {
             Some(sid) => servers.iter().find(|s| s.id == sid).cloned(),
-            None => match base {
+            None => match &base {
                 Some(b) => servers
                     .iter()
-                    .find(|s| s.name.eq_ignore_ascii_case(&b) || s.bases.iter().any(|x| x.eq_ignore_ascii_case(&b)))
+                    .find(|s| s.name.eq_ignore_ascii_case(b) || s.bases.iter().any(|x| x.eq_ignore_ascii_case(b)))
                     .cloned(),
                 None => default.clone(),
             },
@@ -352,12 +361,25 @@ async fn gateway_any(
             Some(s) => s,
             None => {
                 let known: Vec<String> = servers.iter().map(|s| s.name.clone()).collect();
+                tracing::warn!(
+                    "gateway: 404 {} {} — база не найдена (известны: {})",
+                    method, path, known.join(", ")
+                );
                 return (StatusCode::NOT_FOUND, Json(json!({ "error": "база не найдена", "known_bases": known }))).into_response();
             }
         };
-        let jwt_info = bearer.as_deref().and_then(|t| decode_onec_jwt(&db, t));
-        (server, jwt_info)
+        (server, base)
     };
+    let jwt_info = jwt_info_global;
+
+    // Лог обращения: кто (JWT sub или Витра), база, сервер OpenCode, метод/путь.
+    tracing::info!(
+        "gateway: {} {} — клиент={} base={} → {}",
+        method, path,
+        jwt_info.as_ref().map(|(s, _, _)| s.clone()).unwrap_or_else(|| "Витра".into()),
+        base_routed.clone().unwrap_or_default(),
+        server.name
+    );
 
     // Реестр сессий: обновляем при запросах к /api/session/{id}/...
     if let Some((sub, exp, _)) = &jwt_info {
@@ -544,7 +566,10 @@ async fn onec_rpc(
     // 1. Токен плагина → имя сервера.
     let token = match headers.get("x-opencode-token").and_then(|v| v.to_str().ok()) {
         Some(t) => t.to_string(),
-        None => return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "нет X-OpenCode-Token" }))).into_response(),
+        None => {
+            tracing::warn!("onec-rpc: 401 нет X-OpenCode-Token");
+            return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "нет X-OpenCode-Token" }))).into_response();
+        }
     };
     let server_name = {
         let db = state.db.lock().await;
@@ -555,7 +580,10 @@ async fn onec_rpc(
     };
     let server_name = match server_name {
         Some(n) => n,
-        None => return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "неверный токен плагина" }))).into_response(),
+        None => {
+            tracing::warn!("onec-rpc: 401 неверный токен плагина");
+            return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "неверный токен плагина" }))).into_response();
+        }
     };
 
     // 1b. Если пароль шлюза задан — контейнер обязан предъявить PEPK-токен
@@ -566,6 +594,7 @@ async fn onec_rpc(
         if let Some(expected) = crate::opencode::gateway_password(&db) {
             let pepek = headers.get("x-onec-pepek").and_then(|v| v.to_str().ok()).unwrap_or_default();
             if !constant_time_eq(pepek, &expected) {
+                tracing::warn!("onec-rpc: 401 нет PEPK-токена контейнера (server={})", server_name);
                 return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "нет PEPK-токена контейнера" }))).into_response();
             }
         }
@@ -575,10 +604,12 @@ async fn onec_rpc(
     let entry = match lookup_session(&body.session_id) {
         Some(e) => e,
         None => {
+            tracing::warn!("onec-rpc: 401 сессия {} не найдена или истекла", body.session_id);
             return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "сессия не найдена или истекла — отправьте новый промпт" }))).into_response()
         }
     };
     if entry.jwt.is_none() {
+        tracing::warn!("onec-rpc: 401 у сессии {} нет JWT пользователя 1С", body.session_id);
         return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "у сессии нет JWT пользователя 1С — отправьте новый промпт" }))).into_response();
     }
 
@@ -632,12 +663,16 @@ async fn onec_rpc(
         None => bases.first().cloned().unwrap_or_default(),
     };
     if base_final.is_empty() {
+        tracing::warn!("onec-rpc: 400 база не указана и не задана у сервера {}", server_name);
         return (StatusCode::BAD_REQUEST, Json(json!({ "error": "база не указана и не задана у сервера" }))).into_response();
     }
     // resolve_onec_url сам берёт db-лок — вызываем БЕЗ удержанного лока.
     let onec_url = match resolve_onec_url(&state, &base_final).await {
         Some(u) => u.trim_end_matches('/').to_string(),
-        None => return (StatusCode::NOT_FOUND, Json(json!({ "error": format!("база {base_final:?} не найдена в мапе ONEC_BASES") }))).into_response(),
+        None => {
+            tracing::warn!("onec-rpc: 404 база {base_final:?} не найдена в мапе ONEC_BASES");
+            return (StatusCode::NOT_FOUND, Json(json!({ "error": format!("база {base_final:?} не найдена в мапе ONEC_BASES") }))).into_response();
+        }
     };
 
     // 4. JSON-RPC в 1С под JWT пользователя (per-user RLS).
@@ -677,7 +712,10 @@ async fn onec_rpc(
                 Err(_) => (status, text).into_response(),
             }
         }
-        Err(e) => (StatusCode::BAD_GATEWAY, Json(json!({ "error": format!("1С: {e}") }))).into_response(),
+        Err(e) => {
+            tracing::warn!("onec-rpc: 502 server={} base={}: {}", server_name, base_final, e);
+            (StatusCode::BAD_GATEWAY, Json(json!({ "error": format!("1С: {e}") }))).into_response()
+        }
     }
 }
 

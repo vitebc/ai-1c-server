@@ -9,7 +9,7 @@ import { PageHeader, Btn, IconBtn, Badge, TableShell, Th, Td, Row, TextInput, Te
 type Section = 'config' | 'agents' | 'skills' | 'tools' | 'sessions';
 
 interface Selection {
-  kind: 'gateway' | 'section';
+  kind: 'gateway' | 'gateway-logs' | 'section';
   serverId?: string;
   section?: Section;
 }
@@ -49,6 +49,7 @@ export default function OpenCode() {
   const selServer = sel.kind === 'section' && sel.serverId ? servers.find(s => s.id === sel.serverId) || null : null;
 
   function pickGateway() { setSel({ kind: 'gateway' }); }
+  function pickGatewayLogs() { setSel({ kind: 'gateway-logs' }); }
   function toggleServer(id: string) { setExpanded(e => ({ ...e, [id]: !e[id] })); }
   function pickSection(serverId: string, section: Section) {
     setExpanded(e => ({ ...e, [serverId]: true }));
@@ -76,6 +77,14 @@ export default function OpenCode() {
               <Network size={14} className="shrink-0" />
               <span>{t.opencode.treeGateway}</span>
             </button>
+            <div className="ml-5 pl-2 border-l border-slate-200 dark:border-slate-800 my-0.5">
+              <button
+                onClick={pickGatewayLogs}
+                className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-left text-[13px] ${sel.kind === 'gateway-logs' ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300' : 'hover:bg-slate-100 dark:hover:bg-slate-800/60 text-slate-600 dark:text-slate-400'}`}
+              >
+                {t.opencode.tabGatewayLogs}
+              </button>
+            </div>
 
             {/* Серверы */}
             {servers.map(s => (
@@ -110,6 +119,7 @@ export default function OpenCode() {
         {/* Контент справа */}
         <div className="flex-1 min-w-0">
           {sel.kind === 'gateway' && <GatewayTab />}
+          {sel.kind === 'gateway-logs' && <GatewayLogsTab />}
           {sel.kind === 'section' && sel.serverId === '__new__' && (
             <ServersTab servers={servers} onChanged={load} onPick={(id) => pickSection(id, 'config')} selId="" />
           )}
@@ -258,6 +268,57 @@ function StatBox({ label, value, tone, mono }: { label: string; value: string; t
         {tone && <span className={`inline-block w-2 h-2 rounded-full ${dot}`} />}
         <span className={`text-sm font-medium truncate ${mono ? monoCls : ''}`}>{value}</span>
       </div>
+    </div>
+  );
+}
+
+// ─── Логи обращений к шлюзу ─────────────────────────────────────────
+
+interface GwLogEntry { ts: string; level: string; target: string; msg: string }
+
+function GatewayLogsTab() {
+  const [logs, setLogs] = useState<GwLogEntry[]>([]);
+  const [err, setErr] = useState('');
+  const [level, setLevel] = useState<'ALL' | 'INFO' | 'WARN'>('ALL');
+
+  const load = useCallback(async () => {
+    setErr('');
+    try { setLogs(await api.getOpencodeGatewayLogs(300)); }
+    catch (e) { setErr(errText(e, 'Ошибка загрузки логов')); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const shown = level === 'ALL' ? logs : logs.filter(l => l.level.startsWith(level));
+
+  return (
+    <div>
+      {err && <div className="mb-3"><Alert tone="red">{err}</Alert></div>}
+      <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">{t.opencode.gatewayLogsHint}</p>
+      <div className="flex items-center gap-2 mb-2">
+        <select
+          value={level}
+          onChange={e => setLevel(e.target.value as 'ALL' | 'INFO' | 'WARN')}
+          className="text-sm border border-slate-300 dark:border-slate-700 rounded-md px-2 py-1 bg-white dark:bg-slate-900"
+        >
+          <option value="ALL">Все уровни</option>
+          <option value="INFO">INFO + WARN</option>
+          <option value="WARN">Только WARN</option>
+        </select>
+        <span className="text-xs text-slate-500 dark:text-slate-400">{shown.length} записей</span>
+        <div className="flex-1" />
+        <Btn variant="outline" onClick={load}><RefreshCw size={15} /> {t.common.refresh}</Btn>
+      </div>
+      <TableShell colSpan={3} empty={shown.length === 0 ? { text: t.opencode.gatewayLogsEmpty } : null}
+        head={<><Th>{t.opencode.gwLogTime}</Th><Th>{t.opencode.gwLogLevel}</Th><Th>{t.opencode.gwLogMsg}</Th></>}>
+        {shown.map((l, i) => (
+          <Row key={i}>
+            <Td className="whitespace-nowrap"><span className={monoCls + ' text-xs'}>{new Date(l.ts).toLocaleTimeString('ru-RU')}</span></Td>
+            <Td><Badge tone={l.level === 'WARN' ? 'amber' : l.level === 'ERROR' ? 'red' : 'neutral'}>{l.level}</Badge></Td>
+            <Td><span className="text-sm">{l.msg}</span></Td>
+          </Row>
+        ))}
+      </TableShell>
     </div>
   );
 }

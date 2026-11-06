@@ -308,6 +308,8 @@ export const api = {
   // ─── OpenCode gateway ──────────────────────────────────────────────
   getOpencodeStatus: () =>
     request<{ project_root?: string; gateway_url?: string; port?: number; alive?: boolean; password_set?: boolean; session_count?: number; servers: Array<Record<string, any>> }>('/opencode/status'),
+  getOpencodeGatewayLogs: (limit = 300) =>
+    request<{ ts: string; level: string; target: string; msg: string }[]>(`/opencode/logs?limit=${limit}`),
   getOpencodeServers: () => request<import('../types').OpencodeServer[]>('/opencode/servers'),
   createOpencodeServer: (data: Partial<import('../types').OpencodeServer>) =>
     request<import('../types').OpencodeServer>('/opencode/servers', { method: 'POST', body: JSON.stringify(data) }),

@@ -465,7 +465,7 @@ pub struct LogsQuery {
     pub tail: Option<usize>,
 }
 
-pub async fn logs(
+pub async fn server_logs(
     State(state): State<Arc<AppState>>,
     Query(q): Query<LogsQuery>,
 ) -> Result<Json<Value>, axum::response::Response> {
@@ -1532,6 +1532,18 @@ pub async fn vitra_token_put(
     Ok(Json(VitraTokenStatus { token_set: !token.is_empty() }))
 }
 
+// ─── логи обращений к шлюзу ──────────────────────────────────────────
+
+/// GET /api/admin/opencode/logs?limit= — обращения к шлюзу :9020 из общего
+/// кольцевого буфера логов (target ai_1c_server::opencode).
+pub async fn logs(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Json<Vec<crate::log_buffer::LogEntry>> {
+    let limit: usize = q.get("limit").and_then(|v| v.parse().ok()).unwrap_or(300);
+    Json(state.logs.entries(None, limit, None, Some("ai_1c_server::opencode")))
+}
+
 // ─── статус ─────────────────────────────────────────────────────────
 
 pub async fn status(State(state): State<Arc<AppState>>) -> Json<Value> {
@@ -1608,7 +1620,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/servers/{id}/up", post(up))
         .route("/servers/{id}/stop", post(stop))
         .route("/servers/{id}/restart", post(restart))
-        .route("/servers/{id}/logs", get(logs))
+        .route("/servers/{id}/logs", get(server_logs))
         .route(
             "/servers/{id}/config",
             get(config_get).put(config_put),
@@ -1628,5 +1640,6 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/sessions", get(sessions_list))
         .route("/sessions/drop", post(session_drop))
         .route("/vitra/token", get(vitra_token_get).put(vitra_token_put))
+        .route("/logs", get(logs))
         .route("/status", get(status))
 }

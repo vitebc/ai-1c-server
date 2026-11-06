@@ -290,6 +290,11 @@ export const t = {
     sessionsHint: 'Сессии OpenCode с привязанным JWT пользователя 1С (в памяти шлюза). Инструменты 1С работают, пока JWT не истёк.',
     sessionUser: 'Пользователь 1С', sessionBase: 'База', sessionJwT: 'JWT', sessionExp: 'Истекает', dropSession: 'Убрать',
     noSessions: 'Активных сессий нет',
+    // Логи обращений к шлюзу
+    tabGatewayLogs: 'Логи',
+    gatewayLogsHint: 'Обращения к шлюзу :9020 (прокси и RLS-мост): кто, база, сервер OpenCode, метод/путь. IP не фиксируется.',
+    gatewayLogsEmpty: 'Обращений пока нет — откройте форму 1С или Витру AI',
+    gwLogTime: 'Время', gwLogLevel: 'Уровень', gwLogMsg: 'Сообщение',
   },
   stats: {
     title: 'Статистика обращений',
