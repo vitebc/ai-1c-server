@@ -270,6 +270,17 @@ Authorization: Bearer <JWT HS256, sub = onec_id>
 путь `/b/{base}/api/...` → сервер по умолчанию), реестр сессий и RLS-мост
 инструментов 1С.
 
+**Порты:** prod держит `:9020`, dev — `:9025` (env `OPENCODE_GATEWAY_PORT`
+в `~/.config/ai-1c-server/{dev,prod}.env`; БД не читает). Порядок
+перезапуска: сначала prod, потом dev.
+
+**Авторизация:** каждый запрос шлюза требует маркер — JWT пользователя 1С
+(`Authorization: Bearer`, aud=`mcp`) или `X-Vitra-Token` (совпадение с
+`server_settings.vitra_ai_token`, constant-time; пусто = выключено).
+Иначе 401. Исключение — `GET /health` (без маркера, без раскрытия списка
+серверов/сессий): `{ok: true, gateway: "opencode"}`. Анонимная Витра без JWT
+не может вызывать инструменты 1С (`/onec/rpc` требует JWT пользователя).
+
 **Админ API** (`/api/admin/opencode/*`, секция RBAC `opencode`):
 
 | Метод | Путь | Описание |
@@ -279,7 +290,7 @@ Authorization: Bearer <JWT HS256, sub = onec_id>
 | GET/PUT/DELETE | `/opencode/servers/{id}` | по id или name; PUT — частичное (пустой `password`/`onec_password` = оставить) |
 | POST | `/opencode/servers/{id}/up\|stop\|restart` | `docker compose <action> <compose_service>` в `project_root` |
 | GET | `/opencode/servers/{id}/logs?tail=` | compose-логи |
-| GET/PUT | `/opencode/servers/{id}/config` | `opencode.jsonc` (JSONC, валидация при записи) |
+| GET/PUT | `/opencode/servers/{id}/config` | `opencode.jsonc` (JSONC, валидация при записи); читается из `config_dir` сервера — каталог реестра должен совпадать с реальным (регистр важен) |
 | GET | `/opencode/servers/{id}/agents` | плоские агенты `config/<server>/agents/*.md` (frontmatter + body) |
 | PUT/DELETE | `/opencode/servers/{id}/agents/{name}` | создать/изменить / удалить агент |
 | GET | `/opencode/servers/{id}/skills` | скилы `config/<server>/skills/*.md` |
@@ -292,8 +303,10 @@ Authorization: Bearer <JWT HS256, sub = onec_id>
 | GET | `/opencode/servers/{id}/plugin/token` | токен плагина `X-OpenCode-Token` (HMAC от `JWT_SECRET` + name) |
 | GET | `/opencode/sessions` | реестр сессий шлюза: `{session_id, server, user, base, has_jwt, expires_at}` |
 | POST | `/opencode/sessions/drop` | `{session_id}` — убрать из реестра (после рестарта шлюза JWT теряется) |
+| GET | `/opencode/logs?limit=` | логи обращений к шлюзу из LogBuffer (target `ai_1c_server::opencode::gateway`; дефолт 300; 401/ошибки — WARN, успехи — INFO; IP не логируется) |
+| GET/PUT | `/opencode/vitra/token` | токен Витры: GET → `{token_set}` (значение не раскрывается), PUT `{token}` (пустая строка = выключить) |
 
-**Gateway listener** (`:9020`, один порт для dev и prod):
+**Gateway listener** (`:9020` prod / `:9025` dev):
 
 - `POST /api/session` — создаёт сессию на целевом сервере OpenCode; шлюз
   кладёт в реестр `sessionID → {base, sub, JWT, exp}` (id из `data.id`).

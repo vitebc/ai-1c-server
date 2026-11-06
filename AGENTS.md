@@ -215,13 +215,23 @@ client_versions, clients, server_settings, audit_log),
   не перетирать при правках.
 - **Известный долг**: в `AgentStudio.tsx` / `McpServers.tsx` встречаются
   склеенные строки (мои правки без отступов) — работает, но неаккуратно.
-- **OpenCode Gateway** — шлюз :9020 (один порт для dev и prod). Серверы
-  OpenCode живут в `1C-opencode` (docker compose, порты 4040–4043).
-  Инструменты 1С — штатный плагин v2 (`Plugin.define` + `ctx.tool.transform`),
-  генерируется кнопкой «Применить» (sync из 1С → generate index.ts → restart).
-  RLS: JWT пользователя из формы подставляется шлюзом в `{base}/hs/mcp/rpc`.
-  Кастомные тулзы из `tools/` и плагин v1 (`{id, server}`) в OpenCode 2.1.4
-  не работают — не использовать.
+- **OpenCode Gateway** — шлюз: **prod держит :9020, dev — :9025** (порт из
+  env `OPENCODE_GATEWAY_PORT` в `~/.config/ai-1c-server/{dev,prod}.env`,
+  БД не читает; порядок перезапуска: сначала prod, потом dev). Авторизация:
+  JWT пользователя 1С или `X-Vitra-Token` (Витра анонимно), иначе 401.
+  Логи обращений — общий LogBuffer (target `ai_1c_server::opencode::gateway`),
+  читаются из prod-админки: `GET /api/admin/opencode/logs?limit=`.
+  Серверы OpenCode живут в **`/home/test/project/1C-opencode`** (docker compose,
+  порты 4040–4043; регистр `1C` важен — Linux case-sensitive). Конфиги сервера
+  (`opencode.jsonc`, `agents/`, `skills/`, `tools/`, `plugins/`) лежат в
+  `1C-opencode/config/<name>/` и монтируются в контейнер как
+  `/root/.config/opencode`; поле `config_dir` в `opencode_servers` должно
+  указывать именно туда (была ошибка: `1c-opencode` вместо `1C-opencode` →
+  админка не видела конфиг/агентов). Инструменты 1С — штатный плагин v2
+  (`Plugin.define` + `ctx.tool.transform`), генерируется кнопкой «Применить»
+  (sync из 1С → generate index.ts → restart). RLS: JWT пользователя из формы
+  подставляется шлюзом в `{base}/hs/mcp/rpc`. Кастомные тулзы из `tools/` и
+  плагин v1 (`{id, server}`) в OpenCode 2.1.4 не работают — не использовать.
 
 ## Документация
 
