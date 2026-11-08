@@ -329,11 +329,13 @@ interface ServerForm {
   name: string; title: string; config_dir: string; url: string; username: string;
   password: string; bases: string[]; compose_service: string; compose_profile: string;
   onec_user: string; onec_password: string; enabled: boolean; is_default: boolean;
+  visible_agents: string[];
 }
 
 const emptyForm: ServerForm = {
   name: '', title: '', config_dir: '', url: 'http://127.0.0.1:4040', username: 'opencode',
   password: '', bases: [], compose_service: '', compose_profile: '', onec_user: '', onec_password: '', enabled: true, is_default: false,
+  visible_agents: [],
 };
 
 function ServersTab({ servers, onChanged, onPick, selId }: { servers: OpencodeServer[]; onChanged: () => void; onPick: (id: string) => void; selId: string }) {
@@ -344,14 +346,22 @@ function ServersTab({ servers, onChanged, onPick, selId }: { servers: OpencodeSe
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState('');
 
-  function openNew() { setEditingId(null); setForm({ ...emptyForm }); }
-  function openEdit(s: OpencodeServer) {
+  const [agentNames, setAgentNames] = useState<string[]>([]);
+
+  function openNew() { setEditingId(null); setForm({ ...emptyForm }); setAgentNames([]); }
+  async function openEdit(s: OpencodeServer) {
     setEditingId(s.id);
     setForm({
       name: s.name, title: s.title, config_dir: s.config_dir, url: s.url, username: s.username,
       password: '', bases: [...s.bases], compose_service: s.compose_service, compose_profile: s.compose_profile,
       onec_user: s.onec_user, onec_password: '', enabled: s.enabled, is_default: s.is_default,
+      visible_agents: [...(s.visible_agents || [])],
     });
+    // Загружаем список агентов сервера для чекбоксов.
+    try {
+      const r = await api.getOpencodeAgents(s.id);
+      setAgentNames(r.agents.map(a => a.name));
+    } catch { setAgentNames([]); }
   }
 
   async function doSave() {
@@ -364,6 +374,7 @@ function ServersTab({ servers, onChanged, onPick, selId }: { servers: OpencodeSe
         compose_service: form.compose_service, compose_profile: form.compose_profile,
         onec_user: form.onec_user, onec_password: form.onec_password || undefined,
         enabled: form.enabled, is_default: form.is_default,
+        visible_agents: form.visible_agents,
       };
       if (editingId) await api.updateOpencodeServer(editingId, payload);
       else {
@@ -460,6 +471,29 @@ function ServersTab({ servers, onChanged, onPick, selId }: { servers: OpencodeSe
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.enabled} onChange={e => setForm({ ...form, enabled: e.target.checked })} /> {t.common.enabled}</label>
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.is_default} onChange={e => setForm({ ...form, is_default: e.target.checked })} /> {t.opencode.isDefault}</label>
           </div>
+          {editingId && agentNames.length > 0 && (
+            <div className="mt-3">
+              <div className="text-sm font-medium mb-1">{t.opencode.visibleAgents}</div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">{t.opencode.visibleAgentsHint}</p>
+              <div className="flex flex-wrap gap-3">
+                {agentNames.map(name => (
+                  <label key={name} className="flex items-center gap-1.5 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={form.visible_agents.includes(name)}
+                      onChange={e => setForm({
+                        ...form,
+                        visible_agents: e.target.checked
+                          ? [...form.visible_agents, name]
+                          : form.visible_agents.filter(n => n !== name),
+                      })}
+                    />
+                    {name}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="flex justify-end gap-2 mt-4">
             <Btn variant="outline" onClick={() => setForm(null)}>{t.common.cancel}</Btn>
             <Btn onClick={doSave}><Check size={15} /> {t.common.save}</Btn>

@@ -38,6 +38,9 @@ pub struct ServerRow {
     pub onec_password_set: bool,
     pub enabled: bool,
     pub is_default: bool,
+    /// Агенты, отдаваемые клиенту (GET /api/agent). Пусто = все.
+    #[serde(default)]
+    pub visible_agents: Vec<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -68,6 +71,9 @@ pub struct ServerBody {
     pub enabled: bool,
     #[serde(default)]
     pub is_default: bool,
+    /// Агенты, отдаваемые клиенту (GET /api/agent). Пусто = все.
+    #[serde(default)]
+    pub visible_agents: Option<Vec<String>>,
 }
 
 fn default_true() -> bool {
@@ -87,7 +93,7 @@ fn read_row(db: &crate::db::Database, id: &str) -> Option<ServerRow> {
         .query_row(
             "SELECT id, name, title, config_dir, url, username, password, bases,
                     compose_service, compose_profile, onec_user, onec_password,
-                    enabled, is_default, created_at, updated_at
+                    enabled, is_default, visible_agents, created_at, updated_at
              FROM opencode_servers WHERE id = ?1 OR name = ?1",
             [id],
             |row| {
@@ -108,11 +114,12 @@ fn read_row(db: &crate::db::Database, id: &str) -> Option<ServerRow> {
                     row.get::<_, i32>(13)? != 0,
                     row.get::<_, String>(14)?,
                     row.get::<_, String>(15)?,
+                    row.get::<_, String>(16)?,
                 ))
             },
         )
         .ok()
-        .map(|(id, name, title, config_dir, url, username, pw, bases_raw, cs, cp, ou, opw, enabled, is_default, created_at, updated_at)| {
+        .map(|(id, name, title, config_dir, url, username, pw, bases_raw, cs, cp, ou, opw, enabled, is_default, va_raw, created_at, updated_at)| {
             ServerRow {
                 id,
                 name,
@@ -128,6 +135,7 @@ fn read_row(db: &crate::db::Database, id: &str) -> Option<ServerRow> {
             onec_password_set: !opw.is_empty(),
             enabled,
             is_default,
+            visible_agents: serde_json::from_str(&va_raw).unwrap_or_default(),
             created_at,
             updated_at,
             }
@@ -225,8 +233,8 @@ pub async fn create(
     }
     db.conn
         .execute(
-            "INSERT INTO opencode_servers (id, name, title, config_dir, url, username, password, bases, compose_service, compose_profile, onec_user, onec_password, enabled, is_default)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+            "INSERT INTO opencode_servers (id, name, title, config_dir, url, username, password, bases, compose_service, compose_profile, onec_user, onec_password, enabled, is_default, visible_agents)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             rusqlite::params![
                 id,
                 body.name,
@@ -242,6 +250,7 @@ pub async fn create(
                 body.onec_password.clone().unwrap_or_default(),
                 body.enabled as i32,
                 body.is_default as i32,
+                serde_json::to_string(&body.visible_agents.clone().unwrap_or_default()).unwrap_or_else(|_| "[]".into()),
             ],
         )
         .map_err(|e| AppError::msg(e.to_string()).into_response())?;
@@ -292,12 +301,17 @@ pub async fn update(
     let compose_service = body.compose_service.clone().unwrap_or_else(|| old.compose_service.clone());
     let compose_profile = body.compose_profile.clone().unwrap_or_else(|| old.compose_profile.clone());
     let onec_user = body.onec_user.clone().unwrap_or_else(|| old.onec_user.clone());
+    // visible_agents: None = не менять, Some([]) = сбросить (все агенты видны).
+    let va_raw = match &body.visible_agents {
+        Some(v) => serde_json::to_string(v).unwrap_or_else(|_| "[]".into()),
+        None => serde_json::to_string(&old.visible_agents).unwrap_or_else(|_| "[]".into()),
+    };
     db.conn
         .execute(
             "UPDATE opencode_servers SET name = ?1, title = ?2, config_dir = ?3, url = ?4, username = ?5,
              bases = ?6, compose_service = ?7, compose_profile = ?8, onec_user = ?9, enabled = ?10, is_default = ?11,
-             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-             WHERE id = ?12",
+             visible_agents = ?12, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+             WHERE id = ?13",
             rusqlite::params![
                 body.name,
                 title,
@@ -310,6 +324,7 @@ pub async fn update(
                 onec_user,
                 body.enabled as i32,
                 body.is_default as i32,
+                va_raw,
                 old.id,
             ],
         )

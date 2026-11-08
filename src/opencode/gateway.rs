@@ -106,23 +106,26 @@ struct ServerInfo {
     username: String,
     password: String,
     bases: Vec<String>,
+    /// Агенты, отдаваемые клиенту (GET /api/agent). Пусто = все.
+    visible_agents: Vec<String>,
 }
 
 fn load_servers(db: &crate::db::Database) -> (Vec<ServerInfo>, Option<ServerInfo>) {
-    let pick = |r: &rusqlite::Row| -> rusqlite::Result<(String, String, String, String, String, String)> {
-        Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
+    let pick = |r: &rusqlite::Row| -> rusqlite::Result<(String, String, String, String, String, String, String)> {
+        Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?))
     };
-    let to_info = |(id, name, url, username, password, bases_raw): (String, String, String, String, String, String)| ServerInfo {
+    let to_info = |(id, name, url, username, password, bases_raw, va_raw): (String, String, String, String, String, String, String)| ServerInfo {
         id,
         name,
         url: url.trim_end_matches('/').to_string(),
         username,
         password,
         bases: serde_json::from_str(&bases_raw).unwrap_or_default(),
+        visible_agents: serde_json::from_str(&va_raw).unwrap_or_default(),
     };
     let mut stmt = db
         .conn
-        .prepare("SELECT id, name, url, username, password, bases FROM opencode_servers WHERE enabled = 1 ORDER BY name")
+        .prepare("SELECT id, name, url, username, password, bases, visible_agents FROM opencode_servers WHERE enabled = 1 ORDER BY name")
         .unwrap();
     let servers: Vec<ServerInfo> = stmt
         .query_map([], pick)
@@ -133,7 +136,7 @@ fn load_servers(db: &crate::db::Database) -> (Vec<ServerInfo>, Option<ServerInfo
     let default = db
         .conn
         .query_row(
-            "SELECT id, name, url, username, password, bases FROM opencode_servers WHERE enabled = 1 AND is_default = 1 LIMIT 1",
+            "SELECT id, name, url, username, password, bases, visible_agents FROM opencode_servers WHERE enabled = 1 AND is_default = 1 LIMIT 1",
             [],
             pick,
         )
@@ -396,7 +399,7 @@ async fn gateway_any(
     }
 
     // Прокси (SSE — по Content-Type ответа).
-    let resp = proxy_raw(
+    let mut resp = proxy_raw(
         &reqwest::Client::new(),
         method.clone(),
         &server.url,
@@ -406,6 +409,28 @@ async fn gateway_any(
         (!bytes.is_empty()).then_some(bytes.clone()),
     )
     .await;
+
+    // Фильтрация агентов: GET /api/agent → оставляем только видимые.
+    // Пустой список visible_agents = все агенты видны (поведение по умолчанию).
+    if method == Method::GET && path == "/api/agent" && !server.visible_agents.is_empty() {
+        let allowed: std::collections::HashSet<&str> = server.visible_agents.iter().map(|s| s.as_str()).collect();
+        if let Some((status, body_bytes)) = peek_json(&resp) {
+            if status.is_success() {
+                if let Ok(mut v) = serde_json::from_slice::<Value>(&body_bytes) {
+                    // OpenCode v2: {"location": {...}, "data": [{name, ...}, ...]}
+                    if let Some(data) = v.get_mut("data").and_then(|d| d.as_array_mut()) {
+                        data.retain(|a| a.get("name").and_then(|n| n.as_str()).map(|n| allowed.contains(n)).unwrap_or(false));
+                    }
+                    let new_body = serde_json::to_vec(&v).unwrap_or_default();
+                    resp = Response::builder()
+                        .status(status)
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .body(axum::body::Body::from(new_body))
+                        .unwrap_or_else(|_| (StatusCode::INTERNAL_SERVER_ERROR, "filter").into_response());
+                }
+            }
+        }
+    }
 
     // POST /api/session: запоминаем созданную сессию (id из ответа).
     // OpenCode v2 оборачивает ответ в {data: {...}} — смотрим и туда.

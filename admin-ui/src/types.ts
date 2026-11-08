@@ -424,6 +424,7 @@ export interface OpencodeServer {
   onec_password_set: boolean;
   enabled: boolean;
   is_default: boolean;
+  visible_agents: string[];
   created_at: string;
   updated_at: string;
 }
