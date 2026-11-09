@@ -1,20 +1,18 @@
 # Code Index (индексы выгрузок 1С) в OpenCode — схема и примеры конфигов
 
-> **Статус: документация. Конфиги серверов OpenCode (`/home/test/project/1C-opencode/config/*/opencode.jsonc`) НЕ изменены.**
-> Файл описывает, как подключить индексы выгрузок 1С (code-index-mcp) к каждому серверу OpenCode и изолировать их по агентам.
+> **Статус: работает. Серверы OpenCode НЕ изменены** (конфиги `/home/test/project/1C-opencode/config/*/opencode.jsonc` не тронуты).
+> Индексы готовы, serve'ы запущены, агрегатор пробрасывает 378 тулз (9 серверов × 42).
 > Подтверждено документацией: https://opencode.ai/v2/docs/mcp-servers, https://opencode.ai/v2/docs/permissions, https://opencode.ai/v2/docs/agents
 
 ## 1. Архитектура
 
 ```
 SMB-шар /mnt/zhvv_ai/workspace/<КАТАЛОГ>          (источник: XML-выгрузки конфигураций)
-        │  rsync (sync_mirror.sh, периодический)
+        │  bsl-indexer index <SMB-path> --force   (индексация напрямую с SMB)
         ▼
-Локальные зеркала ~/.config/ai-1c-server/code-index/mirrors/<алиас>/
-        │  bsl-indexer daemon run (один демон, CODE_INDEX_HOME=...)
-        ▼
-Индексы mirrors/<алиас>/.code-index/index.db      (SQLite, WAL — только локальный диск)
-        │  bsl-indexer serve --transport http --port 80xx --path <алиас>=<зеркало>
+Индексы ~/.config/ai-1c-server/code-index/indexes/<алиас>/.code-index/index.db
+        │  (SQLite, journal_mode=DELETE — форк bsl-indexer v1.16.0-patched)
+        │  bsl-indexer serve --transport http --port 80xx --path <алиас>=<локальный-путь>
         ▼
 MCP-эндпоинты http://127.0.0.1:80xx/mcp           (по одному на выгрузку)
         │  агрегатор ai-1c-server (записи MCP code-index-<алиас>)
@@ -25,11 +23,12 @@ MCP-эндпоинты http://127.0.0.1:80xx/mcp           (по одному н
 Агенты видят ТОЛЬКО тулзы своих выгрузок
 ```
 
-### Почему зеркала, а не SMB напрямую
+### Почему форк bsl-indexer и локальные индексы
 
-- `bsl-indexer` хранит индекс в `<каталог>/.code-index/index.db` — **внутри** каталога, который индексирует. Отделить «источник» и «БД» нельзя (поле `source` в daemon.toml не поддерживается).
 - SQLite WAL на CIFS/SMB не работает (`database is locked`, зависания при обходе).
-- Зеркало + локальный индекс: быстрая индексация, надёжный WAL, serve читает локально.
+- Форк v1.16.0-patched: `PRAGMA journal_mode=DELETE` + env `CODE_INDEX_LOCAL_DB` — БД пишется в локальный каталог, а не в SMB.
+- Serve читает **локальную** БД (`--path <алиас>=<локальный-путь>`) — SMB при чтении не используется.
+- Индексация: `./reindex.sh <алиас>` (CLI с `CODE_INDEX_LOCAL_DB`).
 
 ### Алиасы и порты
 
@@ -269,36 +268,59 @@ tools.ci_erp_ext.list_files({ repo: "erp_ext" })
 ```bash
 CI=/home/test/.config/ai-1c-server/code-index
 
-# Синхронизация SMB → зеркала (rsync, ~30–60 мин для всех выгрузок)
-$CI/sync_mirror.sh        # лог: $CI/sync_mirror.log
+# Индексация выгрузки (CLI, ~5–10 мин для крупной конфигурации)
+$CI/reindex.sh <алиас> [--force]
+# Пример: $CI/reindex.sh ka2 --force
 
-# Демон индексации (один на все алиасы)
-CODE_INDEX_HOME=$CI nohup $CI/bsl-indexer daemon run > $CI/daemon.log 2>&1 &
-curl -s http://127.0.0.1:8010/health | python3 -m json.tool   # статус путей
-
-# Serve на каждый каталог (один процесс, свой порт)
+# Serve на каждый каталог (один процесс, свой порт, читает локальную БД)
 for spec in "ka2=8011" "erp=8012" "ktm=8013" "upp=8014" "obrabotki=8015" \
             "erp_ext=8016" "ka_market_ext=8017" "ka_rs_ext=8018" "ka_td_ext=8019"; do
   alias="${spec%%=*}"; port="${spec##*=}"
-  CODE_INDEX_HOME=$CI nohup $CI/bsl-indexer serve --transport http \
-    --port "$port" --path "${alias}=$CI/mirrors/$alias" \
-    > "$CI/serve-$alias.log" 2>&1 &
+  CODE_INDEX_HOME=$CI setsid $CI/bsl-indexer serve --transport http \
+    --port "$port" --path "${alias}=$CI/indexes/$alias" \
+    > "$CI/serve-$alias.log" 2>&1 & disown
 done
 
 # Проверка индекса (CLI, read-only)
-CODE_INDEX_HOME=$CI $CI/bsl-indexer stats --path $CI/mirrors/ka2 | grep -E "Файлов|Функций"
+CODE_INDEX_HOME=$CI $CI/bsl-indexer stats --path $CI/indexes/ka2 | grep -E "Файлов|Функций"
 
-# Перечитать daemon.toml без рестарта демона
-CODE_INDEX_HOME=$CI $CI/bsl-indexer daemon reload
+# Статус serve'ов
+for port in 8011 8012 8013 8014 8015 8016 8017 8018 8019; do
+  code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$port/mcp)
+  echo "port $port: $code"   # 406 = работает
+done
 ```
 
-## 8. Дальнейшие шаги (не выполнены)
+### Размеры индексов (актуально на 2026-11-09)
 
-1. **systemd user-юниты** — `code-index-daemon.service` + template `code-index-serve@.service`
-   (сейчас демоны на nohup, после ребута мертвы).
-2. **Поле «выгрузки» в `opencode_servers`** (JSON-массив алиасов) + секция в UI.
-3. **Генерация конфига админкой**: при генерации `opencode.jsonc` собирать
+| Алиас | Файлов | Функций | Размер БД |
+|---|---|---|---|
+| ka2 | 111,913 | 652,622 | 4.2 ГБ |
+| erp | 52,026 | 220,551 | 3.5 ГБ |
+| ktm | — | — | 3.3 ГБ |
+| upp | 35,956 | 50,681 | 1.2 ГБ |
+| obrabotki | 24,837 | — | 556 МБ |
+| erp_ext | — | — | 19 МБ |
+| ka_market_ext | — | — | 6.7 МБ |
+| ka_rs_ext | — | — | 36 МБ |
+| ka_td_ext | — | — | 12 МБ |
+
+Всего: ~13 ГБ на локальном диске.
+
+## 8. Дальнейшие шаги
+
+### Выполнено
+
+- [x] Форк bsl-indexer v1.16.0-patched (WAL→DELETE + `CODE_INDEX_LOCAL_DB`)
+- [x] Индексация всех 9 выгрузок (ка2, erp, ktm, upp, obrabotki, erp_ext, ka_market_ext, ka_rs_ext, ka_td_ext)
+- [x] Serve'ы запущены (8011–8019), все отвечают 406
+- [x] Записи MCP в агрегаторе (prod и dev): `code-index-<алиас>` → `http://127.0.0.1:80xx/mcp`
+- [x] Живые проверки через агрегатор: `get_stats` на ka2/erp/upp — данные именно своей выгрузки
+
+### Не выполнено
+
+1. **systemd user-юниты** — `code-index-serve@.service` (template, 9 инстансов)
+   (сейчас serve'ы на setsid, после ребута мертвы).
+2. **Генерация конфига админкой**: при генерации `opencode.jsonc` собирать
    `mcp.servers.ci_<алиас>` для выгрузок сервера и `agents.<id>.permissions`
-   (deny `ci_*` + allow назначенные) — по данным из п. 2.
-4. После наполнения индексов — живые проверки: `search_function`/`list_files`
-   на ka2/erp/upp, убедиться что данные именно своей выгрузки.
+   (deny `ci_*` + allow назначенные) — по данным из поля `code_indexes`.
