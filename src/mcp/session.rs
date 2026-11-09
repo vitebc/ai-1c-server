@@ -50,6 +50,12 @@ pub struct McpSession {
     /// std::sync::Mutex, а не tokio: значение трогается мгновенно и без
     /// await — иначе держать его рядом с Result (Box<dyn Error> не Send) нельзя.
     unresponsive_at: Arc<std::sync::Mutex<Option<std::time::Instant>>>,
+    /// Сессия «зависла» (молчит дольше UNRESPONSIVE_LIMIT), но subprocess
+    /// жив и активен (есть прогресс SEARCH_STATUS). Пока флаг стоит — ping
+    /// не считает сессию мёртвой: убийство живой индексирующей сессии
+    /// запускает повторный sync, и так по кругу. Сбрасывается ответом на
+    /// ping или смертью процесса (process_exited()).
+    busy_grace: Arc<std::sync::atomic::AtomicBool>,
     writer: Writer,
     next_id: Arc<Mutex<u64>>,
     pending: Pending,
@@ -79,11 +85,19 @@ impl McpSession {
         let child_pid = child.id().expect("spawned process has an id");
 
         let log_id = config.id.clone();
+        // Общий флаг «занята долгим фоном»: stderr-ридер ставит его при строке
+        // SEARCH_STATUS (subprocess жив и индексирует), ping читает, чтобы не
+        // убивать живую индексирующую сессию по таймауту молчания.
+        let busy_grace = Arc::new(std::sync::atomic::AtomicBool::new(false));
         if let Some(stderr) = child.stderr.take() {
+            let busy_for_reader = busy_grace.clone();
             tokio::spawn(async move {
                 let mut reader = BufReader::new(stderr);
                 let mut line = String::new();
                 while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
+                    if line.starts_with("SEARCH_STATUS") {
+                        busy_for_reader.store(true, std::sync::atomic::Ordering::Relaxed);
+                    }
                     tracing::warn!("[mcp:{}] {}", log_id, line.trim());
                     line.clear();
                 }
@@ -180,6 +194,7 @@ impl McpSession {
             child_pid,
             reader_done: Arc::new(Mutex::new(Some(reader_done))),
             unresponsive_at: Arc::new(std::sync::Mutex::new(None)),
+            busy_grace,
             writer,
             next_id,
             pending,
@@ -256,7 +271,14 @@ impl McpSession {
             return true; // отравленный лок — считаем зависшей
         };
         let started = *since.get_or_insert_with(std::time::Instant::now);
-        started.elapsed() >= UNRESPONSIVE_LIMIT
+        if started.elapsed() < UNRESPONSIVE_LIMIT {
+            return false;
+        }
+        // Превышен лимит молчания. Но если сессия «занята» (индексация:
+        // subprocess жив и пишет прогресс SEARCH_STATUS в stderr), не считаем
+        // её мёртвой — убийство живой индексирующей сессии запускает повторный
+        // sync, и так по кругу. Смерть процесса ловится process_exited() выше.
+        !self.busy_grace.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     async fn call_with_timeout(

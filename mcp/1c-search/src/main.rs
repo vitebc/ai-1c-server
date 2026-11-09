@@ -135,6 +135,14 @@ async fn main() {
                     }
                 }
 
+                // Watchdog: если CIFS «умер» (сетевой обрыв), последовательный
+                // скан может зависнуть навсегда. Таймаут возвращает управление
+                // и процесс завершается с понятным статусом, а не висит вечно —
+                // родительский пинг тогда честно видит мёртвый subprocess и
+                // перезапускает его (когда сеть вернётся, индекс докрутится).
+                const BUILD_TIMEOUT: std::time::Duration =
+                    std::time::Duration::from_secs(30 * 60);
+
                 let root_result = if index::index_exists(&db_for_index) {
                     eprintln!("[1c-search][{}] Index found — running incremental sync...", root.id);
                     emit_search_status_json(
@@ -145,7 +153,23 @@ async fn main() {
                         total_size,
                         last_built_at,
                     );
-                    index::sync_index(&root.path, &db_for_index).map(|stats| stats.total_symbols)
+                    let started = std::time::Instant::now();
+                    loop {
+                        match index::sync_index(&root.path, &db_for_index) {
+                            Ok(stats) => break Ok(stats.total_symbols),
+                            Err(e) if started.elapsed() < BUILD_TIMEOUT => {
+                                eprintln!(
+                                    "[1c-search][{}] sync failed ({}s elapsed), retrying in 30s: {}",
+                                    root.id, started.elapsed().as_secs(), e
+                                );
+                                std::thread::sleep(std::time::Duration::from_secs(30));
+                            }
+                            Err(e) => break Err(format!(
+                                "таймаут синхронизации {} мин: {}",
+                                BUILD_TIMEOUT.as_secs() / 60, e
+                            )),
+                        }
+                    }
                 } else {
                     eprintln!("[1c-search][{}] No index found — starting full build...", root.id);
                     emit_search_status_json(
@@ -156,7 +180,23 @@ async fn main() {
                         total_size,
                         last_built_at,
                     );
-                    index::build_index(&root.path, &db_for_index)
+                    let started = std::time::Instant::now();
+                    loop {
+                        match index::build_index(&root.path, &db_for_index) {
+                            Ok(n) => break Ok(n),
+                            Err(e) if started.elapsed() < BUILD_TIMEOUT => {
+                                eprintln!(
+                                    "[1c-search][{}] build failed ({}s elapsed), retrying in 30s: {}",
+                                    root.id, started.elapsed().as_secs(), e
+                                );
+                                std::thread::sleep(std::time::Duration::from_secs(30));
+                            }
+                            Err(e) => break Err(format!(
+                                "таймаут индексации {} мин: {}",
+                                BUILD_TIMEOUT.as_secs() / 60, e
+                            )),
+                        }
+                    }
                 };
 
                 match root_result {

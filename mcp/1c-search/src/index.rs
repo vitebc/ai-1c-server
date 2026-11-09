@@ -3,7 +3,6 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use ignore::WalkBuilder;
 use rayon::prelude::*;
 use rusqlite::{params, Connection};
 
@@ -955,26 +954,17 @@ pub fn sync_index(root: &Path, db_path: &Path) -> Result<SyncStats, String> {
     let conn = init_db_recovering(db_path).map_err(|e| format!("Ошибка БД: {}", e))?;
     let indexed_mtimes = load_indexed_mtimes(&conn);
 
-    // Scan filesystem — collect all current .bsl files with their mtime
+    // Scan filesystem — collect all current .bsl files with their mtime.
+    // Последовательный обход (см. walk_bsl_files): WalkBuilder зависает на CIFS.
     let root_owned = root.to_path_buf();
-    let all_disk_files: Vec<(String, u64, PathBuf)> = WalkBuilder::new(root)
-        .standard_filters(true)
-        .follow_links(false)
-        .build()
+    let all_disk_files: Vec<(String, u64, PathBuf)> = walk_bsl_files(root)
         .into_iter()
-        .flatten()
-        .filter(|e| {
-            e.path().is_file()
-                && e.path().extension().and_then(|x| x.to_str()) == Some("bsl")
-        })
-        .filter_map(|e| {
-            let path = e.into_path();
+        .map(|(path, mtime)| {
             let rel = path
                 .strip_prefix(&root_owned)
                 .map(|p| p.to_string_lossy().replace('\\', "/"))
                 .unwrap_or_else(|_| path.to_string_lossy().replace('\\', "/"));
-            let mtime = file_mtime(&path);
-            Some((rel, mtime, path))
+            (rel, mtime, path)
         })
         .collect();
 
@@ -1181,29 +1171,59 @@ pub fn sync_index(root: &Path, db_path: &Path) -> Result<SyncStats, String> {
 /// Full (re)build: clear all symbols and re-index everything in parallel.
 /// Also fills `indexed_files` with mtime for each file.
 /// Use `sync_index` for incremental updates after initial build.
+/// Последовательный обход дерева в поисках `.bsl`-файлов.
+///
+/// Заменяет `ignore::WalkBuilder`: на сетевых (CIFS) файловых системах
+/// итератор `ignore` зависает навсегда в параллельном чтении каталогов
+/// (`d_alloc_parallel`), хотя обычный последовательный обход проходит.
+/// Обход идёт одним потоком — медленно на CIFS, но надёжно; прогресс
+/// выводится каждые 1000 файлов, чтобы родительский пинг не считал сессию
+/// мёртвой во время долгого скана (см. UNRESPONSIVE_LIMIT).
+fn walk_bsl_files(root: &Path) -> Vec<(PathBuf, u64)> {
+    let mut out: Vec<(PathBuf, u64)> = Vec::new();
+    walk_bsl_files_recurse(root, &mut out);
+    out
+}
+
+fn walk_bsl_files_recurse(dir: &Path, out: &mut Vec<(PathBuf, u64)>) {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return, // нет доступа / каталог исчез — пропускаем
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        // Пропускаем служебные каталоги (аналог standard_filters)
+        if name.starts_with('.') && name != "." && name != ".." {
+            continue;
+        }
+        // file_type() из DirEntry не трогает диск (использует d_type);
+        // is_file() делает лишний stat — на CIFS это дорого.
+        let ft = match entry.file_type() {
+            Ok(ft) => ft,
+            Err(_) => continue,
+        };
+        if ft.is_dir() {
+            walk_bsl_files_recurse(&path, out);
+        } else if ft.is_file() && name.ends_with(".bsl") {
+            let mtime = file_mtime(&path);
+            // Прогресс: каждые 1000 файлов — строка SEARCH_STATUS.
+            // Родительский процесс видит её в логах и не считает сессию
+            // зависшей (строка проходит через stderr-ридер).
+            if out.len() % 1000 == 0 && !out.is_empty() {
+                eprintln!("SEARCH_STATUS:indexing:2:Сканирование файлов... {} найдено", out.len());
+            }
+            out.push((path, mtime));
+        }
+    }
+}
+
 pub fn build_index(root: &Path, db_path: &Path) -> Result<usize, String> {
     eprintln!("SEARCH_STATUS:indexing:0:Сканирование файлов...");
 
-    // Collect all .bsl file paths first to know total count
-    let bsl_paths: Vec<(PathBuf, u64)> = WalkBuilder::new(root)
-        .standard_filters(true)
-        .follow_links(false)
-        .build()
-        .into_iter()
-        .flatten()
-        .filter(|e| {
-            e.path().is_file()
-                && e.path()
-                    .extension()
-                    .and_then(|x| x.to_str())
-                    == Some("bsl")
-        })
-        .map(|e| {
-            let path = e.into_path();
-            let mtime = file_mtime(&path);
-            (path, mtime)
-        })
-        .collect();
+    // Collect all .bsl file paths first to know total count.
+    // Последовательный обход (см. walk_bsl_files): WalkBuilder зависает на CIFS.
+    let bsl_paths = walk_bsl_files(root);
 
     let total_files = bsl_paths.len();
     if total_files == 0 {
