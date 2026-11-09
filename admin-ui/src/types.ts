@@ -445,6 +445,7 @@ export interface OpencodeServer {
   enabled: boolean;
   is_default: boolean;
   visible_agents: string[];
+  code_indexes: string[];
   created_at: string;
   updated_at: string;
 }

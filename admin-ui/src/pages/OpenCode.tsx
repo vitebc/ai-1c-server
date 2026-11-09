@@ -325,17 +325,20 @@ function GatewayLogsTab() {
 
 // ─── Серверы ────────────────────────────────────────────────────────
 
+/// Алиасы выгрузок code-index (соответствуют записям MCP `code-index-<алиас>`).
+const CODE_INDEX_ALIASES = ['ka2', 'erp', 'ktm', 'upp', 'obrabotki', 'erp_ext', 'ka_market_ext', 'ka_rs_ext', 'ka_td_ext'];
+
 interface ServerForm {
   name: string; title: string; config_dir: string; url: string; username: string;
   password: string; bases: string[]; compose_service: string; compose_profile: string;
   onec_user: string; onec_password: string; enabled: boolean; is_default: boolean;
-  visible_agents: string[];
+  visible_agents: string[]; code_indexes: string[];
 }
 
 const emptyForm: ServerForm = {
   name: '', title: '', config_dir: '', url: 'http://127.0.0.1:4040', username: 'opencode',
   password: '', bases: [], compose_service: '', compose_profile: '', onec_user: '', onec_password: '', enabled: true, is_default: false,
-  visible_agents: [],
+  visible_agents: [], code_indexes: [],
 };
 
 function ServersTab({ servers, onChanged, onPick, selId }: { servers: OpencodeServer[]; onChanged: () => void; onPick: (id: string) => void; selId: string }) {
@@ -355,7 +358,7 @@ function ServersTab({ servers, onChanged, onPick, selId }: { servers: OpencodeSe
       name: s.name, title: s.title, config_dir: s.config_dir, url: s.url, username: s.username,
       password: '', bases: [...s.bases], compose_service: s.compose_service, compose_profile: s.compose_profile,
       onec_user: s.onec_user, onec_password: '', enabled: s.enabled, is_default: s.is_default,
-      visible_agents: [...(s.visible_agents || [])],
+      visible_agents: [...(s.visible_agents || [])], code_indexes: [...(s.code_indexes || [])],
     });
     // Загружаем список агентов сервера для чекбоксов.
     try {
@@ -374,7 +377,7 @@ function ServersTab({ servers, onChanged, onPick, selId }: { servers: OpencodeSe
         compose_service: form.compose_service, compose_profile: form.compose_profile,
         onec_user: form.onec_user, onec_password: form.onec_password || undefined,
         enabled: form.enabled, is_default: form.is_default,
-        visible_agents: form.visible_agents,
+        visible_agents: form.visible_agents, code_indexes: form.code_indexes,
       };
       if (editingId) await api.updateOpencodeServer(editingId, payload);
       else {
@@ -494,6 +497,27 @@ function ServersTab({ servers, onChanged, onPick, selId }: { servers: OpencodeSe
               </div>
             </div>
           )}
+          <div className="mt-3">
+            <div className="text-sm font-medium mb-1">{t.opencode.codeIndexes}</div>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">{t.opencode.codeIndexesHint}</p>
+            <div className="flex flex-wrap gap-3">
+              {CODE_INDEX_ALIASES.map(alias => (
+                <label key={alias} className="flex items-center gap-1.5 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={form.code_indexes.includes(alias)}
+                    onChange={e => setForm({
+                      ...form,
+                      code_indexes: e.target.checked
+                        ? [...form.code_indexes, alias]
+                        : form.code_indexes.filter(n => n !== alias),
+                    })}
+                  />
+                  <span className={monoCls}>{alias}</span>
+                </label>
+              ))}
+            </div>
+          </div>
           <div className="flex justify-end gap-2 mt-4">
             <Btn variant="outline" onClick={() => setForm(null)}>{t.common.cancel}</Btn>
             <Btn onClick={doSave}><Check size={15} /> {t.common.save}</Btn>

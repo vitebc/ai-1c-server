@@ -254,6 +254,7 @@ export const t = {
     onecUser: 'Юзер 1С (Basic)', onecPassword: 'Пароль 1С (пусто = оставить)',
     onecCredsHint: 'Креды 1С для синхронизации каталога инструментов и теста. В рантайме RLS идёт под JWT пользователя.',
     isDefault: 'Сервер по умолчанию', visibleAgents: 'Видимые агенты', visibleAgentsHint: 'Агенты, которые отдаются клиенту (форма 1С / Витра AI) в GET /api/agent. Ничего не выбрано = все агенты видны.',
+    codeIndexes: 'Выгрузки code-index', codeIndexesHint: 'Индексы выгрузок 1С, подключаемые к этому серверу (mcp.servers.ci_<алиас>). Видимость по агентам — через permissions в opencode.jsonc. Подробнее: CODE_INDEX_OPENCODE.md.',
     deleteServerConfirm: (n: string) => `Удалить сервер «${n}»? Файлы конфигурации не удаляются.`,
     up: 'Запустить', stop: 'Остановить', restart: 'Перезапустить', logs: 'Логи',
     noServers: 'Серверы OpenCode не настроены', defaultBadge: 'по умолчанию',
