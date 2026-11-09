@@ -329,12 +329,29 @@ export default function Stats({ me }: { me: Me | null }) {
     { key: 'opencode', label: t.stats.tabOpencode },
   ];
 
+  const ocTokensTotal = (ocData?.tokens_in_total ?? 0) + (ocData?.tokens_out_total ?? 0);
+
   const ocCards = [
     { label: t.stats.opencodeTotal, value: ocData?.total ?? 0, icon: BarChart3, chip: 'bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-300' },
     { label: t.stats.onecRequests, value: ocData?.by_client.find(c => c.key === 'onec')?.count ?? 0, icon: Database, chip: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-300' },
     { label: t.stats.vitraRequests, value: ocData?.by_client.find(c => c.key === 'vitra')?.count ?? 0, icon: Bot, chip: 'bg-purple-50 text-purple-600 dark:bg-purple-950 dark:text-purple-300' },
     { label: t.stats.activeUsers, value: new Set((ocData?.items || []).filter(r => r.client === 'onec').map(r => r.user_id).filter(Boolean)).size, icon: Users, chip: 'bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-300' },
+    { label: t.stats.ocTotalTokens, value: ocTokensTotal, icon: Zap, chip: 'bg-sky-50 text-sky-600 dark:bg-sky-950 dark:text-sky-300' },
   ];
+
+  /** Форматирование длительности: мс → «42 с» / «3 мин 12 с». */
+  function fmtDuration(ms: number | null): string {
+    if (ms == null || ms < 0) return '—';
+    const s = Math.round(ms / 1000);
+    if (s < 60) return `${s} с`;
+    const m = Math.floor(s / 60);
+    return `${m} мин ${s % 60} с`;
+  }
+
+  function fmtTokens(v: number | null): string {
+    if (v == null) return '—';
+    return v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(v);
+  }
 
   return (
     <div>
@@ -407,14 +424,14 @@ export default function Stats({ me }: { me: Me | null }) {
       {isOpencode ? (
         <>
           {/* Сводные карточки */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
             {ocCards.map(c => (
               <Card key={c.label}>
                 <CardBody className="flex items-center gap-3">
                   <div className={`p-2.5 rounded-lg ${c.chip}`}><c.icon size={20} /></div>
                   <div className="min-w-0">
                     <p className="text-[11px] text-slate-400 dark:text-slate-500 uppercase tracking-wide">{c.label}</p>
-                    <p className="text-xl font-semibold text-slate-800 dark:text-slate-100">{c.value}</p>
+                    <p className="text-xl font-semibold text-slate-800 dark:text-slate-100">{typeof c.value === 'number' && c.value >= 1000 ? c.value.toLocaleString() : c.value}</p>
                   </div>
                 </CardBody>
               </Card>
@@ -482,6 +499,26 @@ export default function Stats({ me }: { me: Me | null }) {
                   </table>
                 </CardBody>
               </Card>
+              {ocData.by_agent.length > 0 && (
+                <Card>
+                  <CardBody>
+                    <CardTitle>{t.stats.byAgent}</CardTitle>
+                    <table className="w-full text-[12px]">
+                      <thead><tr className="text-left text-slate-400 dark:text-slate-500">
+                        <th className="pb-1">{t.stats.agentCol}</th><th className="pb-1 text-right">Запросов</th>
+                      </tr></thead>
+                      <tbody>
+                        {ocData.by_agent.slice(0, 8).map(r => (
+                          <tr key={r.key || '(—)'} className="border-t border-slate-100 dark:border-slate-800">
+                            <td className="py-1 font-mono flex items-center gap-1"><Bot size={12} className="text-slate-400" />{r.key || '—'}</td>
+                            <td className="py-1 text-right">{r.count}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </CardBody>
+                </Card>
+              )}
             </div>
           )}
 
@@ -502,8 +539,11 @@ export default function Stats({ me }: { me: Me | null }) {
                       <th className="px-3 py-2">{t.stats.user}</th>
                       <th className="px-3 py-2">{t.stats.base}</th>
                       <th className="px-3 py-2">{t.stats.serverCol}</th>
+                      <th className="px-3 py-2">{t.stats.agentCol}</th>
                       <th className="px-3 py-2">{t.stats.pathCol}</th>
                       <th className="px-3 py-2">{t.stats.promptCol}</th>
+                      <th className="px-3 py-2 text-right">{t.stats.tokensCol}</th>
+                      <th className="px-3 py-2 text-right">{t.stats.timeCol}</th>
                       <th className="px-3 py-2">{t.stats.status}</th>
                     </tr>
                   </thead>
@@ -527,7 +567,8 @@ export default function Stats({ me }: { me: Me | null }) {
                             <td className="px-3 py-2 font-mono">{r.user_id || '—'}</td>
                             <td className="px-3 py-2 font-mono">{r.base || '—'}</td>
                             <td className="px-3 py-2 font-mono">{r.server}</td>
-                            <td className="px-3 py-2 font-mono text-[11px] max-w-[160px] truncate" title={r.path}>{r.path}</td>
+                            <td className="px-3 py-2 font-mono">{r.agent || '—'}</td>
+                            <td className="px-3 py-2 font-mono text-[11px] max-w-[140px] truncate" title={r.path}>{r.path}</td>
                             <td className="px-3 py-2">
                               {r.prompt ? (
                                 <button
@@ -541,13 +582,17 @@ export default function Stats({ me }: { me: Me | null }) {
                                 <span className="text-slate-400 dark:text-slate-500">—</span>
                               )}
                             </td>
+                            <td className="px-3 py-2 text-right font-mono whitespace-nowrap" title={r.tokens_in != null ? `in: ${r.tokens_in.toLocaleString()} / out: ${r.tokens_out?.toLocaleString() ?? '—'}` : undefined}>
+                              {r.tokens_in != null || r.tokens_out != null ? `${fmtTokens(r.tokens_in)} / ${fmtTokens(r.tokens_out)}` : '—'}
+                            </td>
+                            <td className="px-3 py-2 text-right font-mono whitespace-nowrap">{fmtDuration(r.duration_ms)}</td>
                             <td className="px-3 py-2">
                               <Badge tone={r.status >= 200 && r.status < 400 ? 'green' : 'red'}>{r.status}</Badge>
                             </td>
                           </tr>
                           {expanded && r.prompt && (
                             <tr className="border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40">
-                              <td colSpan={8} className="px-3 py-2">
+                              <td colSpan={10} className="px-3 py-2">
                                 <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-slate-700 dark:text-slate-200 max-h-64 overflow-y-auto">{r.prompt}</pre>
                               </td>
                             </tr>

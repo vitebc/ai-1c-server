@@ -297,6 +297,10 @@ export interface OpencodeRequest {
   path: string;
   status: number;
   prompt: string | null;
+  agent: string | null;
+  tokens_in: number | null;
+  tokens_out: number | null;
+  duration_ms: number | null;
 }
 
 export interface OpencodeStatsData {
@@ -305,6 +309,9 @@ export interface OpencodeStatsData {
   by_client: { key: string; count: number }[];
   by_base: { key: string; count: number }[];
   by_server: { key: string; count: number }[];
+  by_agent: { key: string; count: number }[];
+  tokens_in_total: number;
+  tokens_out_total: number;
 }
 
 export interface ChatSessionItem {

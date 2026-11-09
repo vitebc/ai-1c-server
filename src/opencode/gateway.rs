@@ -472,9 +472,19 @@ async fn gateway_any(
     .await;
 
     // Статистика: записываем промпт (кто/база/сервер + статус ответа). Ошибка
-    // БД не ломает прокси — только warn в лог.
+    // БД не ломает прокси — только warn в лог. Затем фоновая подстановка
+    // usage-полей (агент, токены, длительность) из Session.Info.
     if let Some(rec) = &stats {
-        record_request(&state, rec, path.as_str(), resp.status().as_u16() as i32).await;
+        let row_id = record_request(&state, rec, path.as_str(), resp.status().as_u16() as i32).await;
+        if let Some(rid) = row_id {
+            if let Some(sid) = session_id.clone() {
+                let st = state.clone();
+                let (su, su_user, su_pass) = (server.url.clone(), server.username.clone(), server.password.clone());
+                tokio::spawn(async move {
+                    fill_usage(st, rid, sid, su, su_user, su_pass).await;
+                });
+            }
+        }
     }
 
     // Фильтрация агентов: GET /api/agent → оставляем только видимые.
@@ -645,6 +655,7 @@ async fn proxy_raw(
 /// Запись промпта в opencode_requests (ts — ISO UTC). Ошибка БД — только warn:
 /// статистика не должна ломать проксирование. Текст промпта обрезается до
 /// 4000 символов (защита от гигантских тел; полный текст — в логах шлюза).
+/// Возвращает id строки — для фоновой подстановки usage-полей.
 const PROMPT_MAX_LEN: usize = 4000;
 
 fn truncate_prompt(text: &str) -> String {
@@ -659,19 +670,105 @@ fn truncate_prompt(text: &str) -> String {
     format!("{}… (обрезано, {} симв.)", &text[..end], text.chars().count())
 }
 
-async fn record_request(state: &Arc<AppState>, rec: &StatsRec, path: &str, status: i32) {
+async fn record_request(state: &Arc<AppState>, rec: &StatsRec, path: &str, status: i32) -> Option<i64> {
     let ts = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
     let prompt: Option<String> = rec.prompt.as_deref().map(truncate_prompt);
     let res = {
         let db = state.db.lock().await;
-        db.conn.execute(
+        let r = db.conn.execute(
             "INSERT INTO opencode_requests (ts, client, user_id, base, server, path, status, prompt)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             rusqlite::params![ts, rec.client, rec.user_id, rec.base, rec.server, path, status, prompt],
-        )
+        );
+        match r {
+            Ok(_) => Some(db.conn.last_insert_rowid()),
+            Err(e) => {
+                tracing::warn!("gateway: не удалось записать статистику запроса: {e}");
+                None
+            }
+        }
     };
-    if let Err(e) = res {
-        tracing::warn!("gateway: не удалось записать статистику запроса: {e}");
+    res
+}
+
+/// Фоновая подстановка usage-полей (агент, токены, длительность) из Session.Info.
+/// Опрашиваем GET /api/session/{id} на сервере OpenCode раз в 5 c до завершения
+/// раунда (outcome succeeded/failed), максимум 10 минут. Ошибки — только warn.
+async fn fill_usage(
+    state: Arc<AppState>,
+    row_id: i64,
+    session_id: String,
+    server_url: String,
+    username: String,
+    password: String,
+) {
+    let client = reqwest::Client::new();
+    let url = format!("{}/api/session/{}", server_url.trim_end_matches('/'), session_id);
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(600);
+
+    loop {
+        if tokio::time::Instant::now() > deadline {
+            tracing::warn!("gateway: usage: сессия {} не завершилась за 10 мин — оставляем поля пустыми", session_id);
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+        let info: Option<Value> = match client
+            .get(&url)
+            .basic_auth(username.clone(), Some(password.clone()))
+            .timeout(std::time::Duration::from_secs(10))
+            .send()
+            .await
+        {
+            Ok(r) if r.status().is_success() => r.json::<Value>().await.ok(),
+            _ => None,
+        };
+        let Some(v) = info else { continue };
+
+        // OpenCode v2: {"data": {...}} либо объект сессии напрямую.
+        let s = v.get("data").cloned().unwrap_or(v);
+        let outcome = s.get("outcome").and_then(|o| o.as_str()).unwrap_or_default();
+        if outcome != "succeeded" && outcome != "failed" {
+            continue; // раунд ещё идёт
+        }
+
+        let agent = s.get("agent").and_then(|a| a.as_str()).map(|x| x.to_string());
+        let tokens_in = s.get("tokens").and_then(|t| t.get("input")).and_then(|n| n.as_i64());
+        let tokens_out = s.get("tokens").and_then(|t| t.get("output")).and_then(|n| n.as_i64());
+        // Длительность раунда: time.updated (мс) − момент отправки промпта (из ts строки).
+        let duration_ms: Option<i64> = {
+            let updated = s.get("time").and_then(|t| t.get("updated")).and_then(|n| n.as_i64());
+            let prompt_ts = {
+                let db = state.db.lock().await;
+                db.conn.query_row(
+                    "SELECT ts FROM opencode_requests WHERE id = ?1",
+                    rusqlite::params![row_id],
+                    |r| r.get::<_, String>(0),
+                ).ok()
+            };
+            match (updated, prompt_ts) {
+                (Some(u), Some(ts_str)) => chrono::DateTime::parse_from_rfc3339(&ts_str)
+                    .ok()
+                    .map(|t| u - t.timestamp_millis()),
+                _ => None,
+            }
+        };
+
+        let res = {
+            let db = state.db.lock().await;
+            db.conn.execute(
+                "UPDATE opencode_requests SET agent = ?1, tokens_in = ?2, tokens_out = ?3, duration_ms = ?4 WHERE id = ?5",
+                rusqlite::params![agent, tokens_in, tokens_out, duration_ms, row_id],
+            )
+        };
+        match res {
+            Ok(_) => tracing::info!(
+                "gateway: usage: сессия {} — agent={:?} tokens_in={:?} tokens_out={:?} duration_ms={:?}",
+                session_id, agent, tokens_in, tokens_out, duration_ms
+            ),
+            Err(e) => tracing::warn!("gateway: не удалось обновить usage для запроса {row_id}: {e}"),
+        }
+        return;
     }
 }
 

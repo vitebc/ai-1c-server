@@ -1646,13 +1646,30 @@ pub async fn stats(
             }
         };
 
+        let mut by_agent: Vec<(String, i64)> = Vec::new();
         group("client", &mut by_client);
         group("base", &mut by_base);
         group("server", &mut by_server);
+        group("agent", &mut by_agent);
+
+        // Суммарные токены за период (по заполненным строкам).
+        let mut tokens_in_total: i64 = 0;
+        let mut tokens_out_total: i64 = 0;
+        {
+            let sql = format!(
+                "SELECT COALESCE(SUM(tokens_in), 0), COALESCE(SUM(tokens_out), 0) FROM opencode_requests{where_sql}"
+            );
+            if let Ok(mut s) = db.conn.prepare(&sql) {
+                if let Ok((a, b)) = s.query_row(str_params.as_slice(), |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))) {
+                    tokens_in_total = a;
+                    tokens_out_total = b;
+                }
+            }
+        }
 
         let sql = format!(
-            "SELECT id, ts, client, user_id, base, server, path, status, prompt FROM opencode_requests{where_sql} \
-             ORDER BY ts DESC, id DESC LIMIT ?{} OFFSET ?{}",
+            "SELECT id, ts, client, user_id, base, server, path, status, prompt, agent, tokens_in, tokens_out, duration_ms \
+             FROM opencode_requests{where_sql} ORDER BY ts DESC, id DESC LIMIT ?{} OFFSET ?{}",
             params.len() + 1,
             params.len() + 2
         );
@@ -1674,6 +1691,10 @@ pub async fn stats(
                     "path": r.get::<_, String>(6)?,
                     "status": r.get::<_, i32>(7)?,
                     "prompt": r.get::<_, Option<String>>(8)?,
+                    "agent": r.get::<_, Option<String>>(9)?,
+                    "tokens_in": r.get::<_, Option<i64>>(10)?,
+                    "tokens_out": r.get::<_, Option<i64>>(11)?,
+                    "duration_ms": r.get::<_, Option<i64>>(12)?,
                 }))
             }) {
                 for row in rows.flatten() {
@@ -1688,6 +1709,9 @@ pub async fn stats(
             "by_client": by_client.into_iter().map(|(k, v)| json!({"key": k, "count": v})).collect::<Vec<_>>(),
             "by_base": by_base.into_iter().map(|(k, v)| json!({"key": k, "count": v})).collect::<Vec<_>>(),
             "by_server": by_server.into_iter().map(|(k, v)| json!({"key": k, "count": v})).collect::<Vec<_>>(),
+            "by_agent": by_agent.into_iter().map(|(k, v)| json!({"key": k, "count": v})).collect::<Vec<_>>(),
+            "tokens_in_total": tokens_in_total,
+            "tokens_out_total": tokens_out_total,
         })
     };
 
