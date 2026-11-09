@@ -314,7 +314,7 @@ export const t = {
     filterClient: 'Клиент', clientCol: 'Клиент', clientAll: 'Все клиенты', clientOnec: '1С', clientVitra: 'Витра AI',
     opencodeTotal: 'Всего запросов', onecRequests: 'От 1С', vitraRequests: 'От Витры AI',
     byClient: 'По клиентам', byServer: 'По серверам',
-    serverCol: 'Сервер', pathCol: 'Путь', ok: 'OK', err: 'ОШИБКА',
+    serverCol: 'Сервер', pathCol: 'Путь', promptCol: 'Промпт', showPrompt: 'Показать промпт', hidePrompt: 'Скрыть промпт', ok: 'OK', err: 'ОШИБКА',
     sessionsTable: 'Диалоги', sessionUser: 'Пользователь', sessionTitle: 'Тема',
     messagesCol: 'Сообщений', lastMessage: 'Последнее сообщение', openDialog: 'Открыть диалог',
     dialogEmpty: 'Нет диалогов по выбранным фильтрам', noMessages: 'Нет сообщений',

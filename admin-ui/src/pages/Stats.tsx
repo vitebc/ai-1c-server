@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import { BarChart3, Users, Database, Bot, Clock, Zap, RefreshCw, X, AlertTriangle, ChevronDown, ChevronRight, Terminal } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { api } from '../api/client';
@@ -252,6 +252,8 @@ export default function Stats({ me }: { me: Me | null }) {
   const [ocTotal, setOcTotal] = useState(0);
   const [ocPage, setOcPage] = useState(0);
   const [ocLoading, setOcLoading] = useState(false);
+  // Раскрытые строки таблицы OpenCode (id → true): полный текст промпта.
+  const [ocExpanded, setOcExpanded] = useState<Record<number, boolean>>({});
 
   const loadOpencode = useCallback(async () => {
     setOcLoading(true);
@@ -501,29 +503,58 @@ export default function Stats({ me }: { me: Me | null }) {
                       <th className="px-3 py-2">{t.stats.base}</th>
                       <th className="px-3 py-2">{t.stats.serverCol}</th>
                       <th className="px-3 py-2">{t.stats.pathCol}</th>
+                      <th className="px-3 py-2">{t.stats.promptCol}</th>
                       <th className="px-3 py-2">{t.stats.status}</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {(ocData?.items || []).map(r => (
-                      <tr key={r.id} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                        <td className="px-3 py-2 whitespace-nowrap font-mono text-[11px]">
-                          {r.ts ? new Date(r.ts).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}
-                        </td>
-                        <td className="px-3 py-2">
-                          <Badge tone={r.client === 'onec' ? 'blue' : 'purple'}>
-                            {r.client === 'onec' ? t.stats.clientOnec : t.stats.clientVitra}
-                          </Badge>
-                        </td>
-                        <td className="px-3 py-2 font-mono">{r.user_id || '—'}</td>
-                        <td className="px-3 py-2 font-mono">{r.base || '—'}</td>
-                        <td className="px-3 py-2 font-mono">{r.server}</td>
-                        <td className="px-3 py-2 font-mono text-[11px] max-w-[200px] truncate" title={r.path}>{r.path}</td>
-                        <td className="px-3 py-2">
-                          <Badge tone={r.status >= 200 && r.status < 400 ? 'green' : 'red'}>{r.status}</Badge>
-                        </td>
-                      </tr>
-                    ))}
+                    {(ocData?.items || []).map(r => {
+                      const expanded = !!ocExpanded[r.id];
+                      return (
+                        <Fragment key={r.id}>
+                          <tr
+                            className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer"
+                            onClick={() => r.prompt && setOcExpanded(p => ({ ...p, [r.id]: !p[r.id] }))}
+                          >
+                            <td className="px-3 py-2 whitespace-nowrap font-mono text-[11px]">
+                              {r.ts ? new Date(r.ts).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}
+                            </td>
+                            <td className="px-3 py-2">
+                              <Badge tone={r.client === 'onec' ? 'blue' : 'purple'}>
+                                {r.client === 'onec' ? t.stats.clientOnec : t.stats.clientVitra}
+                              </Badge>
+                            </td>
+                            <td className="px-3 py-2 font-mono">{r.user_id || '—'}</td>
+                            <td className="px-3 py-2 font-mono">{r.base || '—'}</td>
+                            <td className="px-3 py-2 font-mono">{r.server}</td>
+                            <td className="px-3 py-2 font-mono text-[11px] max-w-[160px] truncate" title={r.path}>{r.path}</td>
+                            <td className="px-3 py-2">
+                              {r.prompt ? (
+                                <button
+                                  type="button"
+                                  className={`text-left text-[12px] max-w-[320px] truncate ${expanded ? 'text-slate-800 dark:text-slate-100' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
+                                  title={expanded ? t.stats.hidePrompt : t.stats.showPrompt}
+                                >
+                                  {r.prompt}
+                                </button>
+                              ) : (
+                                <span className="text-slate-400 dark:text-slate-500">—</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2">
+                              <Badge tone={r.status >= 200 && r.status < 400 ? 'green' : 'red'}>{r.status}</Badge>
+                            </td>
+                          </tr>
+                          {expanded && r.prompt && (
+                            <tr className="border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40">
+                              <td colSpan={8} className="px-3 py-2">
+                                <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-slate-700 dark:text-slate-200 max-h-64 overflow-y-auto">{r.prompt}</pre>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
                   </tbody>
                 </table>
               )}

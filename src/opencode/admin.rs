@@ -1651,7 +1651,7 @@ pub async fn stats(
         group("server", &mut by_server);
 
         let sql = format!(
-            "SELECT id, ts, client, user_id, base, server, path, status FROM opencode_requests{where_sql} \
+            "SELECT id, ts, client, user_id, base, server, path, status, prompt FROM opencode_requests{where_sql} \
              ORDER BY ts DESC, id DESC LIMIT ?{} OFFSET ?{}",
             params.len() + 1,
             params.len() + 2
@@ -1673,6 +1673,7 @@ pub async fn stats(
                     "server": r.get::<_, String>(5)?,
                     "path": r.get::<_, String>(6)?,
                     "status": r.get::<_, i32>(7)?,
+                    "prompt": r.get::<_, Option<String>>(8)?,
                 }))
             }) {
                 for row in rows.flatten() {

@@ -296,6 +296,7 @@ export interface OpencodeRequest {
   server: string;
   path: string;
   status: number;
+  prompt: string | null;
 }
 
 export interface OpencodeStatsData {

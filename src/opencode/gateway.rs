@@ -67,6 +67,7 @@ struct StatsRec {
     user_id: Option<String>,
     base: String,
     server: String,
+    prompt: Option<String>, // текст промпта (поле "text" JSON-тела), обрезан при записи
 }
 
 type SessionsMap = HashMap<String, SessionEntry>;
@@ -341,6 +342,14 @@ async fn gateway_any(
     // блоке допуска (кто шлёт), дописывается после маршрутизации (база/сервер)
     // и пишется в БД после получения ответа.
     let is_prompt = method == Method::POST && path.starts_with("/api/session/") && path.ends_with("/prompt");
+    // Текст промпта (поле "text" JSON-тела) — для статистики.
+    let prompt_text: Option<String> = if is_prompt {
+        serde_json::from_slice::<Value>(&bytes)
+            .ok()
+            .and_then(|v| v.get("text")?.as_str().map(|s| s.to_string()))
+    } else {
+        None
+    };
     let mut stats: Option<StatsRec> = None;
 
     // Допуск к прокси: только два легитимных клиента.
@@ -373,8 +382,8 @@ async fn gateway_any(
         }
         if is_prompt {
             stats = Some(match &jwt_info {
-                Some((sub, _, _)) => StatsRec { client: "onec".into(), user_id: Some(sub.clone()), base: String::new(), server: String::new() },
-                None => StatsRec { client: "vitra".into(), user_id: None, base: String::new(), server: String::new() },
+                Some((sub, _, _)) => StatsRec { client: "onec".into(), user_id: Some(sub.clone()), base: String::new(), server: String::new(), prompt: prompt_text.clone() },
+                None => StatsRec { client: "vitra".into(), user_id: None, base: String::new(), server: String::new(), prompt: prompt_text.clone() },
             });
         }
         jwt_info_global = jwt_info;
@@ -634,15 +643,31 @@ async fn proxy_raw(
 }
 
 /// Запись промпта в opencode_requests (ts — ISO UTC). Ошибка БД — только warn:
-/// статистика не должна ломать проксирование.
+/// статистика не должна ломать проксирование. Текст промпта обрезается до
+/// 4000 символов (защита от гигантских тел; полный текст — в логах шлюза).
+const PROMPT_MAX_LEN: usize = 4000;
+
+fn truncate_prompt(text: &str) -> String {
+    if text.len() <= PROMPT_MAX_LEN {
+        return text.to_string();
+    }
+    // Обрезаем по границе юникод-символа.
+    let mut end = PROMPT_MAX_LEN;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}… (обрезано, {} симв.)", &text[..end], text.chars().count())
+}
+
 async fn record_request(state: &Arc<AppState>, rec: &StatsRec, path: &str, status: i32) {
     let ts = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+    let prompt: Option<String> = rec.prompt.as_deref().map(truncate_prompt);
     let res = {
         let db = state.db.lock().await;
         db.conn.execute(
-            "INSERT INTO opencode_requests (ts, client, user_id, base, server, path, status)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            rusqlite::params![ts, rec.client, rec.user_id, rec.base, rec.server, path, status],
+            "INSERT INTO opencode_requests (ts, client, user_id, base, server, path, status, prompt)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params![ts, rec.client, rec.user_id, rec.base, rec.server, path, status, prompt],
         )
     };
     if let Err(e) = res {
