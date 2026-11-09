@@ -35,6 +35,9 @@ pub struct SearchRoot {
 pub struct SearchWorkspace {
     pub active_profile_id: Option<String>,
     pub roots: Vec<SearchRoot>,
+    /// Фingerprint всего профиля (все пути) — для генерации уникального имени файла индекса.
+    /// Два профиля с одинаковым main_path, но разными extensions получат разные файлы.
+    pub profile_fingerprint: String,
 }
 
 impl SearchWorkspace {
@@ -68,9 +71,12 @@ impl SearchWorkspace {
             }]
         };
 
+        // Legacy path — fingerprint = сам путь (один root).
+        let profile_fingerprint = if path.is_empty() { String::new() } else { path.to_string() };
         Self {
             active_profile_id: None,
             roots,
+            profile_fingerprint,
         }
     }
 
@@ -127,9 +133,22 @@ impl SearchWorkspace {
             return None;
         }
 
+        // Fingerprint = все пути профиля (main + extensions) — уникален для каждого профиля.
+        let mut fingerprint_parts: Vec<&str> = Vec::new();
+        if !selected.main_path.trim().is_empty() {
+            fingerprint_parts.push(selected.main_path.trim());
+        }
+        for ext in &selected.extensions {
+            if !ext.path.trim().is_empty() {
+                fingerprint_parts.push(ext.path.trim());
+            }
+        }
+        let profile_fingerprint = fingerprint_parts.join("\u{1}");
+
         Some(Self {
             active_profile_id: Some(profile_id),
             roots,
+            profile_fingerprint,
         })
     }
 
@@ -163,8 +182,15 @@ impl SearchWorkspace {
     }
 }
 
-pub fn root_db_path(root: &SearchRoot) -> PathBuf {
-    crate::index::get_db_path(&root.path)
+/// Путь к файлу индекса для корня.
+/// Если `profile_fingerprint` не пуст — хэш от fingerprint (уникален для профиля),
+/// иначе — хэш от пути корня (legacy).
+pub fn root_db_path(root: &SearchRoot, profile_fingerprint: &str) -> PathBuf {
+    if !profile_fingerprint.is_empty() {
+        crate::index::get_db_path_from_string(profile_fingerprint)
+    } else {
+        crate::index::get_db_path(&root.path)
+    }
 }
 
 pub fn root_exists(root: &SearchRoot) -> bool {

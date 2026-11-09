@@ -178,12 +178,21 @@ fn default_search_index_dir() -> Option<PathBuf> {
 
 pub fn get_db_path(config_root: &Path) -> PathBuf {
     let path_str = config_root.to_string_lossy();
-    let hash = fnv_hash(&path_str);
+    get_db_path_from_string(&path_str)
+}
+
+/// Генерация пути к файлу индекса из произвольной строки (fingerprint профиля).
+pub fn get_db_path_from_string(fingerprint: &str) -> PathBuf {
+    let hash = fnv_hash(fingerprint);
     if let Some(dir) = configured_search_index_dir().or_else(default_search_index_dir) {
         let _ = fs::create_dir_all(&dir);
         dir.join(format!("{:016x}.db", hash))
     } else {
-        config_root.join(".mcp-index").join("symbols.db")
+        // Fallback без кастомной директории — используем домашнюю.
+        dirs::home_dir()
+            .map(|h| h.join(".config").join("mini-ai-1c").join("search-index"))
+            .unwrap_or_else(|| PathBuf::from("/tmp/mini-ai-1c-search-index"))
+            .join(format!("{:016x}.db", hash))
     }
 }
 

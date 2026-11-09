@@ -80,6 +80,7 @@ async fn main() {
 
     // Background: build or sync symbol index, then emit accurate status.
     // Runs in spawn_blocking so it doesn't block the async event loop.
+    let profile_fingerprint = workspace.profile_fingerprint.clone();
     let index_roots: Vec<_> = workspace
         .roots
         .iter()
@@ -97,7 +98,7 @@ async fn main() {
 
             for (idx, root) in index_roots.iter().enumerate() {
                 let root_progress_base = (idx as u32 * 100 / total_roots as u32).min(99);
-                let db_for_index = workspace::root_db_path(root);
+                let db_for_index = workspace::root_db_path(root, &profile_fingerprint);
                 let source_label = format!("{} ({})", root.name, root.kind);
 
                 emit_search_status_json(

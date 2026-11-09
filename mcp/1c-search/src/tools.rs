@@ -473,7 +473,7 @@ pub async fn call_tool(
         let root = workspace
             .root_for_args(args)
             .ok_or_else(|| "Не найден источник конфигурации для выполнения инструмента".to_string())?;
-        call_tool_single(name, args, root).await.map(|v| annotate_result(v, root))
+        call_tool_single(name, args, root, &workspace.profile_fingerprint).await.map(|v| annotate_result(v, root))
     };
     eprintln!("[PERF] {} in {}ms", name, start.elapsed().as_millis());
     result
@@ -483,9 +483,10 @@ async fn call_tool_single(
     name: &str,
     args: &Value,
     root: &SearchRoot,
+    profile_fingerprint: &str,
 ) -> Result<Value, String> {
     let config_path = Some(root.path.clone());
-    let db_path = Some(workspace::root_db_path(root));
+    let db_path = Some(workspace::root_db_path(root, profile_fingerprint));
     match name {
         "search_code" => handle_search_code(args, &config_path, &db_path).await,
         "search_files" => handle_search_files(args, &config_path, &db_path).await,
@@ -552,7 +553,7 @@ async fn call_tool_multi_root(
             continue;
         }
 
-        match call_tool_single(name, args, root).await {
+        match call_tool_single(name, args, root, &workspace.profile_fingerprint).await {
             Ok(value) => {
                 let annotated = annotate_result(value, root);
                 let text = extract_content_text(&annotated);
@@ -603,7 +604,7 @@ fn emit_multi_root_search_status(workspace: &SearchWorkspace, all_ok: bool) {
         if !workspace::root_exists(root) {
             continue;
         }
-        let db = workspace::root_db_path(root);
+        let db = workspace::root_db_path(root, &workspace.profile_fingerprint);
         total_symbols += index::symbol_count(&db);
         total_size += crate::db_size_mb(&db);
         last_built_at = last_built_at.max(index::get_built_at(&db).unwrap_or(0));

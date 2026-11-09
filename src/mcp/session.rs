@@ -14,7 +14,8 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(120);
 /// Пинг живости (is_running): короткий, чтобы дашборд не висел на мёртвых
 /// сессиях. Мёртвый subprocess держит pipe открытым (write-end у нас),
 /// поэтому запись «уходит в никуда» без ошибки — единственная честная
-/// проверка: ответили ли вообще.
+/// проверка: ответили ли вообще. 10 секунд достаточно для живого процесса,
+/// даже если он занят индексац
 const PING_TIMEOUT: Duration = Duration::from_secs(3);
 /// Сколько сессия может молчать в ответ на ping, прежде чем считать её
 /// зависшей (и перезапускать). Таймаут одного ping — НЕ смерть: во время
@@ -246,7 +247,8 @@ impl McpSession {
     /// Мёртвый subprocess не отвечает вовсе (pipe записывается в никуда),
     /// поэтому по таймауту — false, а не «запись прошла = жив».
     pub async fn ping(&self) -> bool {
-        if self.process_exited() {
+        let exited = self.process_exited();
+        if exited {
             return false;
         }
         let req = JsonRpcRequest::new("ping", serde_json::json!({}));
@@ -257,6 +259,10 @@ impl McpSession {
         // метода ping) тоже считается живым: процесс отвечает.
         let answered =
             matches!(&outcome, Ok(resp) if resp.result.is_some() || resp.error.is_some());
+        tracing::debug!(
+            "[mcp:{}] ping outcome: {:?}, answered: {}",
+            self.id, outcome, answered
+        );
         drop(outcome);
         if answered {
             if let Ok(mut slot) = self.unresponsive_at.lock() {
@@ -335,11 +341,16 @@ impl McpSession {
     pub fn process_exited(&self) -> bool {
         // 1) Reader-сигнал: stdout закрылся, поток завершил работу.
         //    try_lock + take: сигнал одноразовый, дальше поле пусто и
-        //    проверка всегда «мёртв».
+        //    проверка всегда «мёртв». ВАЖНО: take() только если сигнал есть,
+        //    иначе rx будет потерян и следующая проверка ошибочно вернёт true.
         if let Ok(mut guard) = self.reader_done.try_lock() {
-            if let Some(mut rx) = guard.take() {
+            if let Some(rx) = guard.as_ref() {
+                let mut rx = guard.take().unwrap();
                 if rx.try_recv().is_ok() {
                     return true;
+                } else {
+                    // Сигнала нет — возвращаем rx обратно.
+                    *guard = Some(rx);
                 }
             } else {
                 return true; // сигнал уже взят ранее — сессия мёртвая
@@ -348,7 +359,10 @@ impl McpSession {
         // 2) /proc записи нет — процесс точно мёртв (и reaped).
         let stat = match std::fs::read_to_string(format!("/proc/{}/stat", self.child_pid)) {
             Ok(s) => s,
-            Err(_) => return true,
+            Err(_) => {
+                tracing::debug!("[mcp:{}] process_exited: /proc read failed (pid={})", self.id, self.child_pid);
+                return true;
+            }
         };
         // Формат: pid (comm) state ... — comm может содержать пробелы и
         // скобки, поэтому ищем последнюю закрывающую скобку.
