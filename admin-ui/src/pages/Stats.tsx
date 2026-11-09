@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import { BarChart3, Users, Database, Bot, Clock, Zap, RefreshCw, X, AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
+import { BarChart3, Users, Database, Bot, Clock, Zap, RefreshCw, X, AlertTriangle, ChevronDown, ChevronRight, Terminal } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { api } from '../api/client';
-import type { Me, StatsRequest, StatsSummary, ChatSessionItem, ChatSessionDetail, AgentRoundStep } from '../types';
+import type { Me, StatsRequest, StatsSummary, ChatSessionItem, ChatSessionDetail, AgentRoundStep, OpencodeStatsData } from '../types';
 import { t } from '../i18n';
 import { PageHeader, Card, CardBody, CardTitle, Badge, Btn, Select, Segmented, IconBtn } from '../components/ui';
 
-type ViewTab = 'requests' | 'dialogs';
+type ViewTab = 'requests' | 'dialogs' | 'opencode';
 
 function DialogsView({ fUser, fBase, fAgent }: { fUser: string; fBase: string; fAgent: string }) {
   const [items, setItems] = useState<ChatSessionItem[]>([]);
@@ -194,10 +194,16 @@ function DialogsView({ fUser, fBase, fAgent }: { fUser: string; fBase: string; f
   );
 }
 
-function daysAgo(n: number): string {
+/** Понедельник текущей недели (локальное время) — интервал по умолчанию. */
+function currentWeekStart(): string {
   const d = new Date();
-  d.setDate(d.getDate() - n);
+  const day = (d.getDay() + 6) % 7; // 0 = понедельник
+  d.setDate(d.getDate() - day);
   return d.toISOString().slice(0, 10);
+}
+
+function todayStr(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
 /** Группировка шагов трасса по номерам раундов (вход — хронологический список). */
@@ -224,8 +230,9 @@ export default function Stats({ me }: { me: Me | null }) {
   const [fUser, setFUser] = useState('');
   const [fBase, setFBase] = useState('');
   const [fAgent, setFAgent] = useState('');
-  const [fFrom, setFFrom] = useState(daysAgo(1));
-  const [fTo, setFTo] = useState(new Date().toISOString().slice(0, 10));
+  const [fClient, setFClient] = useState('');
+  const [fFrom, setFFrom] = useState(currentWeekStart());
+  const [fTo, setFTo] = useState(todayStr());
 
   // Данные для фильтров
   const [userIds, setUserIds] = useState<string[]>([]);
@@ -239,6 +246,29 @@ export default function Stats({ me }: { me: Me | null }) {
   const [page, setPage] = useState(0);
   const pageSize = 50;
   const [loading, setLoading] = useState(false);
+
+  // Вкладка OpenCode: запросы (промпты) через шлюз :9020.
+  const [ocData, setOcData] = useState<OpencodeStatsData | null>(null);
+  const [ocTotal, setOcTotal] = useState(0);
+  const [ocPage, setOcPage] = useState(0);
+  const [ocLoading, setOcLoading] = useState(false);
+
+  const loadOpencode = useCallback(async () => {
+    setOcLoading(true);
+    try {
+      const params: Record<string, string> = { from: `${fFrom}T00:00:00`, to: `${fTo}T23:59:59` };
+      if (fClient) params.client = fClient;
+      if (fBase) params.base = fBase;
+      const r = await api.getOpencodeStats({ ...params, limit: String(pageSize), offset: String(ocPage * pageSize) });
+      if (r.ok && r.data) {
+        setOcData(r.data);
+        setOcTotal(r.data.total || 0);
+      }
+    } catch { /* ignore */ }
+    setOcLoading(false);
+  }, [fClient, fBase, fFrom, fTo, ocPage]);
+
+  useEffect(() => { if (tab === 'opencode') loadOpencode(); }, [tab, loadOpencode]);
 
   const loadDistinct = useCallback(async () => {
     try {
@@ -276,9 +306,9 @@ export default function Stats({ me }: { me: Me | null }) {
   useEffect(() => { load(); }, [load]);
 
   const resetFilters = () => {
-    setFUser(''); setFBase(''); setFAgent('');
-    setFFrom(daysAgo(1)); setFTo(new Date().toISOString().slice(0, 10));
-    setPage(0);
+    setFUser(''); setFBase(''); setFAgent(''); setFClient('');
+    setFFrom(currentWeekStart()); setFTo(todayStr());
+    setPage(0); setOcPage(0);
   };
 
   const statCards = [
@@ -289,10 +319,19 @@ export default function Stats({ me }: { me: Me | null }) {
   ];
 
   const isDialogs = tab === 'dialogs';
+  const isOpencode = tab === 'opencode';
 
   const tabOptions: { key: ViewTab; label: string }[] = [
     { key: 'requests', label: t.stats.tabRequests },
     ...(canDialogs ? [{ key: 'dialogs' as ViewTab, label: t.stats.tabDialogs }] : []),
+    { key: 'opencode', label: t.stats.tabOpencode },
+  ];
+
+  const ocCards = [
+    { label: t.stats.opencodeTotal, value: ocData?.total ?? 0, icon: BarChart3, chip: 'bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-300' },
+    { label: t.stats.onecRequests, value: ocData?.by_client.find(c => c.key === 'onec')?.count ?? 0, icon: Database, chip: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-300' },
+    { label: t.stats.vitraRequests, value: ocData?.by_client.find(c => c.key === 'vitra')?.count ?? 0, icon: Bot, chip: 'bg-purple-50 text-purple-600 dark:bg-purple-950 dark:text-purple-300' },
+    { label: t.stats.activeUsers, value: new Set((ocData?.items || []).filter(r => r.client === 'onec').map(r => r.user_id).filter(Boolean)).size, icon: Users, chip: 'bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-300' },
   ];
 
   return (
@@ -302,7 +341,8 @@ export default function Stats({ me }: { me: Me | null }) {
       {/* Фильтры */}
       <Card className="mb-4">
         <CardBody>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          <div className={`grid gap-3 ${isOpencode ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4' : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-5'}`}>
+            {!isOpencode && (
             <div>
               <label className="block text-[12px] font-medium text-slate-500 dark:text-slate-400 mb-1">{t.stats.filterUser}</label>
               <Select value={fUser} onChange={e => { setFUser(e.target.value); setPage(0); }}>
@@ -310,6 +350,7 @@ export default function Stats({ me }: { me: Me | null }) {
                 {userIds.map(u => <option key={u} value={u}>{u}</option>)}
               </Select>
             </div>
+            )}
             <div>
               <label className="block text-[12px] font-medium text-slate-500 dark:text-slate-400 mb-1">{t.stats.filterBase}</label>
               <Select value={fBase} onChange={e => { setFBase(e.target.value); setPage(0); }}>
@@ -324,34 +365,181 @@ export default function Stats({ me }: { me: Me | null }) {
                 {agents.map(a => <option key={a} value={a}>{a}</option>)}
               </Select>
             </div>
+            {isOpencode && (
+              <div>
+                <label className="block text-[12px] font-medium text-slate-500 dark:text-slate-400 mb-1">{t.stats.filterClient}</label>
+                <Select value={fClient} onChange={e => { setFClient(e.target.value); setOcPage(0); }}>
+                  <option value="">{t.stats.clientAll}</option>
+                  <option value="onec">{t.stats.clientOnec}</option>
+                  <option value="vitra">{t.stats.clientVitra}</option>
+                </Select>
+              </div>
+            )}
             {!isDialogs && (
               <div>
                 <label className="block text-[12px] font-medium text-slate-500 dark:text-slate-400 mb-1">{t.stats.filterFrom}</label>
-                <input type="date" value={fFrom} onChange={e => { setFFrom(e.target.value); setPage(0); }}
+                <input type="date" value={fFrom} onChange={e => { setFFrom(e.target.value); setPage(0); if (isOpencode) setOcPage(0); }}
                   className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-[13px] text-slate-700 dark:text-slate-200" />
               </div>
             )}
             {!isDialogs && (
               <div>
                 <label className="block text-[12px] font-medium text-slate-500 dark:text-slate-400 mb-1">{t.stats.filterTo}</label>
-                <input type="date" value={fTo} onChange={e => { setFTo(e.target.value); setPage(0); }}
+                <input type="date" value={fTo} onChange={e => { setFTo(e.target.value); setPage(0); if (isOpencode) setOcPage(0); }}
                   className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-[13px] text-slate-700 dark:text-slate-200" />
               </div>
             )}
           </div>
           <div className="flex items-center justify-end gap-2 mt-3 pt-3 border-t border-slate-200 dark:border-slate-800">
             <Btn variant="ghost" onClick={resetFilters} className="!text-xs">{t.stats.reset}</Btn>
-            <Btn variant="outline" onClick={() => { loadDistinct(); load(); }} disabled={loading}>
-              <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> {t.common.refresh}
+            <Btn variant="outline" onClick={() => { loadDistinct(); if (isOpencode) loadOpencode(); else load(); }} disabled={loading || ocLoading}>
+              <RefreshCw size={13} className={(loading || ocLoading) ? 'animate-spin' : ''} /> {t.common.refresh}
             </Btn>
-            <Btn variant="primary" onClick={load} disabled={loading}>
+            <Btn variant="primary" onClick={() => { if (isOpencode) loadOpencode(); else load(); }} disabled={loading || ocLoading}>
               {t.stats.apply}
             </Btn>
           </div>
         </CardBody>
       </Card>
 
-      {isDialogs ? (
+      {isOpencode ? (
+        <>
+          {/* Сводные карточки */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+            {ocCards.map(c => (
+              <Card key={c.label}>
+                <CardBody className="flex items-center gap-3">
+                  <div className={`p-2.5 rounded-lg ${c.chip}`}><c.icon size={20} /></div>
+                  <div className="min-w-0">
+                    <p className="text-[11px] text-slate-400 dark:text-slate-500 uppercase tracking-wide">{c.label}</p>
+                    <p className="text-xl font-semibold text-slate-800 dark:text-slate-100">{c.value}</p>
+                  </div>
+                </CardBody>
+              </Card>
+            ))}
+          </div>
+
+          {/* Мини-таблицы: по клиентам / базам / серверам */}
+          {ocData && (ocData.by_client.length > 0 || ocData.by_base.length > 0 || ocData.by_server.length > 0) && (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-4">
+              <Card>
+                <CardBody>
+                  <CardTitle>{t.stats.byClient}</CardTitle>
+                  <table className="w-full text-[12px]">
+                    <thead><tr className="text-left text-slate-400 dark:text-slate-500">
+                      <th className="pb-1">{t.stats.clientCol}</th><th className="pb-1 text-right">Запросов</th>
+                    </tr></thead>
+                    <tbody>
+                      {ocData.by_client.map(r => (
+                        <tr key={r.key} className="border-t border-slate-100 dark:border-slate-800">
+                          <td className="py-1">
+                            <Badge tone={r.key === 'onec' ? 'blue' : r.key === 'vitra' ? 'purple' : 'neutral'}>
+                              {r.key === 'onec' ? t.stats.clientOnec : r.key === 'vitra' ? t.stats.clientVitra : r.key || '—'}
+                            </Badge>
+                          </td>
+                          <td className="py-1 text-right">{r.count}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </CardBody>
+              </Card>
+              <Card>
+                <CardBody>
+                  <CardTitle>{t.stats.byBase}</CardTitle>
+                  <table className="w-full text-[12px]">
+                    <thead><tr className="text-left text-slate-400 dark:text-slate-500">
+                      <th className="pb-1">{t.stats.base}</th><th className="pb-1 text-right">Запросов</th>
+                    </tr></thead>
+                    <tbody>
+                      {ocData.by_base.slice(0, 8).map(r => (
+                        <tr key={r.key || '(—)'} className="border-t border-slate-100 dark:border-slate-800">
+                          <td className="py-1 font-mono flex items-center gap-1"><Database size={12} className="text-slate-400" />{r.key || '—'}</td>
+                          <td className="py-1 text-right">{r.count}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </CardBody>
+              </Card>
+              <Card>
+                <CardBody>
+                  <CardTitle>{t.stats.byServer}</CardTitle>
+                  <table className="w-full text-[12px]">
+                    <thead><tr className="text-left text-slate-400 dark:text-slate-500">
+                      <th className="pb-1">{t.stats.serverCol}</th><th className="pb-1 text-right">Запросов</th>
+                    </tr></thead>
+                    <tbody>
+                      {ocData.by_server.slice(0, 8).map(r => (
+                        <tr key={r.key || '(—)'} className="border-t border-slate-100 dark:border-slate-800">
+                          <td className="py-1 font-mono flex items-center gap-1"><Terminal size={12} className="text-slate-400" />{r.key || '—'}</td>
+                          <td className="py-1 text-right">{r.count}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </CardBody>
+              </Card>
+            </div>
+          )}
+
+          {/* Таблица запросов */}
+          <Card>
+            <CardBody className="overflow-x-auto">
+              <CardTitle right={ocLoading ? <RefreshCw size={14} className="animate-spin text-slate-400" /> : undefined}>
+                {t.stats.requestsTable} ({ocTotal})
+              </CardTitle>
+              {(ocData?.items.length ?? 0) === 0 ? (
+                <p className="text-[13px] text-slate-400 dark:text-slate-500 p-4">{t.stats.noData}</p>
+              ) : (
+                <table className="w-full text-[12px]">
+                  <thead>
+                    <tr className="text-left text-slate-400 dark:text-slate-500 border-b border-slate-200 dark:border-slate-700">
+                      <th className="px-3 py-2">{t.stats.time}</th>
+                      <th className="px-3 py-2">{t.stats.filterClient}</th>
+                      <th className="px-3 py-2">{t.stats.user}</th>
+                      <th className="px-3 py-2">{t.stats.base}</th>
+                      <th className="px-3 py-2">{t.stats.serverCol}</th>
+                      <th className="px-3 py-2">{t.stats.pathCol}</th>
+                      <th className="px-3 py-2">{t.stats.status}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(ocData?.items || []).map(r => (
+                      <tr key={r.id} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                        <td className="px-3 py-2 whitespace-nowrap font-mono text-[11px]">
+                          {r.ts ? new Date(r.ts).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}
+                        </td>
+                        <td className="px-3 py-2">
+                          <Badge tone={r.client === 'onec' ? 'blue' : 'purple'}>
+                            {r.client === 'onec' ? t.stats.clientOnec : t.stats.clientVitra}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-2 font-mono">{r.user_id || '—'}</td>
+                        <td className="px-3 py-2 font-mono">{r.base || '—'}</td>
+                        <td className="px-3 py-2 font-mono">{r.server}</td>
+                        <td className="px-3 py-2 font-mono text-[11px] max-w-[200px] truncate" title={r.path}>{r.path}</td>
+                        <td className="px-3 py-2">
+                          <Badge tone={r.status >= 200 && r.status < 400 ? 'green' : 'red'}>{r.status}</Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </CardBody>
+          </Card>
+
+          {/* Пагинация */}
+          {ocTotal > pageSize && (
+            <div className="flex items-center justify-between mt-3">
+              <Btn variant="ghost" disabled={ocPage === 0} onClick={() => setOcPage(p => p - 1)} className="!text-xs">← {t.stats.prevPage}</Btn>
+              <span className="text-[12px] text-slate-400 dark:text-slate-500">Стр. {ocPage + 1} из {Math.ceil(ocTotal / pageSize)}</span>
+              <Btn variant="ghost" disabled={(ocPage + 1) * pageSize >= ocTotal} onClick={() => setOcPage(p => p + 1)} className="!text-xs">{t.stats.nextPage} →</Btn>
+            </div>
+          )}
+        </>
+      ) : isDialogs ? (
         <DialogsView fUser={fUser} fBase={fBase} fAgent={fAgent} />
       ) : (
         <>

@@ -60,7 +60,7 @@ export function IconBtn({ title, onClick, className = '', children }: { title: s
   );
 }
 
-export function Badge({ tone = 'neutral', children }: { tone?: 'neutral' | 'green' | 'red' | 'blue' | 'amber' | 'sky'; children: ReactNode }) {
+export function Badge({ tone = 'neutral', children }: { tone?: 'neutral' | 'green' | 'red' | 'blue' | 'amber' | 'sky' | 'purple'; children: ReactNode }) {
   const map: Record<string, string> = {
     neutral: 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400',
     green: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400',
@@ -68,6 +68,7 @@ export function Badge({ tone = 'neutral', children }: { tone?: 'neutral' | 'gree
     blue: 'bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-300',
     amber: 'bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-400',
     sky: 'bg-sky-50 text-sky-600 dark:bg-sky-950 dark:text-sky-300',
+    purple: 'bg-purple-50 text-purple-600 dark:bg-purple-950 dark:text-purple-300',
   };
   return <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${map[tone]}`}>{children}</span>;
 }

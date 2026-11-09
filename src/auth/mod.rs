@@ -618,6 +618,10 @@ fn section_for(path: &str) -> Option<&'static str> {
         "agent-rag"
     } else if rest.starts_with("agent-backend") {
         "agent-backend"
+    } else if rest == "opencode/stats" {
+        // Статистика запросов OpenCode — как остальная статистика: секция
+        // dashboard (есть у всех ролей), а не привилегированная opencode.
+        "dashboard"
     } else if rest.starts_with("opencode") {
         // Шлюз OpenCode: чтение — всем с секцией, запись — по can_write.
         "opencode"

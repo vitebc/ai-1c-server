@@ -60,6 +60,15 @@ struct SessionEntry {
     exp: u64, // unix-секунды; 0 = без TTL
 }
 
+/// Одна строка статистики запроса OpenCode (таблица opencode_requests).
+#[derive(Debug, Clone)]
+struct StatsRec {
+    client: String, // 'onec' | 'vitra'
+    user_id: Option<String>,
+    base: String,
+    server: String,
+}
+
 type SessionsMap = HashMap<String, SessionEntry>;
 
 static SESSIONS: std::sync::LazyLock<Mutex<SessionsMap>> =
@@ -328,6 +337,12 @@ async fn gateway_any(
         .map(|t| t.trim().to_string())
         .or_else(|| query_param(&query, "onec_token"));
 
+    // Статистика запросов: фиксируем только отправку промпта. Заполняется в
+    // блоке допуска (кто шлёт), дописывается после маршрутизации (база/сервер)
+    // и пишется в БД после получения ответа.
+    let is_prompt = method == Method::POST && path.starts_with("/api/session/") && path.ends_with("/prompt");
+    let mut stats: Option<StatsRec> = None;
+
     // Допуск к прокси: только два легитимных клиента.
     // 1) Форма 1С / Витра AI с JWT пользователя 1С (HS256, aud=mcp, валидный exp) —
     //    Bearer или ?onec_token=. Подпись проверяется здесь же (decode_onec_jwt).
@@ -355,6 +370,12 @@ async fn gateway_any(
                 method, path, reason
             );
             return with_cors((StatusCode::UNAUTHORIZED, Json(json!({ "error": "доступ только для формы 1С / Витра AI" }))).into_response());
+        }
+        if is_prompt {
+            stats = Some(match &jwt_info {
+                Some((sub, _, _)) => StatsRec { client: "onec".into(), user_id: Some(sub.clone()), base: String::new(), server: String::new() },
+                None => StatsRec { client: "vitra".into(), user_id: None, base: String::new(), server: String::new() },
+            });
         }
         jwt_info_global = jwt_info;
     }
@@ -409,6 +430,12 @@ async fn gateway_any(
         server.name
     );
 
+    // Статистика: база и сервер известны — дописываем (база из маршрутизации).
+    if let Some(s) = &mut stats {
+        s.base = base_routed.clone().unwrap_or_default();
+        s.server = server.name.clone();
+    }
+
     // Реестр сессий: обновляем при запросах к /api/session/{id}/...
     if let Some((sub, exp, _)) = &jwt_info {
         if let Some(sid) = extract_session_id(&path, &bytes) {
@@ -434,6 +461,12 @@ async fn gateway_any(
         (!bytes.is_empty()).then_some(bytes.clone()),
     )
     .await;
+
+    // Статистика: записываем промпт (кто/база/сервер + статус ответа). Ошибка
+    // БД не ломает прокси — только warn в лог.
+    if let Some(rec) = &stats {
+        record_request(&state, rec, path.as_str(), resp.status().as_u16() as i32).await;
+    }
 
     // Фильтрация агентов: GET /api/agent → оставляем только видимые.
     // Пустой список visible_agents = все агенты видны (поведение по умолчанию).
@@ -598,6 +631,23 @@ async fn proxy_raw(
     let mut resp = resp;
     resp.extensions_mut().insert(bytes);
     resp
+}
+
+/// Запись промпта в opencode_requests (ts — ISO UTC). Ошибка БД — только warn:
+/// статистика не должна ломать проксирование.
+async fn record_request(state: &Arc<AppState>, rec: &StatsRec, path: &str, status: i32) {
+    let ts = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+    let res = {
+        let db = state.db.lock().await;
+        db.conn.execute(
+            "INSERT INTO opencode_requests (ts, client, user_id, base, server, path, status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![ts, rec.client, rec.user_id, rec.base, rec.server, path, status],
+        )
+    };
+    if let Err(e) = res {
+        tracing::warn!("gateway: не удалось записать статистику запроса: {e}");
+    }
 }
 
 // ─── RLS-мост /onec/rpc ─────────────────────────────────────────────

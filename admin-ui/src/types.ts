@@ -286,6 +286,26 @@ export interface StatsSummary {
   by_agent: { agent: string; count: number }[];
 }
 
+/** Запрос OpenCode (отправка промпта через шлюз :9020). */
+export interface OpencodeRequest {
+  id: number;
+  ts: string;
+  client: 'onec' | 'vitra';
+  user_id: string | null;
+  base: string | null;
+  server: string;
+  path: string;
+  status: number;
+}
+
+export interface OpencodeStatsData {
+  total: number;
+  items: OpencodeRequest[];
+  by_client: { key: string; count: number }[];
+  by_base: { key: string; count: number }[];
+  by_server: { key: string; count: number }[];
+}
+
 export interface ChatSessionItem {
   id: number;
   user_id: string;

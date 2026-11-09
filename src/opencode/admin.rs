@@ -1559,6 +1559,125 @@ pub async fn logs(
     Json(state.logs.entries(None, limit, None, Some("ai_1c_server::opencode")))
 }
 
+// ─── статистика запросов (opencode_requests) ────────────────────────
+
+/// GET /api/admin/opencode/stats?from=&to=&client=&base= — список промптов
+/// и сводка (по клиентам 1С/Витра, по базам, по серверам). Период — ISO UTC
+/// (ts в таблице хранится в том же формате, строковое сравнение корректно).
+pub async fn stats(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Json<Value> {
+    let from = q.get("from").cloned().filter(|v| !v.is_empty());
+    let to = q.get("to").cloned().filter(|v| !v.is_empty());
+    let client = q.get("client").cloned().filter(|v| !v.is_empty() && v != "all");
+    let base = q.get("base").cloned().filter(|v| !v.is_empty());
+    let limit: usize = q.get("limit").and_then(|v| v.parse().ok()).unwrap_or(50).clamp(1, 500);
+    let offset: usize = q.get("offset").and_then(|v| v.parse().ok()).unwrap_or(0);
+
+    // WHERE-условия (строковые — ts ISO UTC сортируется лексикографически).
+    let mut where_clauses: Vec<String> = Vec::new();
+    let mut params: Vec<String> = Vec::new();
+    if let Some(v) = &from {
+        where_clauses.push(format!("ts >= ?{}", params.len() + 1));
+        params.push(v.clone());
+    }
+    if let Some(v) = &to {
+        where_clauses.push(format!("ts <= ?{}", params.len() + 1));
+        params.push(v.clone());
+    }
+    if let Some(v) = &client {
+        where_clauses.push(format!("client = ?{}", params.len() + 1));
+        params.push(v.clone());
+    }
+    if let Some(v) = &base {
+        where_clauses.push(format!("base = ?{}", params.len() + 1));
+        params.push(v.clone());
+    }
+    let where_sql = if where_clauses.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", where_clauses.join(" AND "))
+    };
+
+    let data = {
+        let db = state.db.lock().await;
+        let mut total: i64 = 0;
+        let mut by_client: Vec<(String, i64)> = Vec::new();
+        let mut by_base: Vec<(String, i64)> = Vec::new();
+        let mut by_server: Vec<(String, i64)> = Vec::new();
+        let mut items: Vec<Value> = Vec::new();
+
+        let str_params: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p as &dyn rusqlite::ToSql).collect();
+
+        {
+            let sql = format!("SELECT COUNT(*) FROM opencode_requests{where_sql}");
+            if let Ok(mut s) = db.conn.prepare(&sql) {
+                total = s.query_row(str_params.as_slice(), |r| r.get(0)).unwrap_or(0);
+            }
+        }
+
+        let group = |table_col: &str, out: &mut Vec<(String, i64)>| {
+            let sql = format!(
+                "SELECT COALESCE({table_col}, ''), COUNT(*) FROM opencode_requests{where_sql} \
+                 GROUP BY COALESCE({table_col}, '') ORDER BY COUNT(*) DESC LIMIT 50"
+            );
+            if let Ok(mut s) = db.conn.prepare(&sql) {
+                if let Ok(rows) = s.query_map(str_params.as_slice(), |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))) {
+                    for row in rows.flatten() {
+                        out.push(row);
+                    }
+                }
+            }
+        };
+
+        group("client", &mut by_client);
+        group("base", &mut by_base);
+        group("server", &mut by_server);
+
+        let sql = format!(
+            "SELECT id, ts, client, user_id, base, server, path, status FROM opencode_requests{where_sql} \
+             ORDER BY ts DESC, id DESC LIMIT ?{} OFFSET ?{}",
+            params.len() + 1,
+            params.len() + 2
+        );
+        if let Ok(mut s) = db.conn.prepare(&sql) {
+            let limit_i = limit as i64;
+            let offset_i = offset as i64;
+            let all_params: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p as &dyn rusqlite::ToSql)
+                .chain(std::iter::once(&limit_i as &dyn rusqlite::ToSql))
+                .chain(std::iter::once(&offset_i as &dyn rusqlite::ToSql))
+                .collect();
+            if let Ok(rows) = s.query_map(all_params.as_slice(), |r| {
+                Ok(json!({
+                    "id": r.get::<_, i64>(0)?,
+                    "ts": r.get::<_, String>(1)?,
+                    "client": r.get::<_, String>(2)?,
+                    "user_id": r.get::<_, Option<String>>(3)?,
+                    "base": r.get::<_, Option<String>>(4)?,
+                    "server": r.get::<_, String>(5)?,
+                    "path": r.get::<_, String>(6)?,
+                    "status": r.get::<_, i32>(7)?,
+                }))
+            }) {
+                for row in rows.flatten() {
+                    items.push(row);
+                }
+            }
+        }
+
+        json!({
+            "total": total,
+            "items": items,
+            "by_client": by_client.into_iter().map(|(k, v)| json!({"key": k, "count": v})).collect::<Vec<_>>(),
+            "by_base": by_base.into_iter().map(|(k, v)| json!({"key": k, "count": v})).collect::<Vec<_>>(),
+            "by_server": by_server.into_iter().map(|(k, v)| json!({"key": k, "count": v})).collect::<Vec<_>>(),
+        })
+    };
+
+    Json(json!({ "ok": true, "data": data }))
+}
+
 // ─── статус ─────────────────────────────────────────────────────────
 
 pub async fn status(State(state): State<Arc<AppState>>) -> Json<Value> {
@@ -1656,5 +1775,6 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/sessions/drop", post(session_drop))
         .route("/vitra/token", get(vitra_token_get).put(vitra_token_put))
         .route("/logs", get(logs))
+        .route("/stats", get(stats))
         .route("/status", get(status))
 }
