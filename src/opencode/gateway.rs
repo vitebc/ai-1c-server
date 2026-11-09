@@ -732,7 +732,28 @@ async fn fill_usage(
             continue; // раунд ещё идёт
         }
 
-        let agent = s.get("agent").and_then(|a| a.as_str()).map(|x| x.to_string());
+        // Агент: в Session.Info нет поля agent — берём из последнего assistant-сообщения.
+        let agent: Option<String> = {
+            let msgs_url = format!("{}/api/session/{}/message", server_url.trim_end_matches('/'), session_id);
+            let resp = client.get(&msgs_url)
+                .basic_auth(username.clone(), Some(password.clone()))
+                .timeout(std::time::Duration::from_secs(10))
+                .send().await;
+            match resp {
+                Ok(r) if r.status().is_success() => {
+                    let v: Option<Value> = r.json::<Value>().await.ok();
+                    v.map(|v| {
+                        let arr = v.get("data").and_then(|d| d.as_array()).cloned().unwrap_or_default();
+                        arr.iter().rev().find_map(|m| {
+                            if m.get("type").and_then(|t| t.as_str()) == Some("assistant") {
+                                m.get("agent").and_then(|a| a.as_str()).map(|x| x.to_string())
+                            } else { None }
+                        })
+                    }).flatten()
+                }
+                _ => None,
+            }
+        };
         let tokens_in = s.get("tokens").and_then(|t| t.get("input")).and_then(|n| n.as_i64());
         let tokens_out = s.get("tokens").and_then(|t| t.get("output")).and_then(|n| n.as_i64());
         // Длительность раунда: time.updated (мс) − момент отправки промпта (из ts строки).
