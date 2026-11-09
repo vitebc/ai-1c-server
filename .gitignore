@@ -37,3 +37,4 @@ htmlcov/
 # Модели/веса (никогда в git)
 *.gguf
 *.safetensors
+daemon.pid
