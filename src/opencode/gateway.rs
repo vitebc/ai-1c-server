@@ -29,6 +29,26 @@ use serde_json::{json, Value};
 use crate::api::AppState;
 use crate::opencode::{basic_auth, plugin_token};
 
+// ─── CORS (Vitra AI — WebView2, cross-origin) ────────────────────────
+const CORS_ORIGIN: &str = "*";
+const CORS_METHODS: &str = "GET, POST, PATCH, DELETE, OPTIONS";
+const CORS_HEADERS: &str = "Content-Type, Authorization, X-Vitra-Token, X-OpenCode-Token, X-Onec-Pepek, X-1C-Base";
+
+/// Добавляет CORS-заголовки в любой ответ (включая ошибки 401/404).
+fn with_cors(mut resp: Response) -> Response {
+    let h = resp.headers_mut();
+    h.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, CORS_ORIGIN.parse().unwrap());
+    h.insert(header::ACCESS_CONTROL_ALLOW_METHODS, CORS_METHODS.parse().unwrap());
+    h.insert(header::ACCESS_CONTROL_ALLOW_HEADERS, CORS_HEADERS.parse().unwrap());
+    resp
+}
+
+/// Preflight OPTIONS → 200 + CORS (до проверки токена: браузер не шлёт
+/// кастомные headers в preflight).
+fn cors_preflight() -> Response {
+    with_cors(StatusCode::NO_CONTENT.into_response())
+}
+
 // ─── реестр сессий ──────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
@@ -283,9 +303,14 @@ async fn gateway_any(
     let uri = parts.uri.clone();
     let headers = parts.headers.clone();
 
+    // Preflight CORS: 200 + заголовки, без проверки токена.
+    if method == Method::OPTIONS {
+        return cors_preflight();
+    }
+
     let bytes = match to_bytes(body, 10 * 1024 * 1024).await {
         Ok(b) => b,
-        Err(_) => return (StatusCode::PAYLOAD_TOO_LARGE, "body too large").into_response(),
+        Err(_) => return with_cors((StatusCode::PAYLOAD_TOO_LARGE, "body too large").into_response()),
     };
 
     let path = uri.path().to_string();
@@ -329,7 +354,7 @@ async fn gateway_any(
                 "gateway: 401 {} {} — {}",
                 method, path, reason
             );
-            return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "доступ только для формы 1С / Витра AI" }))).into_response();
+            return with_cors((StatusCode::UNAUTHORIZED, Json(json!({ "error": "доступ только для формы 1С / Витра AI" }))).into_response());
         }
         jwt_info_global = jwt_info;
     }
@@ -368,7 +393,7 @@ async fn gateway_any(
                     "gateway: 404 {} {} — база не найдена (известны: {})",
                     method, path, known.join(", ")
                 );
-                return (StatusCode::NOT_FOUND, Json(json!({ "error": "база не найдена", "known_bases": known }))).into_response();
+                return with_cors((StatusCode::NOT_FOUND, Json(json!({ "error": "база не найдена", "known_bases": known }))).into_response());
             }
         };
         (server, base)
@@ -456,7 +481,7 @@ async fn gateway_any(
         }
     }
 
-    resp
+    with_cors(resp)
 }
 
 /// sessionID из пути /api/session/{id}/... или из JSON-тела (поле id).
@@ -529,7 +554,7 @@ async fn proxy_raw(
 
     let resp = match req.send().await {
         Ok(r) => r,
-        Err(e) => return (StatusCode::BAD_GATEWAY, format!("OpenCode: {e}")).into_response(),
+        Err(e) => return with_cors((StatusCode::BAD_GATEWAY, format!("OpenCode: {e}")).into_response()),
     };
 
     let status = StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
@@ -540,23 +565,26 @@ async fn proxy_raw(
         .map(|s| s.to_string());
 
     if content_type.as_deref() == Some("text/event-stream") {
-        // Стриминг: отдаём по чанкам.
+        // Стриминг: отдаём по чанкам. CORS + keep-alive для WebView2.
         use futures::StreamExt;
         let stream = resp
             .bytes_stream()
             .map(|r| Ok::<_, std::io::Error>(r.unwrap_or_default()))
             .boxed();
-        return Response::builder()
-            .status(status)
-            .header(header::CONTENT_TYPE, "text/event-stream")
-            .header("Cache-Control", "no-cache")
-            .body(Body::from_stream(stream))
-            .unwrap_or_else(|_| (StatusCode::INTERNAL_SERVER_ERROR, "stream").into_response());
+        return with_cors(
+            Response::builder()
+                .status(status)
+                .header(header::CONTENT_TYPE, "text/event-stream")
+                .header("Cache-Control", "no-cache")
+                .header("Connection", "keep-alive")
+                .body(Body::from_stream(stream))
+                .unwrap_or_else(|_| (StatusCode::INTERNAL_SERVER_ERROR, "stream").into_response()),
+        );
     }
 
     let bytes = match resp.bytes().await {
         Ok(b) => b,
-        Err(e) => return (StatusCode::BAD_GATEWAY, format!("OpenCode: {e}")).into_response(),
+        Err(e) => return with_cors((StatusCode::BAD_GATEWAY, format!("OpenCode: {e}")).into_response()),
     };
     let mut builder = Response::builder().status(status);
     if let Some(ct) = &content_type {
@@ -593,7 +621,7 @@ async fn onec_rpc(
         Some(t) => t.to_string(),
         None => {
             tracing::warn!("onec-rpc: 401 нет X-OpenCode-Token");
-            return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "нет X-OpenCode-Token" }))).into_response();
+            return with_cors((StatusCode::UNAUTHORIZED, Json(json!({ "error": "нет X-OpenCode-Token" }))).into_response());
         }
     };
     let server_name = {
@@ -607,7 +635,7 @@ async fn onec_rpc(
         Some(n) => n,
         None => {
             tracing::warn!("onec-rpc: 401 неверный токен плагина");
-            return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "неверный токен плагина" }))).into_response();
+            return with_cors((StatusCode::UNAUTHORIZED, Json(json!({ "error": "неверный токен плагина" }))).into_response());
         }
     };
 
@@ -620,7 +648,7 @@ async fn onec_rpc(
             let pepek = headers.get("x-onec-pepek").and_then(|v| v.to_str().ok()).unwrap_or_default();
             if !constant_time_eq(pepek, &expected) {
                 tracing::warn!("onec-rpc: 401 нет PEPK-токена контейнера (server={})", server_name);
-                return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "нет PEPK-токена контейнера" }))).into_response();
+                return with_cors((StatusCode::UNAUTHORIZED, Json(json!({ "error": "нет PEPK-токена контейнера" }))).into_response());
             }
         }
     }
@@ -630,12 +658,12 @@ async fn onec_rpc(
         Some(e) => e,
         None => {
             tracing::warn!("onec-rpc: 401 сессия {} не найдена или истекла", body.session_id);
-            return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "сессия не найдена или истекла — отправьте новый промпт" }))).into_response()
+            return with_cors((StatusCode::UNAUTHORIZED, Json(json!({ "error": "сессия не найдена или истекла — отправьте новый промпт" }))).into_response());
         }
     };
     if entry.jwt.is_none() {
         tracing::warn!("onec-rpc: 401 у сессии {} нет JWT пользователя 1С", body.session_id);
-        return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "у сессии нет JWT пользователя 1С — отправьте новый промпт" }))).into_response();
+        return with_cors((StatusCode::UNAUTHORIZED, Json(json!({ "error": "у сессии нет JWT пользователя 1С — отправьте новый промпт" }))).into_response());
     }
 
     // 3. База: явная → из сессии → первая из bases сервера.
@@ -774,11 +802,11 @@ fn constant_time_eq(a: &str, b: &str) -> bool {
 /// Публичный health: только «шлюз жив». Без списка серверов и сессий —
 /// это информационное раскрытие, а реальный статус админка берёт из
 /// /api/admin/opencode/status (там же зонды {url}/global/health).
-async fn gateway_health() -> Json<Value> {
-    Json(json!({
+async fn gateway_health() -> Response {
+    with_cors(Json(json!({
         "ok": true,
         "gateway": "opencode",
-    }))
+    })).into_response())
 }
 
 pub fn app(state: Arc<AppState>) -> Router {
