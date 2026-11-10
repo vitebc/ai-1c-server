@@ -6,7 +6,7 @@
 			<Synonym>
 				<v8:item>
 					<v8:lang>ru</v8:lang>
-					<v8:content>Доступ агента к MCP</v8:content>
+					<v8:content>MCP: доступ агента</v8:content>
 				</v8:item>
 			</Synonym>
 			<Comment>Право Использование на HTTP-сервис ядра. Прав на данные НЕ даёт — они идут профилями пользователя.</Comment>
