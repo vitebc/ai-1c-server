@@ -607,7 +607,7 @@ function ConfigTab({ server }: { server: OpencodeServer }) {
 
 type AgentMode = 'primary' | 'subagent' | 'all';
 
-interface AgentForm { name: string; title: string; description: string; mode: AgentMode; frontmatter: string; body: string; }
+interface AgentForm { name: string; title: string; description: string; mode: AgentMode; frontmatter: string; body: string; fmBroken?: boolean; }
 
 /// Правила по умолчанию для нового агента — как у штатного plan (read-only):
 /// чтение и вопросы разрешены, правка файлов запрещена.
@@ -672,6 +672,9 @@ function AgentsTab({ server }: { server: OpencodeServer }) {
         mode: parseMode(a.frontmatter || ''),
         frontmatter: a.frontmatter || '',
         body: a.body,
+        // Frontmatter был в файле, но не распарсился как YAML (бэкенд
+        // вернул пустую карту). Показываем алерт в форме.
+        fmBroken: !!(a.frontmatter && /^{}\s*$/m.test(a.frontmatter) && a.body.trim()),
       })));
     } catch (e) { setErr(errText(e, 'Ошибка')); }
   }, [server.id]);
@@ -732,7 +735,7 @@ function AgentsTab({ server }: { server: OpencodeServer }) {
               <TextInput value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Ассистент" />
             </Field>
           </div>
-          <Field label="Описание" hint="Короткое описание — для выбора агента в клиенте." className="mt-3">
+          <Field label="Описание" hint="Короткое описание — для выбора агента в клиенте. Если текст содержит «: », оберните значение в кавычки (иначе YAML сломается)." className="mt-3">
             <TextInput value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Общие вопросы по 1С и базе знаний" />
           </Field>
           <Field label="Режим" hint="primary — основной агент сессии; subagent — вызывается из других агентов; all — как в штатном OpenCode (без явного mode)." className="mt-3">
@@ -746,6 +749,11 @@ function AgentsTab({ server }: { server: OpencodeServer }) {
               ]}
             />
           </Field>
+          {form.fmBroken && (
+            <div className="mb-3">
+              <Alert tone="amber">Frontmatter в файле не распознан как YAML — проверьте кавычки. Двоеточие с пробелом внутри значения («конвейер: уточняющие») требует кавычек: description: «…конвейер: уточняющие…».</Alert>
+            </div>
+          )}
           <Field label="Frontmatter (YAML)" hint="model, permissions и остальные ключи — как в agents/<имя>.md. Ключи title, description, mode подставляются из полей выше." className="mt-3">
             <TextArea mono value={form.frontmatter} onChange={e => setForm({ ...form, frontmatter: e.target.value })} rows={8} spellCheck={false} placeholder={'model: local-12600/qwen3.8\npermissions:\n  - action: "*"\n    resource: "*"\n    effect: allow'} />
           </Field>

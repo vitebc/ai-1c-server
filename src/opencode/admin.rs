@@ -674,6 +674,11 @@ fn valid_skill_name(name: &str) -> bool {
         && parts.all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()))
 }
 
+/// Разбор frontmatter. При ошибке YAML-парсинга (например, `key: text: more`
+/// без кавычек — вложенная карта недопустима) не отбрасываем всё молча, а
+/// спасаем построчно простые скаляры `key: value`: так хотя бы title/mode
+/// останутся на месте. Сложные структуры (permissions и т.п.) при ошибке
+/// теряются — это осознанно: валидность проверяется при сохранении.
 fn parse_frontmatter(text: &str) -> (serde_yaml::Mapping, String) {
     let mut meta = serde_yaml::Mapping::new();
     let body = text.to_string();
@@ -685,14 +690,65 @@ fn parse_frontmatter(text: &str) -> (serde_yaml::Mapping, String) {
         let fm_lines: Vec<&str> = lines[1..=end].to_vec();
         let rest_start = end + 2;
         let body = text.lines().skip(rest_start).collect::<Vec<_>>().join("\n");
-        if let Ok(v) = serde_yaml::from_str::<serde_yaml::Value>(&fm_lines.join("\n")) {
-            if let serde_yaml::Value::Mapping(m) = v {
-                meta = m;
+        match serde_yaml::from_str::<serde_yaml::Value>(&fm_lines.join("\n")) {
+            Ok(serde_yaml::Value::Mapping(m)) => meta = m,
+            _ => {
+                tracing::warn!("opencode: frontmatter не распарсился как YAML — спасаю построчно");
+                for line in &fm_lines {
+                    let l = line.trim();
+                    if l.is_empty() || l.starts_with('#') || l.starts_with('-') {
+                        continue;
+                    }
+                    // Только верхний уровень: без отступа, с `key:`.
+                    if line.starts_with(' ') || line.starts_with('\t') {
+                        continue;
+                    }
+                    let Some((k, v)) = l.split_once(':') else { continue };
+                    let k = k.trim();
+                    let v = v.trim();
+                    // Пропускаем вложенные/сложные значения.
+                    if k.is_empty() || v.is_empty() || v.starts_with('-') || v.starts_with('{') || v.starts_with('[') {
+                        continue;
+                    }
+                    // Двойная проверка: строка должна быть валидной парой
+                    // «ключ: скаляр». `key: value` парсится как карта из одной
+                    // пары — берём значение. Сложные значения (карты/массивы)
+                    // отбрасываем.
+                    if let Ok(serde_yaml::Value::Mapping(m)) = serde_yaml::from_str::<serde_yaml::Value>(&format!("{}: {}", k, v)) {
+                        if let Some((_, val)) = m.iter().next() {
+                            match val {
+                                serde_yaml::Value::String(s) => {
+                                    meta.insert(serde_yaml::Value::String(k.to_string()), serde_yaml::Value::String(s.clone()));
+                                }
+                                other => {
+                                    // Числа, булевы и т.п. — сериализуем как строку.
+                                    if let Ok(s) = serde_yaml::to_string(other) {
+                                        meta.insert(serde_yaml::Value::String(k.to_string()), serde_yaml::Value::String(s.trim_end().to_string()));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
         return (meta, body);
     }
     (meta, body)
+}
+
+/// Валидация frontmatter перед сохранением: парсим как YAML-карту.
+/// Возвращает Ok(()) или Err(текст ошибки) — agent_put отдаёт 400.
+pub fn validate_frontmatter(fm: &str) -> Result<(), String> {
+    let inner = fm.trim().trim_start_matches("---").trim_end_matches("---").trim();
+    if inner.is_empty() {
+        return Ok(());
+    }
+    match serde_yaml::from_str::<serde_yaml::Value>(inner) {
+        Ok(serde_yaml::Value::Mapping(_)) => Ok(()),
+        Ok(_) => Err("frontmatter должен быть YAML-картой (ключ: значение)".into()),
+        Err(e) => Err(format!("YAML: {} — оберните значения с двоеточием в кавычки", e)),
+    }
 }
 
 fn fm_str(meta: &serde_yaml::Mapping, key: &str) -> String {
@@ -779,6 +835,10 @@ pub async fn agent_put(
             "name: ^[a-z0-9_-]+$ (max 64)".into(),
         )
         .into_response());
+    }
+    // Валидация YAML до записи: не даём сломать файл невалидным frontmatter.
+    if let Err(e) = validate_frontmatter(&body.frontmatter) {
+        return Err(BadRequest(e).into_response());
     }
     let row = {
         let db = state.db.lock().await;
