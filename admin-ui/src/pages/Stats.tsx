@@ -360,9 +360,9 @@ export default function Stats({ me }: { me: Me | null }) {
       {/* Фильтры */}
       <Card className="mb-4">
         <CardBody>
-          <div className={`grid gap-3 ${isOpencode ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4' : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-5'}`}>
+          <div className="flex flex-wrap items-end gap-3">
             {!isOpencode && (
-            <div>
+            <div className="w-[160px]">
               <label className="block text-[12px] font-medium text-slate-500 dark:text-slate-400 mb-1">{t.stats.filterUser}</label>
               <Select value={fUser} onChange={e => { setFUser(e.target.value); setPage(0); }}>
                 <option value="">{t.common.all}</option>
@@ -370,14 +370,14 @@ export default function Stats({ me }: { me: Me | null }) {
               </Select>
             </div>
             )}
-            <div>
+            <div className="w-[160px]">
               <label className="block text-[12px] font-medium text-slate-500 dark:text-slate-400 mb-1">{t.stats.filterBase}</label>
               <Select value={fBase} onChange={e => { setFBase(e.target.value); setPage(0); }}>
                 <option value="">{t.common.all}</option>
                 {baseNames.map(b => <option key={b} value={b}>{b}</option>)}
               </Select>
             </div>
-            <div>
+            <div className="w-[160px]">
               <label className="block text-[12px] font-medium text-slate-500 dark:text-slate-400 mb-1">{t.stats.filterAgent}</label>
               <Select value={fAgent} onChange={e => { setFAgent(e.target.value); setPage(0); }}>
                 <option value="">{t.common.all}</option>
@@ -385,7 +385,7 @@ export default function Stats({ me }: { me: Me | null }) {
               </Select>
             </div>
             {isOpencode && (
-              <div>
+              <div className="w-[160px]">
                 <label className="block text-[12px] font-medium text-slate-500 dark:text-slate-400 mb-1">{t.stats.filterClient}</label>
                 <Select value={fClient} onChange={e => { setFClient(e.target.value); setOcPage(0); }}>
                   <option value="">{t.stats.clientAll}</option>
@@ -395,14 +395,14 @@ export default function Stats({ me }: { me: Me | null }) {
               </div>
             )}
             {!isDialogs && (
-              <div>
+              <div className="w-[150px]">
                 <label className="block text-[12px] font-medium text-slate-500 dark:text-slate-400 mb-1">{t.stats.filterFrom}</label>
                 <input type="date" value={fFrom} onChange={e => { setFFrom(e.target.value); setPage(0); if (isOpencode) setOcPage(0); }}
                   className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-[13px] text-slate-700 dark:text-slate-200" />
               </div>
             )}
             {!isDialogs && (
-              <div>
+              <div className="w-[150px]">
                 <label className="block text-[12px] font-medium text-slate-500 dark:text-slate-400 mb-1">{t.stats.filterTo}</label>
                 <input type="date" value={fTo} onChange={e => { setFTo(e.target.value); setPage(0); if (isOpencode) setOcPage(0); }}
                   className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-[13px] text-slate-700 dark:text-slate-200" />
