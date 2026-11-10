@@ -4,7 +4,7 @@ import { api } from '../api/client';
 import type { OpencodeServer } from '../types';
 import { t } from '../i18n';
 import { errText } from '../errors';
-import { PageHeader, Btn, IconBtn, Badge, TableShell, Th, Td, Row, TextInput, TextArea, Field, Alert, Modal, Confirm, inputCls, monoCls } from '../components/ui';
+import { PageHeader, Btn, IconBtn, Badge, TableShell, Th, Td, Row, TextInput, TextArea, Field, Alert, Modal, Confirm, Segmented, inputCls, monoCls } from '../components/ui';
 
 type Section = 'config' | 'agents' | 'skills' | 'tools' | 'sessions';
 
@@ -605,7 +605,9 @@ function ConfigTab({ server }: { server: OpencodeServer }) {
 
 // ─── Агенты ─────────────────────────────────────────────────────────
 
-interface AgentForm { name: string; title: string; frontmatter: string; body: string; }
+type AgentMode = 'primary' | 'subagent' | 'all';
+
+interface AgentForm { name: string; title: string; description: string; mode: AgentMode; frontmatter: string; body: string; }
 
 /// Правила по умолчанию для нового агента — как у штатного plan (read-only):
 /// чтение и вопросы разрешены, правка файлов запрещена.
@@ -640,10 +642,37 @@ function AgentsTab({ server }: { server: OpencodeServer }) {
   const [del, setDel] = useState<string | null>(null);
   const [err, setErr] = useState('');
 
+  /// Режим агента из frontmatter: 'all' — ключ mode отсутствует (штатное
+  /// поведение OpenCode), 'primary'/'subagent' — явное значение.
+  function parseMode(fm: string): AgentMode {
+    const m = fm.match(/^mode:\s*(\S+)/m);
+    if (!m) return 'all';
+    return m[1] === 'subagent' ? 'subagent' : 'primary';
+  }
+
+  /// Подставляет/удаляет ключ в frontmatter. Если значение совпадает с
+  /// текущим — не трогаем (чтобы не дублировать строку).
+  function setFmKey(fm: string, key: string, value: string): string {
+    const re = new RegExp(`^${key}:.*$`, 'm');
+    if (re.test(fm)) {
+      return value ? fm.replace(re, `${key}: ${value}`) : fm.replace(re, '').replace(/\n{3,}/g, '\n\n').trim();
+    }
+    if (!value) return fm;
+    const trimmed = fm.trim();
+    return trimmed ? `${trimmed}\n${key}: ${value}` : `${key}: ${value}`;
+  }
+
   const load = useCallback(async () => {
     try {
       const r = await api.getOpencodeAgents(server.id);
-      setAgents(r.agents.map(a => ({ name: a.name, title: a.title || '', frontmatter: a.frontmatter || '', body: a.body, description: a.description, mode: a.mode })));
+      setAgents(r.agents.map(a => ({
+        name: a.name,
+        title: a.title || '',
+        description: a.description || '',
+        mode: parseMode(a.frontmatter || ''),
+        frontmatter: a.frontmatter || '',
+        body: a.body,
+      })));
     } catch (e) { setErr(errText(e, 'Ошибка')); }
   }, [server.id]);
 
@@ -652,17 +681,14 @@ function AgentsTab({ server }: { server: OpencodeServer }) {
   async function doSave() {
     if (!form) return;
     setErr('');
-    // Title — в frontmatter (ключ title). Если пустой — убираем ключ, чтобы
-    // шлюз подставил дефолтный заголовок (имя с заглавной буквы).
+    // Title / description / mode — отдельные поля формы, при сохранении
+    // подставляем в frontmatter. Пустое значение = убрать ключ.
     let fm = form.frontmatter.trim();
-    const hasTitle = fm.includes('title:');
-    if (form.title.trim() && !hasTitle) {
-      fm = `title: ${form.title.trim()}\n${fm}`;
-    } else if (!form.title.trim() && hasTitle) {
-      fm = fm.replace(/^title:.*\n?/m, '');
-    }
+    fm = setFmKey(fm, 'title', form.title.trim());
+    fm = setFmKey(fm, 'description', form.description.trim());
+    fm = setFmKey(fm, 'mode', form.mode === 'all' ? '' : form.mode);
     try {
-      await api.putOpencodeAgent(server.id, { ...form, frontmatter: fm });
+      await api.putOpencodeAgent(server.id, { name: form.name, frontmatter: fm, body: form.body });
       setForm(null); load();
     } catch (e) { setErr(errText(e, 'Ошибка')); }
   }
@@ -678,7 +704,7 @@ function AgentsTab({ server }: { server: OpencodeServer }) {
       {err && <div className="mb-3"><Alert tone="red">{err}</Alert></div>}
       <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">{t.opencode.agentsHint}</p>
       <div className="flex justify-end mb-2">
-        <Btn onClick={() => { setIsNew(true); setForm({ name: '', title: '', frontmatter: DEFAULT_AGENT_FRONTMATTER, body: '' }); }}>
+        <Btn onClick={() => { setIsNew(true); setForm({ name: '', title: '', description: '', mode: 'primary', frontmatter: DEFAULT_AGENT_FRONTMATTER, body: '' }); }}>
           <Plus size={15} /> {t.opencode.newAgent}
         </Btn>
       </div>
@@ -706,8 +732,22 @@ function AgentsTab({ server }: { server: OpencodeServer }) {
               <TextInput value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Ассистент" />
             </Field>
           </div>
-          <Field label="Frontmatter (YAML)" hint="description, mode, model, permissions — как в agents/<имя>.md. Ключ title подставляется из поля «Заголовок»." className="mt-3">
-            <TextArea mono value={form.frontmatter} onChange={e => setForm({ ...form, frontmatter: e.target.value })} rows={8} spellCheck={false} placeholder={'description: …\nmode: primary\nmodel: local-12600/qwen3.8'} />
+          <Field label="Описание" hint="Короткое описание — для выбора агента в клиенте." className="mt-3">
+            <TextInput value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Общие вопросы по 1С и базе знаний" />
+          </Field>
+          <Field label="Режим" hint="primary — основной агент сессии; subagent — вызывается из других агентов; all — как в штатном OpenCode (без явного mode)." className="mt-3">
+            <Segmented
+              value={form.mode}
+              onChange={(m) => setForm({ ...form, mode: m })}
+              options={[
+                { key: 'primary', label: 'primary' },
+                { key: 'subagent', label: 'subagent' },
+                { key: 'all', label: 'all' },
+              ]}
+            />
+          </Field>
+          <Field label="Frontmatter (YAML)" hint="model, permissions и остальные ключи — как в agents/<имя>.md. Ключи title, description, mode подставляются из полей выше." className="mt-3">
+            <TextArea mono value={form.frontmatter} onChange={e => setForm({ ...form, frontmatter: e.target.value })} rows={8} spellCheck={false} placeholder={'model: local-12600/qwen3.8\npermissions:\n  - action: "*"\n    resource: "*"\n    effect: allow'} />
           </Field>
           <TextArea mono value={form.body} onChange={e => setForm({ ...form, body: e.target.value })} rows={14} className="mt-3" spellCheck={false} placeholder="Системный промпт агента (Markdown)" />
           <div className="flex justify-end gap-2 mt-4">
