@@ -138,13 +138,15 @@ struct ServerInfo {
     bases: Vec<String>,
     /// Агенты, отдаваемые клиенту (GET /api/agent). Пусто = все.
     visible_agents: Vec<String>,
+    /// Каталог конфигов сервера (agents/*.md) — для чтения title из frontmatter.
+    config_dir: String,
 }
 
 fn load_servers(db: &crate::db::Database) -> (Vec<ServerInfo>, Option<ServerInfo>) {
-    let pick = |r: &rusqlite::Row| -> rusqlite::Result<(String, String, String, String, String, String, String)> {
-        Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?))
+    let pick = |r: &rusqlite::Row| -> rusqlite::Result<(String, String, String, String, String, String, String, String)> {
+        Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?))
     };
-    let to_info = |(id, name, url, username, password, bases_raw, va_raw): (String, String, String, String, String, String, String)| ServerInfo {
+    let to_info = |(id, name, url, username, password, bases_raw, va_raw, config_dir): (String, String, String, String, String, String, String, String)| ServerInfo {
         id,
         name,
         url: url.trim_end_matches('/').to_string(),
@@ -152,10 +154,11 @@ fn load_servers(db: &crate::db::Database) -> (Vec<ServerInfo>, Option<ServerInfo
         password,
         bases: serde_json::from_str(&bases_raw).unwrap_or_default(),
         visible_agents: serde_json::from_str(&va_raw).unwrap_or_default(),
+        config_dir,
     };
     let mut stmt = db
         .conn
-        .prepare("SELECT id, name, url, username, password, bases, visible_agents FROM opencode_servers WHERE enabled = 1 ORDER BY name")
+        .prepare("SELECT id, name, url, username, password, bases, visible_agents, config_dir FROM opencode_servers WHERE enabled = 1 ORDER BY name")
         .unwrap();
     let servers: Vec<ServerInfo> = stmt
         .query_map([], pick)
@@ -166,13 +169,111 @@ fn load_servers(db: &crate::db::Database) -> (Vec<ServerInfo>, Option<ServerInfo
     let default = db
         .conn
         .query_row(
-            "SELECT id, name, url, username, password, bases, visible_agents FROM opencode_servers WHERE enabled = 1 AND is_default = 1 LIMIT 1",
+            "SELECT id, name, url, username, password, bases, visible_agents, config_dir FROM opencode_servers WHERE enabled = 1 AND is_default = 1 LIMIT 1",
             [],
             pick,
         )
         .ok()
         .map(to_info);
     (servers, default)
+}
+
+/// Штатные агенты OpenCode, которые никогда не отдаются клиенту.
+const HIDDEN_AGENTS: &[&str] = &["build", "plan"];
+
+/// Читает title из frontmatter файлов agents/*.md сервера → мапа id → title.
+/// Ошибки чтения — молча пропускаются (title просто не будет подставлен).
+fn load_agent_titles(config_dir: &str) -> std::collections::HashMap<String, String> {
+    use crate::opencode::admin::{agents_dir_pub, is_valid_agent_name, parse_frontmatter_pub};
+    let mut out = std::collections::HashMap::new();
+    let dir = agents_dir_pub(std::path::Path::new(config_dir));
+    if let Ok(rd) = std::fs::read_dir(&dir) {
+        for entry in rd.flatten() {
+            let p = entry.path();
+            if !p.is_file() || p.extension().and_then(|e| e.to_str()) != Some("md") {
+                continue;
+            }
+            let name = match p.file_stem().and_then(|n| n.to_str()).map(str::to_string) {
+                Some(n) if is_valid_agent_name(&n) => n,
+                _ => continue,
+            };
+            let Ok(content) = std::fs::read_to_string(&p) else { continue };
+            let (meta, _body) = parse_frontmatter_pub(&content);
+            let title = meta
+                .get("title")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .filter(|s| !s.trim().is_empty());
+            if let Some(t) = title {
+                out.insert(name, t);
+            }
+        }
+    }
+    out
+}
+
+/// Дефолтный заголовок агента: имя с заглавной буквы (assistant → Assistant).
+fn default_agent_title(name: &str) -> String {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
+/// Пересобирает ответ GET /api/agent: выкидывает штатных build/plan,
+/// фильтрует по visible_agents (пусто = все), подставляет title из frontmatter.
+/// Если после фильтрации список пуст — 409 «нет доступных агентов».
+fn rewrite_agent_response(mut resp: Response, server: &ServerInfo) -> Response {
+    if let Some((status, body_bytes)) = peek_json(&resp) {
+        if status.is_success() {
+            if let Ok(mut v) = serde_json::from_slice::<Value>(&body_bytes) {
+                if let Some(data) = v.get_mut("data").and_then(|d| d.as_array_mut()) {
+                    // 1. Штатные build/plan — никогда не отдаём клиенту.
+                    data.retain(|a| {
+                        a.get("id")
+                            .and_then(|i| i.as_str())
+                            .map(|i| !HIDDEN_AGENTS.contains(&i))
+                            .unwrap_or(true)
+                    });
+                    // 2. Фильтр по visible_agents (пусто = все).
+                    if !server.visible_agents.is_empty() {
+                        let allowed: std::collections::HashSet<&str> =
+                            server.visible_agents.iter().map(|s| s.as_str()).collect();
+                        data.retain(|a| {
+                            a.get("name")
+                                .and_then(|n| n.as_str())
+                                .map(|n| allowed.contains(n))
+                                .unwrap_or(false)
+                        });
+                    }
+                    // 3. Title: из frontmatter файла агента, иначе имя с заглавной.
+                    let titles = load_agent_titles(&server.config_dir);
+                    for a in data.iter_mut() {
+                        let name = a.get("name").and_then(|n| n.as_str()).unwrap_or_default();
+                        let title = titles
+                            .get(name)
+                            .cloned()
+                            .unwrap_or_else(|| default_agent_title(name));
+                        a["title"] = json!(title);
+                    }
+                    // 4. Пустой список → 409 «нет доступных агентов».
+                    if data.is_empty() {
+                        return with_cors(
+                            (StatusCode::CONFLICT, Json(json!({ "error": "нет доступных агентов" }))).into_response(),
+                        );
+                    }
+                }
+                let new_body = serde_json::to_vec(&v).unwrap_or_default();
+                resp = Response::builder()
+                    .status(status)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(axum::body::Body::from(new_body))
+                    .unwrap_or_else(|_| (StatusCode::INTERNAL_SERVER_ERROR, "filter").into_response());
+            }
+        }
+    }
+    resp
 }
 
 /// Базовый URL 1С для имени базы (мапа agent/bases.conf + ONEC_BASES из .env).
@@ -487,26 +588,11 @@ async fn gateway_any(
         }
     }
 
-    // Фильтрация агентов: GET /api/agent → оставляем только видимые.
-    // Пустой список visible_agents = все агенты видны (поведение по умолчанию).
-    if method == Method::GET && path == "/api/agent" && !server.visible_agents.is_empty() {
-        let allowed: std::collections::HashSet<&str> = server.visible_agents.iter().map(|s| s.as_str()).collect();
-        if let Some((status, body_bytes)) = peek_json(&resp) {
-            if status.is_success() {
-                if let Ok(mut v) = serde_json::from_slice::<Value>(&body_bytes) {
-                    // OpenCode v2: {"location": {...}, "data": [{name, ...}, ...]}
-                    if let Some(data) = v.get_mut("data").and_then(|d| d.as_array_mut()) {
-                        data.retain(|a| a.get("name").and_then(|n| n.as_str()).map(|n| allowed.contains(n)).unwrap_or(false));
-                    }
-                    let new_body = serde_json::to_vec(&v).unwrap_or_default();
-                    resp = Response::builder()
-                        .status(status)
-                        .header(header::CONTENT_TYPE, "application/json")
-                        .body(axum::body::Body::from(new_body))
-                        .unwrap_or_else(|_| (StatusCode::INTERNAL_SERVER_ERROR, "filter").into_response());
-                }
-            }
-        }
+    // Агенты: GET /api/agent → выкидываем штатных build/plan, фильтруем по
+    // visible_agents (пусто = все), подставляем title из frontmatter. Пустой
+    // список после фильтрации → 409 «нет доступных агентов».
+    if method == Method::GET && path == "/api/agent" {
+        resp = rewrite_agent_response(resp, &server);
     }
 
     // POST /api/session: запоминаем созданную сессию (id из ответа).

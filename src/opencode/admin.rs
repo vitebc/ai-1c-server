@@ -94,6 +94,22 @@ fn valid_name(name: &str) -> bool {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
 }
 
+/// Публичная версия valid_name (используется шлюзом для проверки id агентов).
+pub fn is_valid_agent_name(name: &str) -> bool {
+    valid_name(name)
+}
+
+/// Парсинг YAML frontmatter из файла агента: (meta, body).
+/// Тело — без обрамляющих ---; если frontmatter отсутствует — meta пуст.
+pub fn parse_frontmatter_pub(text: &str) -> (serde_yaml::Mapping, String) {
+    parse_frontmatter(text)
+}
+
+/// Каталог агентов для config_dir (публичный — шлюз читает title из файлов).
+pub fn agents_dir_pub(config_dir: &Path) -> PathBuf {
+    agents_dir(config_dir)
+}
+
 fn read_row(db: &crate::db::Database, id: &str) -> Option<ServerRow> {
     db.conn
         .query_row(
@@ -718,6 +734,7 @@ pub async fn agents_list(
             let (meta, body) = parse_frontmatter(&content);
             agents.push(json!({
                 "name": name,
+                "title": fm_str(&meta, "title"),
                 "description": fm_str(&meta, "description"),
                 "mode": fm_str(&meta, "mode"),
                 "model": fm_str(&meta, "model"),

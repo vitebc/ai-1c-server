@@ -331,7 +331,7 @@ export const api = {
   putOpencodeConfig: (id: string, content: string) =>
     request<{ ok: boolean; path: string }>(`/opencode/servers/${id}/config`, { method: 'PUT', body: JSON.stringify({ content }) }),
   getOpencodeAgents: (id: string) =>
-    request<{ server: string; dir: string; agents: { name: string; description?: string; mode?: string; model?: string; frontmatter: string; body: string }[] }>(`/opencode/servers/${id}/agents`),
+    request<{ server: string; dir: string; agents: { name: string; title?: string; description?: string; mode?: string; model?: string; frontmatter: string; body: string }[] }>(`/opencode/servers/${id}/agents`),
   putOpencodeAgent: (id: string, data: { name?: string; frontmatter?: string; body: string }) =>
     request<{ ok: boolean; name: string }>(`/opencode/servers/${id}/agents/${encodeURIComponent(data.name || '')}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteOpencodeAgent: (id: string, name: string) =>
