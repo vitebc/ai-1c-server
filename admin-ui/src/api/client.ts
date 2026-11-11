@@ -344,6 +344,8 @@ export const api = {
     request<{ ok: boolean }>(`/opencode/servers/${id}/skills/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   opencodeToolsSync: (id: string) =>
     request<{ ok: boolean; count: number; path?: string; token?: string }>(`/opencode/servers/${id}/tools/sync`, { method: 'POST' }),
+  opencodeToolsCatalog: (id: string) =>
+    request<{ tools: { name: string; description?: string }[] }>(`/opencode/servers/${id}/tools/catalog`),
   opencodeToolsTest: (id: string, tool: string, arguments_?: Record<string, unknown>) =>
     request<{ ok: boolean; status: number; elapsed_ms: number; result: unknown }>(`/opencode/servers/${id}/tools/test`, { method: 'POST', body: JSON.stringify({ tool, arguments: arguments_ }) }),
   opencodeToolsGenerate: (id: string) =>

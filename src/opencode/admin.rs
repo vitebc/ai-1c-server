@@ -830,10 +830,38 @@ pub fn validate_frontmatter(fm: &str) -> Result<(), String> {
         return Ok(());
     }
     match serde_yaml::from_str::<serde_yaml::Value>(inner) {
-        Ok(serde_yaml::Value::Mapping(_)) => Ok(()),
+        Ok(serde_yaml::Value::Mapping(m)) => validate_permissions(&m),
         Ok(_) => Err("frontmatter должен быть YAML-картой (ключ: значение)".into()),
         Err(e) => Err(format!("YAML: {} — оберните значения с двоеточием в кавычки", e)),
     }
+}
+
+/// Ключ `permissions` (если есть) — список правил {action, resource, effect}.
+/// Неверный эффект или форма правила ломают конфиг OpenCode — ловим на входе.
+fn validate_permissions(meta: &serde_yaml::Mapping) -> Result<(), String> {
+    let Some(perms) = meta.get("permissions") else { return Ok(()) };
+    let serde_yaml::Value::Sequence(rules) = perms else {
+        return Err("permissions должен быть списком правил (- action/resource/effect)".into());
+    };
+    for (i, rule) in rules.iter().enumerate() {
+        let serde_yaml::Value::Mapping(m) = rule else {
+            return Err(format!("permissions[{}]: правило должно быть картой action/resource/effect", i + 1));
+        };
+        let get = |k: &str| m.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+        if get("action").is_empty() {
+            return Err(format!("permissions[{}]: нет action", i + 1));
+        }
+        if !m.contains_key("resource") {
+            return Err(format!("permissions[{}]: нет resource ('*' — все)", i + 1));
+        }
+        match get("effect").as_str() {
+            "allow" | "ask" | "deny" => {}
+            e => return Err(format!(
+                "permissions[{}]: effect «{e}» не поддерживается (allow/ask/deny)", i + 1
+            )),
+        }
+    }
+    Ok(())
 }
 
 fn fm_str(meta: &serde_yaml::Mapping, key: &str) -> String {
@@ -1198,6 +1226,28 @@ pub async fn tools_sync(
     Ok(Json(json!({ "ok": true, "count": count, "path": path.to_string_lossy().to_string(), "token": token })))
 }
 
+/// GET /servers/{id}/tools/catalog — имена инструментов из catalog.json
+/// (без синхронизации). Пустой список, если каталог ещё не сгенерирован.
+pub async fn tools_catalog(
+    State(state): State<Arc<AppState>>,
+    AxPath(id): AxPath<String>,
+) -> Result<Json<Value>, axum::response::Response> {
+    use axum::response::IntoResponse;
+    let path = {
+        let db = state.db.lock().await;
+        match read_row(&db, &id) {
+            Some(r) => tools_catalog_path(Path::new(&r.config_dir)),
+            None => return Err(NotFound.into_response()),
+        }
+    };
+    let tools: Vec<Value> = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+        .and_then(|v| v["tools"].as_array().cloned())
+        .unwrap_or_default();
+    Ok(Json(json!({ "tools": tools })))
+}
+
 fn first_base(bases: &[String]) -> Option<String> {
     bases.first().cloned()
 }
@@ -1366,6 +1416,8 @@ fn generate_plugin(
 // Сгенерировано админкой ai-1c-server — не редактировать вручную: кнопка
 // «Сгенерировать плагин» перезапишет файл. Вызовы идут через шлюз /onec/rpc,
 // который подставляет JWT пользователя 1С из реестра сессий (per-user RLS).
+// Доступ к каждому тулзу гейтится правилами permissions: action «onec_<имя>»,
+// resource «*» — настраивается в админке, вкладка Агенты → Разрешения.
 import {{ Plugin }} from "@opencode/plugin";
 
 const GATEWAY = {gateway_url_json};
@@ -1402,6 +1454,9 @@ export default Plugin.define({{
           options: {{ namespace: "onec", codemode: false }},
           execute: async (input: any, context: any) => {{
             try {{
+              // Разрешения OpenCode: правило action «onec_{server}_<имя>» (или
+              // глобальное «*») — allow/ask/deny как у штатных тулзов.
+              await ctx.permission.assert({{ sessionID: context.sessionID, action: "onec_{server}_" + t.name, resources: ["*"] }});
               const headers: Record<string, string> = {{ "Content-Type": "application/json", "X-OpenCode-Token": TOKEN }};
               if (PEPK) headers["X-Onec-Pepek"] = PEPK;
               const r = await fetch(GATEWAY + "/onec/rpc", {{
@@ -2007,6 +2062,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/servers/{id}/skills/{name}", put(skill_put))
         .route("/servers/{id}/skills/{name}", axum::routing::delete(skill_delete))
         .route("/servers/{id}/tools/sync", post(tools_sync))
+        .route("/servers/{id}/tools/catalog", get(tools_catalog))
         .route("/servers/{id}/tools/generate", post(tools_generate))
         .route("/servers/{id}/tools/apply", post(tools_apply))
         .route("/servers/{id}/tools/install-deps", post(tools_install_deps))

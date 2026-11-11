@@ -605,9 +605,114 @@ function ConfigTab({ server }: { server: OpencodeServer }) {
 
 // ─── Агенты ─────────────────────────────────────────────────────────
 
+/// Убирает // и /* */ комментарии вне строк (JSONC → JSON).
+function stripJsonc(s: string): string {
+  let out = '';
+  let inStr = false, esc = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i], n = s[i + 1];
+    if (inStr) {
+      out += c;
+      if (esc) esc = false;
+      else if (c === '\\') esc = true;
+      else if (c === '"') inStr = false;
+    } else if (c === '"') {
+      inStr = true; out += c;
+    } else if (c === '/' && n === '/') {
+      while (i < s.length && s[i] !== '\n') i++;
+      out += '\n';
+    } else if (c === '/' && n === '*') {
+      i += 2;
+      while (i < s.length && !(s[i] === '*' && s[i + 1] === '/')) i++;
+      i++;
+    } else {
+      out += c;
+    }
+  }
+  return out;
+}
+
+/// Имена MCP-серверов из opencode.jsonc (mcp.servers) — для секции
+/// «MCP-серверы» в редакторе разрешений. Ошибки → пустой список.
+async function loadMcpServerNames(serverId: string): Promise<string[]> {
+  try {
+    const r = await api.getOpencodeConfig(serverId);
+    if (!r.content) return [];
+    const cfg = JSON.parse(stripJsonc(r.content));
+    const names = Object.keys(cfg?.mcp?.servers ?? {});
+    return names.filter((n: string) => typeof n === 'string');
+  } catch { return []; }
+}
+
 type AgentMode = 'primary' | 'subagent' | 'all';
 
-interface AgentForm { name: string; title: string; description: string; mode: AgentMode; frontmatter: string; body: string; fmBroken?: boolean; }
+/// Эффект правила: Default = правила нет (штатная политика OpenCode).
+type PermEffect = 'default' | 'allow' | 'ask' | 'deny';
+
+interface PermsState { global: PermEffect; actions: Record<string, PermEffect>; }
+
+/// Встроенные действия OpenCode v2 (docs/permissions) — фиксированный список строк.
+const BUILTIN_ACTIONS = [
+  'shell', 'edit', 'read', 'glob', 'grep', 'patch',
+  'webfetch', 'websearch', 'skill', 'subagent', 'question', 'external_directory',
+];
+
+/// Правила разрешений агента из frontmatter.
+interface PermRule { action: string; resource: string; effect: string; }
+
+function parsePerms(fm: string): PermsState {
+  const st: PermsState = { global: 'default', actions: {} };
+  const m = fm.match(/^permissions:\s*\n((?:[ \t]+-.+\n?)+)/m);
+  if (!m) return st;
+  // Правила идут блоком из трёх отступленных строк (action/resource/effect).
+  for (const rm of m[1].matchAll(/- action: "?([^"\n]+)"?\s*\n\s+resource: "?([^"\n]+)"?\s*\n\s+effect: "?([^"\n]+)"?/g)) {
+    const action = rm[1], effect = rm[3];
+    if (effect !== 'allow' && effect !== 'ask' && effect !== 'deny') continue;
+    if (action === '*') st.global = effect;
+    else st.actions[action] = effect;
+  }
+  return st;
+}
+
+/// Вставляет/переписывает блок permissions в frontmatter. Правила с нестандартным
+/// resource (не «*») не затираются — сохраняются как есть после сгенерированных.
+function setPermsBlock(fm: string, p: PermsState): string {
+  const rules: PermRule[] = [];
+  if (p.global !== 'default') rules.push({ action: '*', resource: '*', effect: p.global });
+  for (const a of BUILTIN_ACTIONS) {
+    const e = p.actions[a];
+    if (e && e !== 'default') rules.push({ action: a, resource: '*', effect: e });
+  }
+  // Кастомные ключи — в порядке добавления.
+  for (const [a, e] of Object.entries(p.actions)) {
+    if (BUILTIN_ACTIONS.includes(a) || a === '*') continue;
+    if (e && e !== 'default') rules.push({ action: a, resource: '*', effect: e });
+  }
+  const yaml = rules.map(r => `  - action: "${r.action}"\n    resource: "${r.resource}"\n    effect: ${r.effect}`).join('\n');
+  const block = rules.length ? `permissions:\n${yaml}` : '';
+
+  // Существующие нестандартные правила (resource ≠ «*») — не трогаем.
+  const existing = fm.match(/^permissions:\s*\n((?:[ \t]+-.+\n?)+)/m);
+  let extra = '';
+  if (existing) {
+    const keep: PermRule[] = [];
+    for (const rm of existing[1].matchAll(/- action: "?([^"\n]+)"?\s*\n\s+resource: "?([^"\n]+)"?\s*\n\s+effect: "?([^"\n]+)"?/g)) {
+      if (rm[2] !== '*') keep.push({ action: rm[1], resource: rm[2], effect: rm[3] });
+    }
+    extra = keep.map(r => `  - action: "${r.action}"\n    resource: "${r.resource}"\n    effect: ${r.effect}`).join('\n');
+  }
+
+  const full = [block, extra].filter(Boolean).join('\n');
+  if (!full) return fm.replace(/^permissions:\s*\n(?:[ \t]+-.+\n?)+/m, '').replace(/\n{3,}/g, '\n\n').trim();
+  if (existing) {
+    const re = /^permissions:\s*\n(?:[ \t]+-.+\n?)+/m;
+    return fm.replace(re, full);
+  }
+  const trimmed = fm.trim();
+  return trimmed ? `${trimmed}\n${full}` : full;
+}
+
+interface AgentForm { name: string; title: string; description: string; mode: AgentMode; frontmatter: string; body: string; perms: PermsState; mcpNames: string[]; onecTools: string[]; customKey: string; fmBroken?: boolean; }
 
 /// Правила по умолчанию для нового агента — как у штатного plan (read-only):
 /// чтение и вопросы разрешены, правка файлов запрещена.
@@ -664,7 +769,7 @@ function AgentsTab({ server }: { server: OpencodeServer }) {
 
   const load = useCallback(async () => {
     try {
-      const r = await api.getOpencodeAgents(server.id);
+      const [r, mcpNames] = await Promise.all([api.getOpencodeAgents(server.id), loadMcpServerNames(server.id)]);
       setAgents(r.agents.map(a => ({
         name: a.name,
         title: a.title || '',
@@ -672,6 +777,10 @@ function AgentsTab({ server }: { server: OpencodeServer }) {
         mode: parseMode(a.frontmatter || ''),
         frontmatter: a.frontmatter || '',
         body: a.body,
+        perms: parsePerms(a.frontmatter || ''),
+        mcpNames,
+        onecTools: [],
+        customKey: '',
         // Frontmatter был в файле, но не распарсился как YAML (бэкенд
         // вернул пустую карту). Показываем алерт в форме.
         fmBroken: !!(a.frontmatter && /^{}\s*$/m.test(a.frontmatter) && a.body.trim()),
@@ -680,6 +789,15 @@ function AgentsTab({ server }: { server: OpencodeServer }) {
   }, [server.id]);
 
   useEffect(() => { load(); }, [load]);
+
+  /// Открывает форму: подгружает инструменты 1С из каталога плагина.
+  function openForm(a: AgentForm & { description?: string; mode?: string }) {
+    setIsNew(false);
+    setForm({ ...a });
+    api.opencodeToolsCatalog(server.id).then(r => {
+      setForm(f => f ? { ...f, onecTools: (r.tools || []).map((t: any) => t.name as string) } : f);
+    }).catch(() => {});
+  }
 
   async function doSave() {
     if (!form) return;
@@ -690,6 +808,8 @@ function AgentsTab({ server }: { server: OpencodeServer }) {
     fm = setFmKey(fm, 'title', form.title.trim());
     fm = setFmKey(fm, 'description', form.description.trim());
     fm = setFmKey(fm, 'mode', form.mode === 'all' ? '' : form.mode);
+    // Разрешения — блок permissions из состояния UI.
+    fm = setPermsBlock(fm, form.perms);
     try {
       await api.putOpencodeAgent(server.id, { name: form.name, frontmatter: fm, body: form.body });
       setForm(null); load();
@@ -707,7 +827,14 @@ function AgentsTab({ server }: { server: OpencodeServer }) {
       {err && <div className="mb-3"><Alert tone="red">{err}</Alert></div>}
       <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">{t.opencode.agentsHint}</p>
       <div className="flex justify-end mb-2">
-        <Btn onClick={() => { setIsNew(true); setForm({ name: '', title: '', description: '', mode: 'primary', frontmatter: DEFAULT_AGENT_FRONTMATTER, body: '' }); }}>
+        <Btn onClick={() => {
+          setIsNew(true);
+          const fm = DEFAULT_AGENT_FRONTMATTER;
+          setForm({ name: '', title: '', description: '', mode: 'primary', frontmatter: fm, body: '', perms: parsePerms(fm), mcpNames: [], onecTools: [], customKey: '' });
+          api.opencodeToolsCatalog(server.id).then(r => {
+            setForm(f => f ? { ...f, onecTools: (r.tools || []).map((x: any) => x.name as string) } : f);
+          }).catch(() => {});
+        }}>
           <Plus size={15} /> {t.opencode.newAgent}
         </Btn>
       </div>
@@ -719,7 +846,7 @@ function AgentsTab({ server }: { server: OpencodeServer }) {
             <Td><span className="text-sm">{a.description || '—'}</span></Td>
             <Td className="text-right">
               <div className="flex gap-0.5 justify-end">
-                <IconBtn title={t.common.edit} onClick={() => { setIsNew(false); setForm({ ...a }); }}><Pencil size={14} /></IconBtn>
+                <IconBtn title={t.common.edit} onClick={() => openForm(a)}><Pencil size={14} /></IconBtn>
                 <IconBtn title={t.common.delete} onClick={() => setDel(a.name)}><Trash2 size={14} /></IconBtn>
               </div>
             </Td>
@@ -754,6 +881,7 @@ function AgentsTab({ server }: { server: OpencodeServer }) {
               <Alert tone="amber">Frontmatter в файле не распознан как YAML — проверьте кавычки. Двоеточие с пробелом внутри значения («конвейер: уточняющие») требует кавычек: description: «…конвейер: уточняющие…».</Alert>
             </div>
           )}
+          <PermissionsEditor form={form} setForm={setForm} />
           <Field label="Frontmatter (YAML)" hint="model, permissions и остальные ключи — как в agents/<имя>.md. Ключи title, description, mode подставляются из полей выше." className="mt-3">
             <TextArea mono value={form.frontmatter} onChange={e => setForm({ ...form, frontmatter: e.target.value })} rows={8} spellCheck={false} placeholder={'model: local-12600/qwen3.8\npermissions:\n  - action: "*"\n    resource: "*"\n    effect: allow'} />
           </Field>
@@ -768,6 +896,86 @@ function AgentsTab({ server }: { server: OpencodeServer }) {
       {del && (
         <Confirm title={t.common.deleteConfirmLabel} message={t.opencode.deleteAgentConfirm(del)} onConfirm={doDelete} onClose={() => setDel(null)} danger />
       )}
+    </div>
+  );
+}
+
+/// Блок «Разрешения тулзов» в форме агента: глобальный дефолт, встроенные
+/// действия, MCP-серверы из opencode.jsonc, инструменты 1С и кастомные ключи.
+/// Состояние — form.perms; при сохранении doSave генерирует блок permissions.
+function PermissionsEditor({ form, setForm }: { form: AgentForm; setForm: (f: AgentForm) => void }) {
+  const [newKey, setNewKey] = useState('');
+
+  function setAction(action: string, effect: PermEffect) {
+    setForm({ ...form, perms: { ...form.perms, actions: { ...form.perms.actions, [action]: effect } } });
+  }
+  function addCustom() {
+    const k = newKey.trim();
+    if (!k || form.perms.actions[k]) return;
+    setAction(k, 'default');
+    setNewKey('');
+  }
+
+  /// Строка секции: название (жирное) + action (mono, приглушённый) → сегмент.
+  function permRow(label: string, action: string, effect: PermEffect, hint?: string) {
+    return (
+      <div className="flex items-center justify-between gap-3 py-1.5" title={hint}>
+        <div className="min-w-0">
+          <span className="text-sm font-medium">{label}</span>
+          <span className={`ml-2 text-xs ${monoCls} text-slate-400 dark:text-slate-500`}>{action}</span>
+        </div>
+        <Segmented<PermEffect>
+          value={effect}
+          onChange={(v) => setAction(action, v)}
+          options={[
+            { key: 'default', label: 'Default' },
+            { key: 'allow', label: 'Allow' },
+            { key: 'ask', label: 'Ask' },
+            { key: 'deny', label: 'Deny' },
+          ]}
+        />
+      </div>
+    );
+  }
+
+  // Кастомные ключи — всё, что не встроено и не глобальный «*».
+  const customActions = Object.keys(form.perms.actions).filter(a => a !== '*' && !BUILTIN_ACTIONS.includes(a));
+
+  return (
+    <div className="mt-3 border border-slate-200 dark:border-slate-800 rounded-lg p-3">
+      <div className="flex items-baseline justify-between mb-1">
+        <span className="text-sm font-semibold">{t.opencode.permsTitle}</span>
+      </div>
+      <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">{t.opencode.permsHint}</p>
+
+      {permRow(t.opencode.permAllTools, 'action: *', form.perms.global, t.opencode.permAllHint)}
+      <div className="border-t border-slate-100 dark:border-slate-800/70 my-1" />
+      {BUILTIN_ACTIONS.map(a => permRow(a, a, form.perms.actions[a] || 'default'))}
+
+      <div className="border-t border-slate-100 dark:border-slate-800/70 my-2 pt-2">
+        <span className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">{t.opencode.permMcpServers}</span>
+        {form.mcpNames.length === 0 && (
+          <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">{t.opencode.permNoMcp}</p>
+        )}
+        {form.mcpNames.map(n => permRow(n, `${n}_*`, form.perms.actions[`${n}_*`] || 'default'))}
+      </div>
+
+      <div className="border-t border-slate-100 dark:border-slate-800/70 my-2 pt-2">
+        <span className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">{t.opencode.permOnecTools}</span>
+        {form.onecTools.length === 0 && (
+          <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">Каталог инструментов пуст — «Синхронизировать» во вкладке Инструменты.</p>
+        )}
+        {form.onecTools.map(n => permRow(n, `onec_${n}`, form.perms.actions[`onec_${n}`] || 'default', t.opencode.permOnecHint))}
+      </div>
+
+      <div className="border-t border-slate-100 dark:border-slate-800/70 my-2 pt-2">
+        {customActions.map(a => permRow(a, a, form.perms.actions[a] || 'default'))}
+        <div className="flex gap-2 mt-1.5">
+          <TextInput value={newKey} onChange={e => setNewKey(e.target.value)} placeholder={t.opencode.permCustomPlaceholder}
+            onKeyDown={e => { if (e.key === 'Enter') addCustom(); }} className="flex-1" />
+          <Btn variant="outline" onClick={addCustom}><Plus size={14} /> {t.opencode.permAddKey}</Btn>
+        </div>
+      </div>
     </div>
   );
 }

@@ -10,11 +10,6 @@
         "type": "remote",
         "url": "http://192.168.60.39:9224/api/mcp/code-index-obrabotki",
         "disabled": false
-      },
-      "search-obrabotki": {
-        "type": "remote",
-        "url": "http://192.168.60.39:9224/api/mcp/search-obrabotki",
-        "disabled": false
       }
     }
   }
