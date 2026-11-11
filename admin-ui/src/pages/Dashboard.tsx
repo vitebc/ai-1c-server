@@ -1,13 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Server, Brain, FileJson, Users, Code, Bot, Container, HeartPulse, KeyRound, Copy, Check, RefreshCw, ShieldCheck, ShieldOff, Database } from 'lucide-react';
+import { Server, FileJson, Users, Code, Bot, Container, HeartPulse, KeyRound, Copy, Check, RefreshCw, ShieldCheck, ShieldOff, Database } from 'lucide-react';
 import { api } from '../api/client';
 import { copyText } from '../clipboard';
-import type { AgentBackendStatus, BslLsState, DashboardData, OnecToolsStatus, ServerStatus } from '../types';
+import type { AgentBackendStatus, BslLsState, DashboardData, OnecToolsStatus } from '../types';
 import { t } from '../i18n';
 import { PageHeader, Card, CardBody, CardTitle, Badge, StatusDot, Btn, Alert, Confirm } from '../components/ui';
 
 export default function Dashboard() {
-  const [status, setStatus] = useState<ServerStatus[]>([]);
   const [counts, setCounts] = useState({ servers: 0, skills: 0, configs: 0, clients: 0 });
   const [bsl, setBsl] = useState<BslLsState | null>(null);
   const [ab, setAb] = useState<AgentBackendStatus | null>(null);
@@ -16,7 +15,6 @@ export default function Dashboard() {
   useEffect(() => {
     api.getDashboard().then((d: DashboardData) => {
       setCounts({ servers: d.servers, skills: d.skills, configs: d.configs, clients: d.clients });
-      setStatus(d.mcp);
       setBsl(d.bsl);
       setAb(d.agent_backend || null);
     }).catch(() => {});
@@ -25,7 +23,6 @@ export default function Dashboard() {
 
   const cards = [
     { label: t.dash.mcpServers, value: counts.servers, icon: Server, chip: 'bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-300' },
-    { label: t.dash.skills, value: counts.skills, icon: Brain, chip: 'bg-sky-50 text-sky-600 dark:bg-sky-950 dark:text-sky-300' },
     { label: t.dash.configs, value: counts.configs, icon: FileJson, chip: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-300' },
     { label: t.dash.clients, value: counts.clients, icon: Users, chip: 'bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-300' },
   ];
@@ -33,7 +30,7 @@ export default function Dashboard() {
   return (
     <div>
       <PageHeader title={t.dash.title} />
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-5">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
         {cards.map(c => (
           <Card key={c.label}><CardBody className="flex items-center gap-3">
             <div className={`p-2.5 rounded-lg ${c.chip}`}>
@@ -107,23 +104,6 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-        <Card><CardBody>
-          <CardTitle>{t.dash.mcpStatus}</CardTitle>
-          {status.length === 0 ? (
-            <p className="text-[13px] text-slate-400">{t.dash.noServers}</p>
-          ) : (
-            <div className="divide-y divide-slate-100 dark:divide-slate-800">
-              {status.map(s => (
-                <div key={s.id} className="flex items-center justify-between py-1.5 gap-3">
-                  <span className="text-[13px] text-slate-700 dark:text-slate-300 truncate">{s.name}</span>
-                  <Badge tone={s.status === 'running' ? 'green' : s.status === 'error' ? 'red' : 'neutral'}>
-                    <StatusDot status={s.status} />{s.status}
-                  </Badge>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardBody></Card>
         <Card><CardBody>
           <CardTitle>{t.dash.bsl}</CardTitle>
           <div className="flex items-center justify-between py-1.5">

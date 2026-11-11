@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, RotateCcw, Copy, Check, FolderOpen, BarChart3, DatabaseZap, Wrench, Link2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, RotateCcw, Copy, Check, FolderOpen, BarChart3, DatabaseZap, Wrench, Link2, KeyRound, RefreshCw, ShieldCheck, ShieldOff } from 'lucide-react';
 import { api } from '../api/client';
 import { copyText } from '../clipboard';
 import FileBrowser from '../components/FileBrowser';
@@ -144,6 +144,8 @@ export default function McpServers() {
         </div>
       )}
 
+      <ApiAccess />
+
       <Card className="mb-4">
         <CardBody>
           <div className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-2">{t.mcp.singlePoint}</div>
@@ -203,6 +205,111 @@ export default function McpServers() {
         ))}
       </TableShell>
     </div>
+  );
+}
+
+function ApiAccess() {
+  const [required, setRequired] = useState(false);
+  const [token, setTokenState] = useState<string | null>(null);
+  const [revealed, setRevealed] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [visible, setVisible] = useState(false);
+  const [confirmRegen, setConfirmRegen] = useState(false);
+
+  async function load() {
+    try {
+      const me = await api.getMe();
+      if (!me.sections.includes('auth-manage')) {
+        setVisible(false);
+        return;
+      }
+      setVisible(true);
+      const info = await api.getAuthToken();
+      setRequired(info.auth_required);
+      setTokenState(info.token);
+    } catch { /* ignore */ }
+  }
+
+  useEffect(() => { load(); }, []);
+
+  if (!visible) return null;
+
+  async function toggle() {
+    setBusy(true);
+    try {
+      await api.putSetting('auth_required', required ? '0' : '1');
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function doRegenerate() {
+    setBusy(true);
+    try {
+      const res = await api.rotateToken();
+      setTokenState(res.token);
+      setRevealed(true);
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copy() {
+    if (!token) return;
+    setCopyError(false);
+    try {
+      await copyText(token);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopyError(true);
+    }
+  }
+
+  return (
+    <Card className="mb-4"><CardBody>
+      <div className="flex items-center justify-between gap-3 mb-2">
+        <h3 className="text-sm font-semibold flex items-center gap-2 text-slate-800 dark:text-slate-200">
+          {required ? <ShieldCheck size={17} className="text-emerald-500" /> : <ShieldOff size={17} className="text-slate-400" />}
+          {t.dash.tokenTitle}
+        </h3>
+        <Btn variant={required ? 'success-outline' : 'outline'} onClick={toggle} disabled={busy} className="!py-1.5 !text-xs">
+          {required ? t.dash.tokenOn : t.dash.tokenOff}
+        </Btn>
+      </div>
+      <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
+        {required ? t.dash.tokenOnHint : t.dash.tokenOffHint}
+      </p>
+      <div className="flex items-center gap-2">
+        <KeyRound size={15} className="text-slate-400 shrink-0" />
+        <code className="flex-1 min-w-0 text-xs font-mono truncate rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
+          {token ? (revealed ? token : '••••••••••••••••') : t.dash.legacyToken}
+        </code>
+        {token && (
+          <Btn variant="outline" onClick={() => setRevealed(r => !r)} className="!py-1.5 !text-xs">
+            {revealed ? t.common.hide : t.common.show}
+          </Btn>
+        )}
+        {token && (
+          <button onClick={copy} title={copyError ? 'Ошибка копирования — выделите вручную' : t.common.copy}
+            className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer">
+            {copied ? <Check size={15} className="text-emerald-500" /> : <Copy size={15} className={copyError ? 'text-red-500' : ''} />}
+          </button>
+        )}
+        <Btn variant="outline" onClick={() => setConfirmRegen(true)} disabled={busy} className="!py-1.5 !text-xs">
+          <RefreshCw size={13} /> {token ? t.dash.regenerate : t.dash.generate}
+        </Btn>
+      </div>
+      {confirmRegen && (
+        <Confirm title={t.dash.confirmRegen} confirmLabel={t.common.confirm}
+          onClose={() => setConfirmRegen(false)}
+          onConfirm={() => { doRegenerate(); setConfirmRegen(false); }} />
+      )}
+    </CardBody></Card>
   );
 }
 
