@@ -1,7 +1,7 @@
 # Code Index (индексы выгрузок 1С) в OpenCode — схема и примеры конфигов
 
 > **Статус: работает. Серверы OpenCode НЕ изменены** (конфиги `/home/test/project/1C-opencode/config/*/opencode.jsonc` не тронуты).
-> Индексы готовы, serve'ы запущены, агрегатор пробрасывает 378 тулз (9 серверов × 42).
+> Индексы на SMB, serve'ы и демон под управлением systemd, агрегатор пробрасывает 361 тулзу.
 > Подтверждено документацией: https://opencode.ai/v2/docs/mcp-servers, https://opencode.ai/v2/docs/permissions, https://opencode.ai/v2/docs/agents
 
 ## 1. Архитектура
@@ -10,9 +10,9 @@
 SMB-шар /mnt/zhvv_ai/workspace/<КАТАЛОГ>          (источник: XML-выгрузки конфигураций)
         │  bsl-indexer index <SMB-path> --force   (индексация напрямую с SMB)
         ▼
-Индексы ~/.config/ai-1c-server/code-index/indexes/<алиас>/.code-index/index.db
-        │  (SQLite, journal_mode=DELETE — форк bsl-indexer v1.16.0-patched)
-        │  bsl-indexer serve --transport http --port 80xx --path <алиас>=<локальный-путь>
+Индексы на SMB: /mnt/zhvv_ai/workspace/<КАТАЛОГ>/.code-index/index.db
+        │  (SQLite, journal_mode=OFF — форк bsl-indexer v1.16.0-patched)
+        │  bsl-indexer serve --transport http --port 80xx --path <алиас>=<SMB-путь>
         ▼
 MCP-эндпоинты http://127.0.0.1:80xx/mcp           (по одному на выгрузку)
         │  агрегатор ai-1c-server (записи MCP code-index-<алиас>)
@@ -23,12 +23,22 @@ MCP-эндпоинты http://127.0.0.1:80xx/mcp           (по одному н
 Агенты видят ТОЛЬКО тулзы своих выгрузок
 ```
 
-### Почему форк bsl-indexer и локальные индексы
+### Почему форк bsl-indexer и индексы на SMB
 
-- SQLite WAL на CIFS/SMB не работает (`database is locked`, зависания при обходе).
-- Форк v1.16.0-patched: `PRAGMA journal_mode=DELETE` + env `CODE_INDEX_LOCAL_DB` — БД пишется в локальный каталог, а не в SMB.
-- Serve читает **локальную** БД (`--path <алиас>=<локальный-путь>`) — SMB при чтении не используется.
-- Индексация: `./reindex.sh <алиас>` (CLI с `CODE_INDEX_LOCAL_DB`).
+- SQLite WAL/локи на CIFS/SMB не работают (`database is locked`, зависания).
+- Форк v1.16.0-patched: `PRAGMA journal_mode=OFF` + патч `flush_to_disk` (копирование через /tmp) — БД пишется прямо в SMB.
+- Serve читает **SMB-БД** (`--path <алиас>=<SMB-путь>`) — индексы хранятся на шаре вместе с выгрузками.
+- Исключение: `obrabotki` остаётся локально (зависает при чтении с SMB) — путь в юните указывает на `indexes/obrabotki`.
+- Индексация: `./reindex.sh <алиас>` (CLI, пишет в SMB).
+
+### Автозапуск — systemd user-юниты
+
+| Юнит | Назначение |
+|---|---|
+| `code-index-daemon.service` | Демон индексации + health :8010 |
+| `code-index-serve@.service` (template) | 9 инстансов serve'ов (8011–8019), карта алиас→путь внутри юнита |
+
+Все юниты в `~/.config/systemd/user/`, включены (`WantedBy=default.target`), автоперезапуск при крахе.
 
 ### Алиасы и порты
 
@@ -272,55 +282,71 @@ CI=/home/test/.config/ai-1c-server/code-index
 $CI/reindex.sh <алиас> [--force]
 # Пример: $CI/reindex.sh ka2 --force
 
-# Serve на каждый каталог (один процесс, свой порт, читает локальную БД)
-for spec in "ka2=8011" "erp=8012" "ktm=8013" "upp=8014" "obrabotki=8015" \
-            "erp_ext=8016" "ka_market_ext=8017" "ka_rs_ext=8018" "ka_td_ext=8019"; do
-  alias="${spec%%=*}"; port="${spec##*=}"
-  CODE_INDEX_HOME=$CI setsid $CI/bsl-indexer serve --transport http \
-    --port "$port" --path "${alias}=$CI/indexes/$alias" \
-    > "$CI/serve-$alias.log" 2>&1 & disown
-done
-
 # Проверка индекса (CLI, read-only)
-CODE_INDEX_HOME=$CI $CI/bsl-indexer stats --path $CI/indexes/ka2 | grep -E "Файлов|Функций"
+CODE_INDEX_HOME=$CI $CI/bsl-indexer stats --path /mnt/zhvv_ai/workspace/KA2 | grep -E "Файлов|Функций"
 
 # Статус serve'ов
 for port in 8011 8012 8013 8014 8015 8016 8017 8018 8019; do
   code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$port/mcp)
   echo "port $port: $code"   # 406 = работает
 done
+
+# Health демона (статус индексации всех каталогов)
+curl -s http://127.0.0.1:8010/health | python3 -m json.tool
 ```
 
-### Размеры индексов (актуально на 2026-11-09)
+### Управление systemd-юнитами
+
+```bash
+# Статус всех сервисов code-index
+systemctl --user status 'code-index-*'
+
+# Логи конкретного serve'а
+journalctl --user -u code-index-serve@ka2.service -f
+
+# Рестарт одного serve'а
+systemctl --user restart code-index-serve@ka2.service
+
+# Рестарт демона индексации
+systemctl --user restart code-index-daemon.service
+
+# Остановить все
+systemctl --user stop 'code-index-serve@*' code-index-daemon.service
+
+# Запустить все
+systemctl --user start code-index-daemon.service 'code-index-serve@*'
+```
+
+### Размеры индексов (на SMB, актуально на 2026-11-10)
 
 | Алиас | Файлов | Функций | Размер БД |
 |---|---|---|---|
-| ka2 | 111,913 | 652,622 | 4.2 ГБ |
+| ka2 | 111,913 | 652,622 | 4.4 ГБ |
 | erp | 52,026 | 220,551 | 3.5 ГБ |
 | ktm | — | — | 3.3 ГБ |
 | upp | 35,956 | 50,681 | 1.2 ГБ |
-| obrabotki | 24,837 | — | 556 МБ |
+| obrabotki | 24,837 | — | 556 МБ (локально) |
 | erp_ext | — | — | 19 МБ |
 | ka_market_ext | — | — | 6.7 МБ |
 | ka_rs_ext | — | — | 36 МБ |
-| ka_td_ext | — | — | 12 МБ |
+| ka_td_ext | 324 | 643 | 12 МБ |
 
-Всего: ~13 ГБ на локальном диске.
+Всего: ~13 ГБ на SMB + 556 МБ локально (obrabotki).
 
 ## 8. Дальнейшие шаги
 
 ### Выполнено
 
-- [x] Форк bsl-indexer v1.16.0-patched (WAL→DELETE + `CODE_INDEX_LOCAL_DB`)
+- [x] Форк bsl-indexer v1.16.0-patched (WAL→OFF + `flush_to_disk` через /tmp)
 - [x] Индексация всех 9 выгрузок (ка2, erp, ktm, upp, obrabotki, erp_ext, ka_market_ext, ka_rs_ext, ka_td_ext)
+- [x] Индексы перенесены на SMB (~13 ГБ освобождено на локальном диске)
 - [x] Serve'ы запущены (8011–8019), все отвечают 406
 - [x] Записи MCP в агрегаторе (prod и dev): `code-index-<алиас>` → `http://127.0.0.1:80xx/mcp`
 - [x] Живые проверки через агрегатор: `get_stats` на ka2/erp/upp — данные именно своей выгрузки
+- [x] systemd user-юниты: `code-index-daemon.service` + `code-index-serve@.service` (9 инстансов)
 
 ### Не выполнено
 
-1. **systemd user-юниты** — `code-index-serve@.service` (template, 9 инстансов)
-   (сейчас serve'ы на setsid, после ребута мертвы).
-2. **Генерация конфига админкой**: при генерации `opencode.jsonc` собирать
+1. **Генерация конфига админкой**: при генерации `opencode.jsonc` собирать
    `mcp.servers.ci_<алиас>` для выгрузок сервера и `agents.<id>.permissions`
    (deny `ci_*` + allow назначенные) — по данным из поля `code_indexes`.

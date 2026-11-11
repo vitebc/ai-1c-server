@@ -28,6 +28,10 @@ use super::agent_files::project_root;
 const GIT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Run a git command inside `root`; returns (stdout, stderr).
+pub fn git_pub(root: &Path, args: &[&str]) -> Result<(String, String), String> {
+    git(root, args)
+}
+
 fn git(root: &Path, args: &[&str]) -> Result<(String, String), String> {
     let out = Command::new("git")
         .args(args)
@@ -42,7 +46,7 @@ fn git(root: &Path, args: &[&str]) -> Result<(String, String), String> {
 
 /// Commit the given repo-relative paths (e.g. `backend/agents/foo`) with a
 /// message; returns the new commit hash.
-fn git_commit_paths(root: &Path, rel_paths: &[String], message: &str) -> Result<String, String> {
+pub fn git_commit_paths(root: &Path, rel_paths: &[String], message: &str) -> Result<String, String> {
     let mut args = vec!["add", "--"];
     args.extend(rel_paths.iter().map(|s| s.as_str()));
     let (out, err) = git(root, &args)?;
@@ -89,6 +93,8 @@ pub fn git_revert(root: &Path, hash: &str) -> Result<String, String> {
     let (hash_out, _) = git(root, &["rev-parse", "HEAD"])?;
     Ok(hash_out.trim().to_string())
 }
+
+
 
 // ─── audit table helpers ─────────────────────────────────────────────
 
@@ -142,15 +148,21 @@ pub fn record_change(
 
 /// Enclosing git repository of `root` (monorepo: `agent/` is a subdirectory
 /// of the `ai-1c-server` repo, so `.git` lives in an ancestor). `None` when
-/// the path is outside any repository.
-fn enclosing_repo(root: &Path) -> Option<PathBuf> {
-    let (out, _err) = git(root, &["rev-parse", "--show-toplevel"]).ok()?;
+/// the path is outside any repository. `root` may be a file — we fall back
+/// to its parent directory (git refuses a non-directory cwd).
+pub fn enclosing_repo_of(root: &Path) -> Option<PathBuf> {
+    let dir = if root.is_file() { root.parent()? } else { root };
+    let (out, _err) = git(dir, &["rev-parse", "--show-toplevel"]).ok()?;
     let top = out.trim();
     if top.is_empty() {
         None
     } else {
         Some(PathBuf::from(top))
     }
+}
+
+fn enclosing_repo(root: &Path) -> Option<PathBuf> {
+    enclosing_repo_of(root)
 }
 
 /// Convenience used by agent_files handlers: commit + record in one call.
@@ -386,28 +398,62 @@ pub async fn distinct_changes(
 }
 
 /// GET /agent-changes/{id}/diff — unified diff of the commit (changed lines only).
+/// Agent Studio commits live in the monorepo; OpenCode (`oc-*`) commits live
+/// in the 1C-opencode repo. A short hash is unique across both repos, so we
+/// probe the monorepo first and fall back to scanning OpenCode config dirs.
 pub async fn change_diff(
     State(state): State<Arc<AppState>>,
     AxPath(id): AxPath<i64>,
 ) -> Result<Json<Value>, axum::response::Response> {
-    let hash: String = {
+    let (hash, entity_type): (String, String) = {
         let db = state.db.lock().await;
         match db.conn.query_row(
-            "SELECT git_commit_hash FROM agent_changes WHERE id = ?1",
+            "SELECT git_commit_hash, entity_type FROM agent_changes WHERE id = ?1",
             [id],
-            |r| r.get::<_, String>(0),
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
         ) {
-            Ok(h) => h,
+            Ok(r) => r,
             Err(_) => return Err(super::NotFound.into_response()),
         }
     };
-    let root = {
+    let (monorepo_root, oc_dirs): (PathBuf, Vec<String>) = {
         let db = state.db.lock().await;
-        project_root(&db)
+        let dirs: Vec<String> = db
+            .conn
+            .prepare("SELECT config_dir FROM opencode_servers")
+            .ok()
+            .and_then(|mut s| {
+                s.query_map([], |r| r.get::<_, String>(0))
+                    .ok()
+                    .map(|rows| rows.flatten().collect())
+            })
+            .unwrap_or_default();
+        (project_root(&db), dirs)
     };
-    let diff = git_diff_for_hash(&root, &hash).unwrap_or_else(|e| format!("(diff error: {e})"));
+
+    let diff_root: PathBuf = if entity_type.starts_with("oc-") {
+        // Scan OpenCode repos for the commit.
+        let mut found = None;
+        for dir in &oc_dirs {
+            let p = Path::new(dir);
+            if let Some(repo) = enclosing_repo_of(p) {
+                if let Ok((out, _)) = git(&repo, &["cat-file", "-t", &hash]) {
+                    if out.trim() == "commit" {
+                        found = Some(repo);
+                        break;
+                    }
+                }
+            }
+        }
+        found.unwrap_or(monorepo_root.clone())
+    } else {
+        monorepo_root.clone()
+    };
+    let diff = git_diff_for_hash(&diff_root, &hash).unwrap_or_else(|e| format!("(diff error: {e})"));
     Ok(Json(json!({ "commit": hash, "diff": diff })))
 }
+
+
 
 /// POST /agent-changes/{id}/revert — revert any past change (new commit).
 pub async fn revert_change(
@@ -427,9 +473,38 @@ pub async fn revert_change(
         }
     };
 
-    let root = {
+    let (monorepo_root, oc_dirs): (PathBuf, Vec<String>) = {
         let db = state.db.lock().await;
-        project_root(&db)
+        let dirs: Vec<String> = db
+            .conn
+            .prepare("SELECT config_dir FROM opencode_servers")
+            .ok()
+            .and_then(|mut s| {
+                s.query_map([], |r| r.get::<_, String>(0))
+                    .ok()
+                    .map(|rows| rows.flatten().collect())
+            })
+            .unwrap_or_default();
+        (project_root(&db), dirs)
+    };
+
+    // OpenCode rows: find the repo containing the commit.
+    let root: PathBuf = if row.1.starts_with("oc-") {
+        let mut found = None;
+        for dir in &oc_dirs {
+            let p = Path::new(dir);
+            if let Some(repo) = enclosing_repo_of(p) {
+                if let Ok((out, _)) = git(&repo, &["cat-file", "-t", &row.0]) {
+                    if out.trim() == "commit" {
+                        found = Some(repo);
+                        break;
+                    }
+                }
+            }
+        }
+        found.unwrap_or(monorepo_root.clone())
+    } else {
+        monorepo_root.clone()
     };
 
     // Revert creates a new commit — but `git revert` of a *revert* commit or

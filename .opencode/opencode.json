@@ -6,9 +6,14 @@
         "url": "http://192.168.60.39:9224/api/mcp/b933f258-6800-4673-b588-4e521d49d1d1",
         "disabled": false
       },
-      "1c-mcp": {
+      "code-index-obrabotki": {
         "type": "remote",
-        "url": "http://192.168.60.39:9224/api/mcp-aggregated/mcp",
+        "url": "http://192.168.60.39:9224/api/mcp/code-index-obrabotki",
+        "disabled": false
+      },
+      "search-obrabotki": {
+        "type": "remote",
+        "url": "http://192.168.60.39:9224/api/mcp/search-obrabotki",
         "disabled": false
       }
     }

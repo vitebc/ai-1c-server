@@ -16,6 +16,7 @@ function actionLabel(a: string): string {
     update: t.studio.changeUpdated,
     delete: t.studio.changeDeleted,
     revert: t.studio.changeReverted,
+    generate: 'Сгенерирован',
   };
   return map[a] || a;
 }
@@ -24,17 +25,22 @@ function actionTone(a: string): 'green' | 'red' | 'amber' | 'blue' {
   if (a === 'create') return 'green';
   if (a === 'delete') return 'red';
   if (a === 'revert') return 'amber';
+  if (a === 'generate') return 'green';
   return 'blue';
 }
 
 function entityTypeLabel(e: string): string {
-  const map: Record<string, string> = { agent: 'Агент', skill: 'Скилл', pattern: 'Паттерн' };
+  const map: Record<string, string> = {
+    agent: 'Агент', skill: 'Скилл', pattern: 'Паттерн',
+    'oc-agent': 'ОК-агент', 'oc-skill': 'ОК-скилл', 'oc-config': 'ОК-конфиг', 'oc-tools': 'ОК-тулзы',
+  };
   return map[e] || e;
 }
 
-function entityTone(e: string): 'blue' | 'green' | 'sky' {
+function entityTone(e: string): 'blue' | 'green' | 'sky' | 'purple' {
   if (e === 'agent') return 'blue';
   if (e === 'skill') return 'green';
+  if (e.startsWith('oc-')) return 'purple';
   return 'sky';
 }
 
@@ -144,6 +150,10 @@ export default function AgentChanges() {
               <option value="agent">Агент</option>
               <option value="skill">Скилл</option>
               <option value="pattern">Паттерн</option>
+              <option value="oc-agent">ОК-агент</option>
+              <option value="oc-skill">ОК-скилл</option>
+              <option value="oc-config">ОК-конфиг</option>
+              <option value="oc-tools">ОК-тулзы</option>
             </Select>
           </div>
           <div className="flex flex-col gap-1">
@@ -154,6 +164,7 @@ export default function AgentChanges() {
               <option value="update">Изменён</option>
               <option value="delete">Удалён</option>
               <option value="revert">Откат</option>
+              <option value="generate">Сгенерирован</option>
             </Select>
           </div>
           <div className="flex flex-col gap-1">

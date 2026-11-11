@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{
-    extract::{Path as AxPath, Query, State},
+    extract::{Extension, Path as AxPath, Query, State},
     http::StatusCode,
     routing::{get, post, put},
     Json, Router,
@@ -18,6 +18,86 @@ use serde_json::{json, Value};
 use crate::api::admin::{AppError, BadRequest, NotFound};
 use crate::api::AppState;
 use crate::opencode::{basic_auth, gateway_url, plugin_token, project_root};
+
+/// Аудит изменений конфигов OpenCode в общей истории (таблица agent_changes).
+/// Коммит делается в enclosing-репо config_dir (отдельный репо 1C-opencode),
+/// не в монорепо — поэтому commit_and_record из agent_audit не подходит.
+mod audit {
+    use std::path::{Path, PathBuf};
+
+    use crate::api::admin::agent_audit;
+    use crate::api::AppState;
+
+    /// Базовый импорт config/ в git (один раз): без него diff'ы пустые, а
+    /// revert не работает. Не является строкой аудита.
+    pub fn ensure_imported(config_dir: &Path) {
+        let repo = match agent_audit::enclosing_repo_of(config_dir) {
+            Some(r) => r,
+            None => return, // вне git — аудит невозможен в принципе
+        };
+        let rel = match config_dir.strip_prefix(&repo) {
+            Ok(p) => p.to_string_lossy().to_string(),
+            Err(_) => return,
+        };
+        // Отслеживается ли уже что-то внутри config/<server>?
+        let (out, _) = match agent_audit::git_pub(&repo, &["ls-files", "--", &rel]) {
+            Ok(r) => r,
+            Err(_) => return,
+        };
+        if !out.trim().is_empty() {
+            return;
+        }
+        match agent_audit::git_commit_paths(&repo, &[format!("{rel}/")], "chore: initial import of OpenCode configs") {
+            Ok(hash) => tracing::info!("opencode-audit: initial import of {} → {}", rel, hash),
+            Err(e) if e == "no changes to commit" => {}
+            Err(e) => tracing::warn!("opencode-audit: initial import failed for {rel}: {e}"),
+        }
+    }
+
+    /// Коммит одного файла/каталога + строка в agent_changes.
+    /// `abs_path` — абсолютный путь (repo-relative вычисляется сам).
+    pub async fn record(
+        state: &std::sync::Arc<AppState>,
+        user_id: &str,
+        username: &str,
+        entity_type: &str,
+        entity_name: &str,
+        action: &str,
+        abs_path: &Path,
+    ) {
+        let repo = match agent_audit::enclosing_repo_of(abs_path) {
+            Some(r) => r,
+            None => {
+                tracing::warn!("opencode-audit: {} is outside a git repo — skipping", abs_path.display());
+                return;
+            }
+        };
+        let rel = match abs_path.strip_prefix(&repo) {
+            Ok(p) => p.to_string_lossy().to_string(),
+            Err(_) => {
+                tracing::warn!("opencode-audit: {} is outside the repo — skipping", abs_path.display());
+                return;
+            }
+        };
+        let message = format!("{entity_type}: {entity_name} — {action} by {username}");
+        match agent_audit::git_commit_paths(&repo, &[rel], &message) {
+            Ok(hash) => {
+                let summary = agent_audit::git_pub(&repo, &["show", "--stat", "--format=", &hash])
+                    .map(|(out, _)| out.trim().to_string())
+                    .unwrap_or_default();
+                // Блокируем DB до записи строки аудита (git-коммит уже сделан).
+                let db = state.db.lock().await;
+                agent_audit::record_change(
+                    &db, user_id, username, entity_type, entity_name, action, &hash, &summary,
+                );
+            }
+            Err(e) if e == "no changes to commit" => {}
+            Err(e) => {
+                tracing::warn!("opencode-audit: git commit failed for {entity_type}/{entity_name}: {e}");
+            }
+        }
+    }
+}
 
 // ─── rows / bodies ──────────────────────────────────────────────────
 
@@ -630,6 +710,7 @@ pub struct ConfigBody {
 
 pub async fn config_put(
     State(state): State<Arc<AppState>>,
+    Extension(ident): Extension<crate::auth::AuthIdentity>,
     AxPath(id): AxPath<String>,
     Json(body): Json<ConfigBody>,
 ) -> Result<Json<Value>, axum::response::Response> {
@@ -653,6 +734,10 @@ pub async fn config_put(
     std::fs::write(&path, &body.content)
         .map_err(|e| AppError::msg(e.to_string()).into_response())?;
     tracing::info!("opencode: config saved for {} ({})", row.name, path.display());
+    audit::ensure_imported(Path::new(&row.config_dir));
+    audit::record(
+        &state, &ident.user_id, &ident.username, "oc-config", &row.name, "update", &path,
+    ).await;
     Ok(Json(json!({ "ok": true, "path": path.to_string_lossy().to_string() })))
 }
 
@@ -826,6 +911,7 @@ fn render_agent_file(body: &AgentFileBody) -> String {
 
 pub async fn agent_put(
     State(state): State<Arc<AppState>>,
+    Extension(ident): Extension<crate::auth::AuthIdentity>,
     AxPath((id, name)): AxPath<(String, String)>,
     Json(body): Json<AgentFileBody>,
 ) -> Result<Json<Value>, axum::response::Response> {
@@ -851,14 +937,21 @@ pub async fn agent_put(
     std::fs::create_dir_all(&dir)
         .map_err(|e| AppError::msg(e.to_string()).into_response())?;
     let path = dir.join(format!("{name}.md"));
+    let existed = path.is_file();
     std::fs::write(&path, render_agent_file(&body))
         .map_err(|e| AppError::msg(e.to_string()).into_response())?;
     tracing::info!("opencode: agent {} saved for {}", name, row.name);
+    audit::ensure_imported(Path::new(&row.config_dir));
+    audit::record(
+        &state, &ident.user_id, &ident.username, "oc-agent", &name,
+        if existed { "update" } else { "create" }, &path,
+    ).await;
     Ok(Json(json!({ "ok": true, "name": name, "path": path.to_string_lossy().to_string() })))
 }
 
 pub async fn agent_delete(
     State(state): State<Arc<AppState>>,
+    Extension(ident): Extension<crate::auth::AuthIdentity>,
     AxPath((id, name)): AxPath<(String, String)>,
 ) -> Result<Json<Value>, axum::response::Response> {
     use axum::response::IntoResponse;
@@ -878,6 +971,9 @@ pub async fn agent_delete(
     }
     std::fs::remove_file(&path)
         .map_err(|e| AppError::msg(e.to_string()).into_response())?;
+    audit::record(
+        &state, &ident.user_id, &ident.username, "oc-agent", &name, "delete", &path,
+    ).await;
     Ok(Json(json!({ "ok": true, "name": name })))
 }
 
@@ -932,6 +1028,7 @@ pub struct SkillFileBody {
 
 pub async fn skill_put(
     State(state): State<Arc<AppState>>,
+    Extension(ident): Extension<crate::auth::AuthIdentity>,
     AxPath((id, name)): AxPath<(String, String)>,
     Json(body): Json<SkillFileBody>,
 ) -> Result<Json<Value>, axum::response::Response> {
@@ -963,14 +1060,21 @@ pub async fn skill_put(
     fm.push_str(body.body.trim_end());
     fm.push('\n');
     let path = dir.join("SKILL.md");
+    let existed = path.is_file();
     std::fs::write(&path, &fm)
         .map_err(|e| AppError::msg(e.to_string()).into_response())?;
     tracing::info!("opencode: skill {} saved for {}", name, row.name);
+    audit::ensure_imported(Path::new(&row.config_dir));
+    audit::record(
+        &state, &ident.user_id, &ident.username, "oc-skill", &name,
+        if existed { "update" } else { "create" }, &path,
+    ).await;
     Ok(Json(json!({ "ok": true, "name": name, "path": path.to_string_lossy().to_string() })))
 }
 
 pub async fn skill_delete(
     State(state): State<Arc<AppState>>,
+    Extension(ident): Extension<crate::auth::AuthIdentity>,
     AxPath((id, name)): AxPath<(String, String)>,
 ) -> Result<Json<Value>, axum::response::Response> {
     use axum::response::IntoResponse;
@@ -990,6 +1094,9 @@ pub async fn skill_delete(
     }
     std::fs::remove_dir_all(&dir)
         .map_err(|e| AppError::msg(e.to_string()).into_response())?;
+    audit::record(
+        &state, &ident.user_id, &ident.username, "oc-skill", &name, "delete", &dir,
+    ).await;
     Ok(Json(json!({ "ok": true, "name": name })))
 }
 
@@ -1353,6 +1460,7 @@ export default Plugin.define({{
 
 pub async fn tools_generate(
     State(state): State<Arc<AppState>>,
+    Extension(ident): Extension<crate::auth::AuthIdentity>,
     AxPath(id): AxPath<String>,
 ) -> Result<Json<Value>, axum::response::Response> {
     use axum::response::IntoResponse;
@@ -1376,14 +1484,24 @@ pub async fn tools_generate(
         .map_err(|e| AppError::msg(format!("каталог не найден: {e}")).into_response())?;
     let config_dir = Path::new(&config_dir);
     match generate_plugin(config_dir, &catalog_json, &name, &gateway_url, &token, pepek.as_deref()) {
-        Ok(count) => Ok(Json(json!({
-            "ok": true,
-            "count": count,
-            "dir": plugins_dir(config_dir).join("1c-tools").to_string_lossy().to_string(),
-            // Для проверки устаревания плагина в tools_apply.
-            "gateway": gateway_url.clone(),
-            "token": token.clone(),
-        }))),
+        Ok(count) => {
+            audit::ensure_imported(config_dir);
+            // Аудит: плагин (index.ts) + каталог (catalog.json).
+            let plugin_file = plugins_dir(config_dir).join("1c-tools").join("index.ts");
+            if plugin_file.is_file() {
+                audit::record(
+                    &state, &ident.user_id, &ident.username, "oc-tools", &name, "generate", &plugin_file,
+                ).await;
+            }
+            Ok(Json(json!({
+                "ok": true,
+                "count": count,
+                "dir": plugins_dir(config_dir).join("1c-tools").to_string_lossy().to_string(),
+                // Для проверки устаревания плагина в tools_apply.
+                "gateway": gateway_url.clone(),
+                "token": token.clone(),
+            })))
+        }
         Err(e) => Err(AppError::msg(e).into_response()),
     }
 }
@@ -1392,6 +1510,7 @@ pub async fn tools_generate(
 /// Если каталог не менялся — рестарт пропускаем (флаг restarted=false).
 pub async fn tools_apply(
     State(state): State<Arc<AppState>>,
+    Extension(ident): Extension<crate::auth::AuthIdentity>,
     AxPath(id): AxPath<String>,
 ) -> Result<Json<Value>, axum::response::Response> {
     use axum::response::IntoResponse;
@@ -1417,7 +1536,12 @@ pub async fn tools_apply(
     };
 
     // 3. Generate: catalog.json → plugins/1c-tools/index.ts.
-    let gen_resp = tools_generate(State(state.clone()), AxPath(id.clone())).await;
+    let gen_resp = tools_generate(
+        State(state.clone()),
+        Extension(ident.clone()),
+        AxPath(id.clone()),
+    )
+    .await;
     let gen_val = match gen_resp {
         Ok(Json(v)) => v,
         Err(r) => return Err(r),
