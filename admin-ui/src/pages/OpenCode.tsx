@@ -935,7 +935,7 @@ function PermissionsEditor({ form, setForm }: { form: AgentForm; setForm: (f: Ag
   }
 
   /// Строка секции: название (жирное) + action (mono, приглушённый) → сегмент.
-  function permRow(label: string, action: string, effect: PermEffect, hint?: string) {
+  function permRow(label: string, action: string, effect: PermEffect, hint?: string, onChange?: (v: PermEffect) => void) {
     return (
       <div className="flex items-center justify-between gap-3 py-1.5" title={hint}>
         <div className="min-w-0">
@@ -944,7 +944,7 @@ function PermissionsEditor({ form, setForm }: { form: AgentForm; setForm: (f: Ag
         </div>
         <Segmented<PermEffect>
           value={effect}
-          onChange={(v) => setAction(action, v)}
+          onChange={(v) => (onChange || ((x: PermEffect) => setAction(action, x)))(v)}
           options={[
             { key: 'default', label: 'Default' },
             { key: 'allow', label: 'Allow' },
@@ -956,6 +956,11 @@ function PermissionsEditor({ form, setForm }: { form: AgentForm; setForm: (f: Ag
     );
   }
 
+  /// Глобальный дефолт — отдельное поле form.perms.global, не actions.
+  function setGlobal(effect: PermEffect) {
+    setForm({ ...form, perms: { ...form.perms, global: effect } });
+  }
+
   // Кастомные ключи — всё, что не встроено и не глобальный «*».
   const customActions = Object.keys(form.perms.actions).filter(a => a !== '*' && !BUILTIN_ACTIONS.includes(a));
 
@@ -963,7 +968,7 @@ function PermissionsEditor({ form, setForm }: { form: AgentForm; setForm: (f: Ag
     <div className="mt-3 border border-slate-200 dark:border-slate-800 rounded-lg p-3">
       <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">{t.opencode.permsHint}</p>
 
-      {permRow(t.opencode.permAllTools, 'action: *', form.perms.global, t.opencode.permAllHint)}
+      {permRow(t.opencode.permAllTools, '*', form.perms.global, t.opencode.permAllHint, setGlobal)}
       <div className="border-t border-slate-100 dark:border-slate-800/70 my-1" />
       {BUILTIN_ACTIONS.map(a => permRow(a, a, form.perms.actions[a] || 'default'))}
 
