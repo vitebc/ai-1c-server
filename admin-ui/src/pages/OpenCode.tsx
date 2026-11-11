@@ -712,7 +712,7 @@ function setPermsBlock(fm: string, p: PermsState): string {
   return trimmed ? `${trimmed}\n${full}` : full;
 }
 
-interface AgentForm { name: string; title: string; description: string; mode: AgentMode; frontmatter: string; body: string; perms: PermsState; mcpNames: string[]; onecTools: string[]; customKey: string; fmBroken?: boolean; }
+interface AgentForm { name: string; title: string; description: string; mode: AgentMode; frontmatter: string; body: string; perms: PermsState; mcpNames: string[]; onecTools: string[]; customKey: string; tab?: 'main' | 'tools'; fmBroken?: boolean; }
 
 /// Правила по умолчанию для нового агента — как у штатного plan (read-only):
 /// чтение и вопросы разрешены, правка файлов запрещена.
@@ -793,7 +793,7 @@ function AgentsTab({ server }: { server: OpencodeServer }) {
   /// Открывает форму: подгружает инструменты 1С из каталога плагина.
   function openForm(a: AgentForm & { description?: string; mode?: string }) {
     setIsNew(false);
-    setForm({ ...a });
+    setForm({ ...a, tab: 'main' });
     api.opencodeToolsCatalog(server.id).then(r => {
       setForm(f => f ? { ...f, onecTools: (r.tools || []).map((t: any) => t.name as string) } : f);
     }).catch(() => {});
@@ -830,7 +830,7 @@ function AgentsTab({ server }: { server: OpencodeServer }) {
         <Btn onClick={() => {
           setIsNew(true);
           const fm = DEFAULT_AGENT_FRONTMATTER;
-          setForm({ name: '', title: '', description: '', mode: 'primary', frontmatter: fm, body: '', perms: parsePerms(fm), mcpNames: [], onecTools: [], customKey: '' });
+          setForm({ name: '', title: '', description: '', mode: 'primary', frontmatter: fm, body: '', perms: parsePerms(fm), mcpNames: [], onecTools: [], customKey: '', tab: 'main' });
           api.opencodeToolsCatalog(server.id).then(r => {
             setForm(f => f ? { ...f, onecTools: (r.tools || []).map((x: any) => x.name as string) } : f);
           }).catch(() => {});
@@ -856,37 +856,55 @@ function AgentsTab({ server }: { server: OpencodeServer }) {
 
       {form && (
         <Modal title={isNew ? t.opencode.newAgent : `Агент: ${form.name}`} onClose={() => setForm(null)} xwide fill>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label={t.opencode.agentName} hint="^[a-z0-9_-]+$"><TextInput mono value={form.name} disabled={!isNew} onChange={e => setForm({ ...form, name: e.target.value.toLowerCase() })} /></Field>
-            <Field label="Заголовок" hint="Показывается клиенту (assistant/Ассистент). Пусто = имя с заглавной буквы.">
-              <TextInput value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Ассистент" />
-            </Field>
+          {/* Вкладки: Основная (поля + промпт) / Тулзы (разрешения). */}
+          <div className="flex gap-1 border-b border-slate-200 dark:border-slate-800 mb-4">
+            {([['main', 'Основная'], ['tools', t.opencode.permsTitle]] as const).map(([key, label]) => (
+              <button key={key} type="button" onClick={() => setForm({ ...form, tab: key })}
+                className={`px-4 py-2 text-sm rounded-t-md border-b-2 transition-colors cursor-pointer ${form.tab === key ? 'border-blue-600 dark:border-blue-500 text-slate-900 dark:text-slate-100 font-medium' : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'}`}>
+                {label}
+              </button>
+            ))}
           </div>
-          <Field label="Описание" hint="Короткое описание — для выбора агента в клиенте. Если текст содержит «: », оберните значение в кавычки (иначе YAML сломается)." className="mt-3">
-            <TextInput value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Общие вопросы по 1С и базе знаний" />
-          </Field>
-          <Field label="Режим" hint="primary — основной агент сессии; subagent — вызывается из других агентов; all — как в штатном OpenCode (без явного mode)." className="mt-3">
-            <Segmented
-              value={form.mode}
-              onChange={(m) => setForm({ ...form, mode: m })}
-              options={[
-                { key: 'primary', label: 'primary' },
-                { key: 'subagent', label: 'subagent' },
-                { key: 'all', label: 'all' },
-              ]}
-            />
-          </Field>
-          {form.fmBroken && (
-            <div className="mb-3">
-              <Alert tone="amber">Frontmatter в файле не распознан как YAML — проверьте кавычки. Двоеточие с пробелом внутри значения («конвейер: уточняющие») требует кавычек: description: «…конвейер: уточняющие…».</Alert>
-            </div>
-          )}
-          <PermissionsEditor form={form} setForm={setForm} />
-          <Field label="Frontmatter (YAML)" hint="model, permissions и остальные ключи — как в agents/<имя>.md. Ключи title, description, mode подставляются из полей выше." className="mt-3">
-            <TextArea mono value={form.frontmatter} onChange={e => setForm({ ...form, frontmatter: e.target.value })} rows={8} spellCheck={false} placeholder={'model: local-12600/qwen3.8\npermissions:\n  - action: "*"\n    resource: "*"\n    effect: allow'} />
-          </Field>
-          <TextArea mono value={form.body} onChange={e => setForm({ ...form, body: e.target.value })} rows={14} className="mt-3" spellCheck={false} placeholder="Системный промпт агента (Markdown)" />
-          <div className="flex justify-end gap-2 mt-4">
+
+          <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+            {form.tab === 'tools' ? (
+              <PermissionsEditor form={form} setForm={setForm} />
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label={t.opencode.agentName} hint="^[a-z0-9_-]+$"><TextInput mono value={form.name} disabled={!isNew} onChange={e => setForm({ ...form, name: e.target.value.toLowerCase() })} /></Field>
+                  <Field label="Заголовок" hint="Показывается клиенту (assistant/Ассистент). Пусто = имя с заглавной буквы.">
+                    <TextInput value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Ассистент" />
+                  </Field>
+                </div>
+                <Field label="Описание" hint="Короткое описание — для выбора агента в клиенте. Если текст содержит «: », оберните значение в кавычки (иначе YAML сломается)." className="mt-3">
+                  <TextInput value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Общие вопросы по 1С и базе знаний" />
+                </Field>
+                <Field label="Режим" hint="primary — основной агент сессии; subagent — вызывается из других агентов; all — как в штатном OpenCode (без явного mode)." className="mt-3">
+                  <Segmented
+                    value={form.mode}
+                    onChange={(m) => setForm({ ...form, mode: m })}
+                    options={[
+                      { key: 'primary', label: 'primary' },
+                      { key: 'subagent', label: 'subagent' },
+                      { key: 'all', label: 'all' },
+                    ]}
+                  />
+                </Field>
+                {form.fmBroken && (
+                  <div className="mt-3">
+                    <Alert tone="amber">Frontmatter в файле не распознан как YAML — проверьте кавычки. Двоеточие с пробелом внутри значения («конвейер: уточняющие») требует кавычек: description: «…конвейер: уточняющие…».</Alert>
+                  </div>
+                )}
+                <Field label="Frontmatter (YAML)" hint="model и остальные ключи — как в agents/<имя>.md. Ключи title, description, mode подставляются из полей выше; permissions редактируются на вкладке «Тулзы»." className="mt-3">
+                  <TextArea mono value={form.frontmatter} onChange={e => setForm({ ...form, frontmatter: e.target.value })} rows={8} spellCheck={false} placeholder={'model: local-12600/qwen3.8'} />
+                </Field>
+                <TextArea mono value={form.body} onChange={e => setForm({ ...form, body: e.target.value })} rows={14} className="mt-3" spellCheck={false} placeholder="Системный промпт агента (Markdown)" />
+              </>
+            )}
+          </div>
+
+          <div className="flex justify-end gap-2 mt-4 shrink-0">
             <Btn variant="outline" onClick={() => setForm(null)}>{t.common.cancel}</Btn>
             <Btn onClick={doSave}><Check size={15} /> {t.common.save}</Btn>
           </div>
@@ -943,10 +961,7 @@ function PermissionsEditor({ form, setForm }: { form: AgentForm; setForm: (f: Ag
 
   return (
     <div className="mt-3 border border-slate-200 dark:border-slate-800 rounded-lg p-3">
-      <div className="flex items-baseline justify-between mb-1">
-        <span className="text-sm font-semibold">{t.opencode.permsTitle}</span>
-      </div>
-      <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">{t.opencode.permsHint}</p>
+      <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">{t.opencode.permsHint}</p>
 
       {permRow(t.opencode.permAllTools, 'action: *', form.perms.global, t.opencode.permAllHint)}
       <div className="border-t border-slate-100 dark:border-slate-800/70 my-1" />
