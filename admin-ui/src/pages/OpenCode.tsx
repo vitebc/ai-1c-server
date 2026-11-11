@@ -662,12 +662,13 @@ interface PermRule { action: string; resource: string; effect: string; }
 
 function parsePerms(fm: string): PermsState {
   const st: PermsState = { global: 'default', actions: {} };
-  // \r?\n после ключа — без жёсткого \n: в файлах бывают CRLF и хвосты.
-  const m = fm.match(/^permissions:\s*\r?\n((?:[ \t]+-.+\r?\n?)+)/m);
+  // Правила могут идти без отступа (YAML допускает) — ищем до строки,
+  // начинающейся с «ключ:» или --- (конец frontmatter).
+  const m = fm.match(/^permissions:[^\S\r\n]*\r?\n((?:(?:[ \t]*-|[ \t]).+\r?\n?)*)/m);
   if (!m) return st;
-  // Правила идут блоком из трёх отступленных строк (action/resource/effect).
-  for (const rm of m[1].matchAll(/- action: "?([^"\r\n]+)"?\s*\r?\n\s+resource: "?([^"\r\n]+)"?\s*\r?\n\s+effect: "?([^"\r\n]+)"?/g)) {
-    const action = rm[1], effect = rm[3];
+  // Правила идут блоком из трёх строк (action/resource/effect).
+  for (const rm of m[1].matchAll(/- action: "?([^"\r\n]+)"?[ \t]*\r?\n\s+resource: "?([^"\r\n]+)"?[ \t]*\r?\n\s+effect: "?([^"\r\n]+)"?/g)) {
+    const action = rm[1].replace(/^"|"$/g, ''), effect = rm[3];
     if (effect !== 'allow' && effect !== 'ask' && effect !== 'deny') continue;
     if (action === '*') st.global = effect;
     else st.actions[action] = effect;
@@ -693,20 +694,21 @@ function setPermsBlock(fm: string, p: PermsState): string {
   const block = rules.length ? `permissions:\n${yaml}` : '';
 
   // Существующие нестандартные правила (resource ≠ «*») — не трогаем.
-  const existing = fm.match(/^permissions:\s*\r?\n((?:[ \t]+-.+\r?\n?)+)/m);
+  const existing = fm.match(/^permissions:[^\S\r\n]*\r?\n((?:(?:[ \t]*-|[ \t]).+\r?\n?)*)/m);
   let extra = '';
   if (existing) {
     const keep: PermRule[] = [];
-    for (const rm of existing[1].matchAll(/- action: "?([^"\r\n]+)"?\s*\r?\n\s+resource: "?([^"\r\n]+)"?\s*\r?\n\s+effect: "?([^"\r\n]+)"?/g)) {
-      if (rm[2] !== '*') keep.push({ action: rm[1], resource: rm[2], effect: rm[3] });
+    for (const rm of existing[1].matchAll(/- action: "?([^"\r\n]+)"?[ \t]*\r?\n\s+resource: "?([^"\r\n]+)"?[ \t]*\r?\n\s+effect: "?([^"\r\n]+)"?/g)) {
+      const action = rm[1].replace(/^"|"$/g, ''), resource = rm[2].replace(/^"|"$/g, '');
+      if (resource !== '*') keep.push({ action, resource, effect: rm[3] });
     }
     extra = keep.map(r => `  - action: "${r.action}"\n    resource: "${r.resource}"\n    effect: ${r.effect}`).join('\n');
   }
 
   const full = [block, extra].filter(Boolean).join('\n');
-  if (!full) return fm.replace(/^permissions:\s*\r?\n(?:[ \t]+-.+\r?\n?)+/m, '').replace(/\n{3,}/g, '\n\n').trim();
+  if (!full) return fm.replace(/^permissions:[^\S\r\n]*\r?\n(?:(?:[ \t]*-|[ \t]).+\r?\n?)*/m, '').replace(/\n{3,}/g, '\n\n').trim();
   if (existing) {
-    const re = /^permissions:\s*\r?\n(?:[ \t]+-.+\r?\n?)+/m;
+    const re = /^permissions:[^\S\r\n]*\r?\n(?:(?:[ \t]*-|[ \t]).+\r?\n?)*/m;
     return fm.replace(re, full);
   }
   const trimmed = fm.trim();
