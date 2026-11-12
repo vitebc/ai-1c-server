@@ -718,7 +718,7 @@ function setPermsBlock(fm: string, p: PermsState): string {
   return trimmed ? `${trimmed}\n${full}` : full;
 }
 
-interface AgentForm { name: string; title: string; description: string; mode: AgentMode; frontmatter: string; body: string; perms: PermsState; mcpNames: string[]; onecTools: string[]; customKey: string; tab?: 'main' | 'tools' | 'yaml'; fmBroken?: boolean; }
+interface AgentForm { name: string; title: string; description: string; mode: AgentMode; model: string; frontmatter: string; body: string; perms: PermsState; mcpNames: string[]; onecTools: string[]; customKey: string; tab?: 'main' | 'tools' | 'yaml'; fmBroken?: boolean; }
 
 /// Правила по умолчанию для нового агента — как у штатного plan (read-only):
 /// чтение и вопросы разрешены, правка файлов запрещена.
@@ -752,6 +752,11 @@ function AgentsTab({ server }: { server: OpencodeServer }) {
   const [isNew, setIsNew] = useState(false);
   const [del, setDel] = useState<string | null>(null);
   const [err, setErr] = useState('');
+  const [modelOptions, setModelOptions] = useState<{ name: string; models: string[] }[]>([]);
+
+  useEffect(() => {
+    api.getModelProviderOptions().then(r => setModelOptions(r.providers.filter(p => p.models.length > 0))).catch(() => {});
+  }, []);
 
   /// Режим агента из frontmatter: 'all' — ключ mode отсутствует (штатное
   /// поведение OpenCode), 'primary'/'subagent' — явное значение.
@@ -759,6 +764,12 @@ function AgentsTab({ server }: { server: OpencodeServer }) {
     const m = fm.match(/^mode:\s*(\S+)/m);
     if (!m) return 'all';
     return m[1] === 'subagent' ? 'subagent' : 'primary';
+  }
+
+  /// Модель агента из frontmatter (ключ model). Пусто = модель по умолчанию.
+  function parseModel(fm: string): string {
+    const m = fm.match(/^model:\s*(\S+)/m);
+    return m ? m[1] : '';
   }
 
   /// Подставляет/удаляет ключ в frontmatter. Если значение совпадает с
@@ -781,6 +792,7 @@ function AgentsTab({ server }: { server: OpencodeServer }) {
         title: a.title || '',
         description: a.description || '',
         mode: parseMode(a.frontmatter || ''),
+        model: parseModel(a.frontmatter || ''),
         frontmatter: a.frontmatter || '',
         body: a.body,
         perms: parsePerms(a.frontmatter || ''),
@@ -808,12 +820,13 @@ function AgentsTab({ server }: { server: OpencodeServer }) {
   async function doSave() {
     if (!form) return;
     setErr('');
-    // Title / description / mode — отдельные поля формы, при сохранении
+    // Title / description / mode / model — отдельные поля формы, при сохранении
     // подставляем в frontmatter. Пустое значение = убрать ключ.
     let fm = form.frontmatter.trim();
     fm = setFmKey(fm, 'title', form.title.trim());
     fm = setFmKey(fm, 'description', form.description.trim());
     fm = setFmKey(fm, 'mode', form.mode === 'all' ? '' : form.mode);
+    fm = setFmKey(fm, 'model', form.model.trim());
     // Разрешения — блок permissions из состояния UI.
     fm = setPermsBlock(fm, form.perms);
     try {
@@ -836,7 +849,7 @@ function AgentsTab({ server }: { server: OpencodeServer }) {
         <Btn onClick={() => {
           setIsNew(true);
           const fm = DEFAULT_AGENT_FRONTMATTER;
-          setForm({ name: '', title: '', description: '', mode: 'primary', frontmatter: fm, body: '', perms: parsePerms(fm), mcpNames: [], onecTools: [], customKey: '', tab: 'main' });
+          setForm({ name: '', title: '', description: '', mode: 'primary', model: '', frontmatter: fm, body: '', perms: parsePerms(fm), mcpNames: [], onecTools: [], customKey: '', tab: 'main' });
           api.opencodeToolsCatalog(server.id).then(r => {
             setForm(f => f ? { ...f, onecTools: (r.tools || []).map((x: any) => x.name as string) } : f);
           }).catch(() => {});
@@ -897,17 +910,35 @@ function AgentsTab({ server }: { server: OpencodeServer }) {
                 <Field label="Описание" hint="Короткое описание — для выбора агента в клиенте. Если текст содержит «: », оберните значение в кавычки (иначе YAML сломается)." className="mt-3">
                   <TextInput value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Общие вопросы по 1С и базе знаний" />
                 </Field>
-                <Field label="Режим" hint="primary — основной агент сессии; subagent — вызывается из других агентов; all — как в штатном OpenCode (без явного mode)." className="mt-3">
-                  <Segmented
-                    value={form.mode}
-                    onChange={(m) => setForm({ ...form, mode: m })}
-                    options={[
-                      { key: 'primary', label: 'primary' },
-                      { key: 'subagent', label: 'subagent' },
-                      { key: 'all', label: 'all' },
-                    ]}
-                  />
-                </Field>
+                <div className="grid grid-cols-2 gap-3 mt-3">
+                  <Field label="Режим" hint="primary — основной агент сессии; subagent — вызывается из других агентов; all — как в штатном OpenCode (без явного mode).">
+                    <Segmented
+                      value={form.mode}
+                      onChange={(m) => setForm({ ...form, mode: m })}
+                      options={[
+                        { key: 'primary', label: 'primary' },
+                        { key: 'subagent', label: 'subagent' },
+                        { key: 'all', label: 'all' },
+                      ]}
+                    />
+                  </Field>
+                  <Field label="Модель" hint="Пусто = модель по умолчанию сервера OpenCode.">
+                    <select
+                      value={form.model}
+                      onChange={e => setForm({ ...form, model: e.target.value })}
+                      className={`w-full px-3 py-2 text-sm rounded-lg border bg-white dark:bg-slate-900 ${inputCls}`}
+                    >
+                      <option value="">— по умолчанию —</option>
+                      {modelOptions.map(p => (
+                        <optgroup key={p.name} label={p.name}>
+                          {p.models.map(m => (
+                            <option key={m} value={m}>{m}</option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </select>
+                  </Field>
+                </div>
                 <TextArea mono value={form.body} onChange={e => setForm({ ...form, body: e.target.value })} rows={14} className="mt-3" spellCheck={false} placeholder="Системный промпт агента (Markdown)" />
               </>
             )}
