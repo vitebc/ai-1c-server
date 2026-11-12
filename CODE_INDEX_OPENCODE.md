@@ -1,18 +1,18 @@
 # Code Index (индексы выгрузок 1С) в OpenCode — схема и примеры конфигов
 
 > **Статус: работает. Серверы OpenCode НЕ изменены** (конфиги `/home/test/project/1C-opencode/config/*/opencode.jsonc` не тронуты).
-> Индексы на SMB, serve'ы и демон под управлением systemd, агрегатор пробрасывает 361 тулзу.
+> Выгрузки и индексы — локально на диске (диск расширен), serve'ы и демон под управлением systemd, агрегатор пробрасывает 378 тулз.
 > Подтверждено документацией: https://opencode.ai/v2/docs/mcp-servers, https://opencode.ai/v2/docs/permissions, https://opencode.ai/v2/docs/agents
 
 ## 1. Архитектура
 
 ```
-SMB-шар /mnt/zhvv_ai/workspace/<КАТАЛОГ>          (источник: XML-выгрузки конфигураций)
-        │  bsl-indexer index <SMB-path> --force   (индексация напрямую с SMB)
+Локальные выгрузки /home/test/.config/ai-1c-server/workspace/<КАТАЛОГ>   (XML-выгрузки конфигураций)
+        │  bsl-indexer index <путь> --force   (CODE_INDEX_LOCAL_DB=workspace/indexes)
         ▼
-Индексы на SMB: /mnt/zhvv_ai/workspace/<КАТАЛОГ>/.code-index/index.db
+Индексы: /home/test/.config/ai-1c-server/workspace/indexes/<алиас>/.code-index/index.db
         │  (SQLite, journal_mode=OFF — форк bsl-indexer v1.16.0-patched)
-        │  bsl-indexer serve --transport http --port 80xx --path <алиас>=<SMB-путь>
+        │  bsl-indexer serve --transport http --port 80xx --path <алиас>=<путь к выгрузке>
         ▼
 MCP-эндпоинты http://127.0.0.1:80xx/mcp           (по одному на выгрузку)
         │  агрегатор ai-1c-server (записи MCP code-index-<алиас>)
@@ -23,37 +23,44 @@ MCP-эндпоинты http://127.0.0.1:80xx/mcp           (по одному н
 Агенты видят ТОЛЬКО тулзы своих выгрузок
 ```
 
-### Почему форк bsl-indexer и индексы на SMB
+### Почему форк bsl-indexer и локальные индексы
 
-- SQLite WAL/локи на CIFS/SMB не работают (`database is locked`, зависания).
-- Форк v1.16.0-patched: `PRAGMA journal_mode=OFF` + патч `flush_to_disk` (копирование через /tmp) — БД пишется прямо в SMB.
-- Serve читает **SMB-БД** (`--path <алиас>=<SMB-путь>`) — индексы хранятся на шаре вместе с выгрузками.
-- Исключение: `obrabotki` остаётся локально (зависает при чтении с SMB) — путь в юните указывает на `indexes/obrabotki`.
-- Индексация: `./reindex.sh <алиас>` (CLI, пишет в SMB).
+- Раньше индексы жили на SMB: SQLite WAL/локи на CIFS не работают, поэтому форк v1.16.0-patched
+  (`PRAGMA journal_mode=OFF` + патч `flush_to_disk` через /tmp). Форк остался — он же ставит
+  `journal_mode=OFF`, что быстрее и для локального диска.
+- Диск расширен (243G), выгрузки возвращены на локальный диск:
+  `/home/test/.config/ai-1c-server/workspace/<КАТ>` (symlink `~/zhvv_ai` больше не используется).
+- Индексы — отдельно от выгрузок: `workspace/indexes/<алиас>/.code-index/index.db`
+  (переменная окружения `CODE_INDEX_LOCAL_DB=/home/test/.config/ai-1c-server/workspace/indexes`).
+- Serve читает БД по `CODE_INDEX_LOCAL_DB`, а в `--path` передаётся путь к ВЫГРУЗКЕ.
+- Индексация: `./reindex.sh <алиас>` (CLI, ~5–10 мин для крупной конфигурации).
 
 ### Автозапуск — systemd user-юниты
 
 | Юнит | Назначение |
 |---|---|
-| `code-index-daemon.service` | Демон индексации + health :8010 |
+| `code-index-daemon.service` | Демон (health :8010, path-status, контроль воркеров) |
 | `code-index-serve@.service` (template) | 9 инстансов serve'ов (8011–8019), карта алиас→путь внутри юнита |
 
 Все юниты в `~/.config/systemd/user/`, включены (`WantedBy=default.target`), автоперезапуск при крахе.
+Оба юнита несут env: `CODE_INDEX_HOME=/home/test/.config/ai-1c-server/code-index` и
+`CODE_INDEX_LOCAL_DB=/home/test/.config/ai-1c-server/workspace/indexes`.
 
 ### Алиасы и порты
 
-| Алиас | SMB-каталог | Порт serve | Запись MCP в агрегаторе |
+| Алиас | Каталог выгрузки | Порт serve | Запись MCP в агрегаторе |
 |---|---|---|---|
 | `ka2` | `KA2` | 8011 | `code-index-ka2` → `http://127.0.0.1:8011/mcp` |
 | `erp` | `ERP` | 8012 | `code-index-erp` → `http://127.0.0.1:8012/mcp` |
 | `ktm` | `KTM` | 8013 | `code-index-ktm` → `http://127.0.0.1:8013/mcp` |
-| `upp` | `UPP/UPP` | 8014 | `code-index-upp` → `http://127.0.0.1:8014/mcp` |
+| `upp` | `UPP` | 8014 | `code-index-upp` → `http://127.0.0.1:8014/mcp` |
 | `obrabotki` | `obrabotki` | 8015 | `code-index-obrabotki` → `http://127.0.0.1:8015/mcp` |
 | `erp_ext` | `ERP_EXT` | 8016 | `code-index-erp_ext` → `http://127.0.0.1:8016/mcp` |
 | `ka_market_ext` | `KA_MARKET_EXT` | 8017 | `code-index-ka_market_ext` → `http://127.0.0.1:8017/mcp` |
 | `ka_rs_ext` | `KA_RS_EXT` | 8018 | `code-index-ka_rs_ext` → `http://127.0.0.1:8018/mcp` |
 | `ka_td_ext` | `KA_TD_EXT` | 8019 | `code-index-ka_td_ext` → `http://127.0.0.1:8019/mcp` |
 
+Все пути — относительно `/home/test/.config/ai-1c-server/workspace/`.
 `KA_Update` — пустой, не индексируется.
 
 Каждый serve отдаёт **42 тулзы** (25 универсальных + 17 для 1С), все с обязательным параметром `repo=<алиас>`.
@@ -277,13 +284,19 @@ tools.ci_erp_ext.list_files({ repo: "erp_ext" })
 
 ```bash
 CI=/home/test/.config/ai-1c-server/code-index
+WS=/home/test/.config/ai-1c-server/workspace
 
 # Индексация выгрузки (CLI, ~5–10 мин для крупной конфигурации)
 $CI/reindex.sh <алиас> [--force]
 # Пример: $CI/reindex.sh ka2 --force
 
+# Ручная индексация без reindex.sh (обязательно CODE_INDEX_LOCAL_DB):
+CODE_INDEX_HOME=$CI CODE_INDEX_LOCAL_DB=$WS/indexes \
+  $CI/bsl-indexer index --force $WS/KA2
+
 # Проверка индекса (CLI, read-only)
-CODE_INDEX_HOME=$CI $CI/bsl-indexer stats --path /mnt/zhvv_ai/workspace/KA2 | grep -E "Файлов|Функций"
+CODE_INDEX_HOME=$CI CODE_INDEX_LOCAL_DB=$WS/indexes \
+  $CI/bsl-indexer stats --path $WS/KA2 | grep -E "Файлов|Функций"
 
 # Статус serve'ов
 for port in 8011 8012 8013 8014 8015 8016 8017 8018 8019; do
@@ -291,9 +304,14 @@ for port in 8011 8012 8013 8014 8015 8016 8017 8018 8019; do
   echo "port $port: $code"   # 406 = работает
 done
 
-# Health демона (статус индексации всех каталогов)
+# Health демона (статус индексации всех каталогов; ready = воркер видит БД)
 curl -s http://127.0.0.1:8010/health | python3 -m json.tool
 ```
+
+> **Важно:** тулзы `search_terms` и часть расширенных (bsl-надстройка) требуют, чтобы воркер
+> демона по каталогу был в статусе `ready` (`GET :8010/health`). После индексации CLI воркер
+> подхватывает БД сам (обычно в течение минуты); если не подхватил —
+> `systemctl --user restart code-index-daemon.service`.
 
 ### Управление systemd-юнитами
 
@@ -317,36 +335,38 @@ systemctl --user stop 'code-index-serve@*' code-index-daemon.service
 systemctl --user start code-index-daemon.service 'code-index-serve@*'
 ```
 
-### Размеры индексов (на SMB, актуально на 2026-11-10)
+### Размеры индексов (локально, актуально на 2026-11-12)
 
-| Алиас | Файлов | Функций | Размер БД |
-|---|---|---|---|
-| ka2 | 111,913 | 652,622 | 4.4 ГБ |
-| erp | 52,026 | 220,551 | 3.5 ГБ |
-| ktm | — | — | 3.3 ГБ |
-| upp | 35,956 | 50,681 | 1.2 ГБ |
-| obrabotki | 24,837 | — | 556 МБ (локально) |
-| erp_ext | — | — | 19 МБ |
-| ka_market_ext | — | — | 6.7 МБ |
-| ka_rs_ext | — | — | 36 МБ |
-| ka_td_ext | 324 | 643 | 12 МБ |
+| Алиас | Файлов | Размер БД |
+|---|---|---|
+| ka2 | 111,913 | 2.1 ГБ |
+| erp | 52,266 | 3.5 ГБ |
+| ktm | 50,991 | 3.4 ГБ |
+| upp | 35,957 | 1.2 ГБ |
+| obrabotki | 24,889 | 559 МБ |
+| erp_ext | — | 19 МБ |
+| ka_market_ext | — | 6.7 МБ |
+| ka_rs_ext | — | 36 МБ |
+| ka_td_ext | 324 | 12 МБ |
 
-Всего: ~13 ГБ на SMB + 556 МБ локально (obrabotki).
+Всего: ~11 ГБ в `workspace/indexes/`.
 
 ## 8. Дальнейшие шаги
 
 ### Выполнено
 
 - [x] Форк bsl-indexer v1.16.0-patched (WAL→OFF + `flush_to_disk` через /tmp)
-- [x] Индексация всех 9 выгрузок (ка2, erp, ktm, upp, obrabotki, erp_ext, ka_market_ext, ka_rs_ext, ka_td_ext)
-- [x] Индексы перенесены на SMB (~13 ГБ освобождено на локальном диске)
-- [x] Serve'ы запущены (8011–8019), все отвечают 406
+- [x] Перенос выгрузок и индексов с SMB на локальный диск (диск расширен до 243G)
+- [x] Индексация всех 9 выгрузок, индексы в `workspace/indexes/<алиас>/.code-index/`
+- [x] Serve'ы запущены (8011–8019), все отвечают, по 48 тулз на каждом
 - [x] Записи MCP в агрегаторе (prod и dev): `code-index-<алиас>` → `http://127.0.0.1:80xx/mcp`
-- [x] Живые проверки через агрегатор: `get_stats` на ka2/erp/upp — данные именно своей выгрузки
-- [x] systemd user-юниты: `code-index-daemon.service` + `code-index-serve@.service` (9 инстансов)
+- [x] Живые проверки через агрегатор: REST `/api/mcp/code-index-*/tools` (42 тулзы) + `tools/call`
+- [x] systemd user-юниты: `code-index-daemon.service` + `code-index-serve@.service` (9 инстансов), env `CODE_INDEX_LOCAL_DB`
 
 ### Не выполнено
 
-1. **Генерация конфига админкой**: при генерации `opencode.jsonc` собирать
+1. **Автопереиндексация**: obrabotki каждые 5 минут, расширения раз в сутки
+   (cron или systemd-timer — выбор пользователя).
+2. **Генерация конфига админкой**: при генерации `opencode.jsonc` собирать
    `mcp.servers.ci_<алиас>` для выгрузок сервера и `agents.<id>.permissions`
    (deny `ci_*` + allow назначенные) — по данным из поля `code_indexes`.
