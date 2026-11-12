@@ -666,9 +666,11 @@ function parsePerms(fm: string): PermsState {
   // начинающейся с «ключ:» или --- (конец frontmatter).
   const m = fm.match(/^permissions:[^\S\r\n]*\r?\n((?:(?:[ \t]*-|[ \t]).+\r?\n?)*)/m);
   if (!m) return st;
-  // Правила идут блоком из трёх строк (action/resource/effect).
+  // Правила идут блоком из трёх строк (action/resource/effect). Кавычки
+  // в значениях — обрезаем, чтобы не создавать дубликаты при сохранении.
+  const unq = (s: string) => s.replace(/^["']|["']$/g, '');
   for (const rm of m[1].matchAll(/- action: "?([^"\r\n]+)"?[ \t]*\r?\n\s+resource: "?([^"\r\n]+)"?[ \t]*\r?\n\s+effect: "?([^"\r\n]+)"?/g)) {
-    const action = rm[1].replace(/^"|"$/g, ''), effect = rm[3];
+    const action = unq(rm[1]), effect = rm[3];
     if (effect !== 'allow' && effect !== 'ask' && effect !== 'deny') continue;
     if (action === '*') st.global = effect;
     else st.actions[action] = effect;
@@ -697,9 +699,10 @@ function setPermsBlock(fm: string, p: PermsState): string {
   const existing = fm.match(/^permissions:[^\S\r\n]*\r?\n((?:(?:[ \t]*-|[ \t]).+\r?\n?)*)/m);
   let extra = '';
   if (existing) {
+    const unq = (s: string) => s.replace(/^["']|["']$/g, '');
     const keep: PermRule[] = [];
     for (const rm of existing[1].matchAll(/- action: "?([^"\r\n]+)"?[ \t]*\r?\n\s+resource: "?([^"\r\n]+)"?[ \t]*\r?\n\s+effect: "?([^"\r\n]+)"?/g)) {
-      const action = rm[1].replace(/^"|"$/g, ''), resource = rm[2].replace(/^"|"$/g, '');
+      const action = unq(rm[1]), resource = unq(rm[2]);
       if (resource !== '*') keep.push({ action, resource, effect: rm[3] });
     }
     extra = keep.map(r => `  - action: "${r.action}"\n    resource: "${r.resource}"\n    effect: ${r.effect}`).join('\n');
