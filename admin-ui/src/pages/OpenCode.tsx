@@ -936,6 +936,10 @@ function AgentsTab({ server }: { server: OpencodeServer }) {
                           ))}
                         </optgroup>
                       ))}
+                      {/* Если текущее значение не в списке (например, с префиксом local-12800/) — показываем его. */}
+                      {form.model && !modelOptions.some(p => p.models.includes(form.model)) && (
+                        <option value={form.model}>{form.model}</option>
+                      )}
                     </select>
                   </Field>
                 </div>
