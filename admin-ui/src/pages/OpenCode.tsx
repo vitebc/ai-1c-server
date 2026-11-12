@@ -718,7 +718,7 @@ function setPermsBlock(fm: string, p: PermsState): string {
   return trimmed ? `${trimmed}\n${full}` : full;
 }
 
-interface AgentForm { name: string; title: string; description: string; mode: AgentMode; frontmatter: string; body: string; perms: PermsState; mcpNames: string[]; onecTools: string[]; customKey: string; tab?: 'main' | 'tools'; fmBroken?: boolean; }
+interface AgentForm { name: string; title: string; description: string; mode: AgentMode; frontmatter: string; body: string; perms: PermsState; mcpNames: string[]; onecTools: string[]; customKey: string; tab?: 'main' | 'tools' | 'yaml'; fmBroken?: boolean; }
 
 /// Правила по умолчанию для нового агента — как у штатного plan (read-only):
 /// чтение и вопросы разрешены, правка файлов запрещена.
@@ -862,9 +862,9 @@ function AgentsTab({ server }: { server: OpencodeServer }) {
 
       {form && (
         <Modal title={isNew ? t.opencode.newAgent : `Агент: ${form.name}`} onClose={() => setForm(null)} xwide fill>
-          {/* Вкладки: Основная (поля + промпт) / Тулзы (разрешения). */}
+          {/* Вкладки: Основная (поля + промпт) / Тулзы (разрешения) / YAML. */}
           <div className="flex gap-1 border-b border-slate-200 dark:border-slate-800 mb-4">
-            {([['main', 'Основная'], ['tools', t.opencode.permsTitle]] as const).map(([key, label]) => (
+            {([['main', 'Основная'], ['tools', t.opencode.permsTitle], ['yaml', 'Frontmatter (YAML)']] as const).map(([key, label]) => (
               <button key={key} type="button" onClick={() => setForm({ ...form, tab: key })}
                 className={`px-4 py-2 text-sm rounded-t-md border-b-2 transition-colors cursor-pointer ${form.tab === key ? 'border-blue-600 dark:border-blue-500 text-slate-900 dark:text-slate-100 font-medium' : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'}`}>
                 {label}
@@ -875,6 +875,17 @@ function AgentsTab({ server }: { server: OpencodeServer }) {
           <div className="flex-1 min-h-0 overflow-y-auto pr-1">
             {form.tab === 'tools' ? (
               <PermissionsEditor form={form} setForm={setForm} />
+            ) : form.tab === 'yaml' ? (
+              <>
+                {form.fmBroken && (
+                  <div className="mb-3">
+                    <Alert tone="amber">Frontmatter в файле не распознан как YAML — проверьте кавычки. Двоеточие с пробелом внутри значения («конвейер: уточняющие») требует кавычек: description: «…конвейер: уточняющие…».</Alert>
+                  </div>
+                )}
+                <Field label="Frontmatter (YAML)" hint="model и остальные ключи — как в agents/<имя>.md. Ключи title, description, mode подставляются из полей на вкладке «Основная»; permissions редактируются на вкладке «Тулзы».">
+                  <TextArea mono value={form.frontmatter} onChange={e => setForm({ ...form, frontmatter: e.target.value })} rows={16} spellCheck={false} placeholder={'model: local-12600/qwen3.8'} />
+                </Field>
+              </>
             ) : (
               <>
                 <div className="grid grid-cols-2 gap-3">
@@ -896,14 +907,6 @@ function AgentsTab({ server }: { server: OpencodeServer }) {
                       { key: 'all', label: 'all' },
                     ]}
                   />
-                </Field>
-                {form.fmBroken && (
-                  <div className="mt-3">
-                    <Alert tone="amber">Frontmatter в файле не распознан как YAML — проверьте кавычки. Двоеточие с пробелом внутри значения («конвейер: уточняющие») требует кавычек: description: «…конвейер: уточняющие…».</Alert>
-                  </div>
-                )}
-                <Field label="Frontmatter (YAML)" hint="model и остальные ключи — как в agents/<имя>.md. Ключи title, description, mode подставляются из полей выше; permissions редактируются на вкладке «Тулзы»." className="mt-3">
-                  <TextArea mono value={form.frontmatter} onChange={e => setForm({ ...form, frontmatter: e.target.value })} rows={8} spellCheck={false} placeholder={'model: local-12600/qwen3.8'} />
                 </Field>
                 <TextArea mono value={form.body} onChange={e => setForm({ ...form, body: e.target.value })} rows={14} className="mt-3" spellCheck={false} placeholder="Системный промпт агента (Markdown)" />
               </>
