@@ -47,7 +47,7 @@ impl InitializeOnce {
 }
 
 impl HttpMcpSession {
-    pub async fn start(config: &McpServerConfig) -> Result<Self, Box<dyn std::error::Error>> {
+    pub async fn start(config: &McpServerConfig) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let url = config
             .url
             .as_deref()
@@ -79,7 +79,7 @@ impl HttpMcpSession {
 
     /// First call performs `initialize` + `notifications/initialized`;
     /// concurrent callers on the same session wait for it instead of racing.
-    pub async fn ensure_initialized(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn ensure_initialized(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if self.initialized.done.load(std::sync::atomic::Ordering::Relaxed) {
             return Ok(());
         }
@@ -101,7 +101,7 @@ impl HttpMcpSession {
         }
     }
 
-    async fn do_initialize(&self) -> Result<(), Box<dyn std::error::Error>> {
+    async fn do_initialize(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let req = JsonRpcRequest::new(
             "initialize",
             serde_json::json!({
@@ -124,7 +124,7 @@ impl HttpMcpSession {
     pub async fn call(
         &self,
         mut request: JsonRpcRequest,
-    ) -> Result<JsonRpcResponse, Box<dyn std::error::Error>> {
+    ) -> Result<JsonRpcResponse, Box<dyn std::error::Error + Send + Sync>> {
         // Thin wrapper: guarantees one-shot initialize before the real work.
         // Kept separate from `call_inner` so the async recursion stays finite
         // (ensure_initialized -> do_initialize -> call -> ... -> post).
@@ -135,7 +135,8 @@ impl HttpMcpSession {
     async fn call_inner(
         &self,
         mut request: JsonRpcRequest,
-    ) -> Result<JsonRpcResponse, Box<dyn std::error::Error>> {
+    ) -> Result<JsonRpcResponse, Box<dyn std::error::Error + Send + Sync>> {
+        let _ = &mut request;
         let req_id = {
             let mut n = self.next_id.lock().await;
             let id = *n;
@@ -147,7 +148,18 @@ impl HttpMcpSession {
         let target = serde_json::json!(req_id);
         // The session id must be known before the first non-initialize call,
         // but initialize itself is what provides it — so post() captures it.
-        let value = self.post(&body).await?;
+        let value = match self.post(&body).await {
+            Ok(v) => v,
+            Err(e) if session_not_found(&e.to_string()) => {
+                *self.session_id.lock().await = None;
+                Box::pin(self.ensure_initialized()).await?;
+                return match self.post(&body).await {
+                    Ok(v2) => Ok(serde_json::from_value::<JsonRpcResponse>(v2)?),
+                    Err(_) => Err(e),
+                };
+            }
+            Err(e) => return Err(e),
+        };
         // Plain JSON-RPC response.
         if value.get("id").map_or(false, |id| id == &target) {
             return Ok(serde_json::from_value(value)?);
@@ -160,7 +172,7 @@ impl HttpMcpSession {
     async fn post(
         &self,
         body: &serde_json::Value,
-    ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
         let mut req = self
             .client
             .post(&self.url)
@@ -219,4 +231,9 @@ impl HttpMcpSession {
         }
         Ok(serde_json::from_str(&text)?)
     }
+}
+
+
+fn session_not_found(err: &str) -> bool {
+    err.contains("404") && err.to_lowercase().contains("session not found")
 }
