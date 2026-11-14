@@ -22,7 +22,7 @@ mod clients;
 mod configs;
 mod fs;
 mod mcp_servers;
-mod model_providers;
+pub mod model_providers;
 pub(crate) mod search_sync;
 mod settings;
 pub mod skills;

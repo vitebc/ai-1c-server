@@ -741,6 +741,113 @@ pub async fn config_put(
     Ok(Json(json!({ "ok": true, "path": path.to_string_lossy().to_string() })))
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ConfigModelsBody {
+    pub models: Vec<String>,
+}
+
+/// Ключ `models` в opencode.jsonc — список полных имён моделей
+/// (`local-12600/qwen3.8`), как их видит OpenCode. Не штатный ключ
+/// рантайма — читает только админка: селектор модели в форме агента.
+/// Обновляем только этот ключ, остальной контент файла не трогаем.
+pub async fn config_models_put(
+    State(state): State<Arc<AppState>>,
+    Extension(ident): Extension<crate::auth::AuthIdentity>,
+    AxPath(id): AxPath<String>,
+    Json(body): Json<ConfigModelsBody>,
+) -> Result<Json<Value>, axum::response::Response> {
+    use axum::response::IntoResponse;
+    let row = {
+        let db = state.db.lock().await;
+        match read_row(&db, &id) {
+            Some(r) => r,
+            None => return Err(NotFound.into_response()),
+        }
+    };
+    let path = config_file(Path::new(&row.config_dir));
+    let content = std::fs::read_to_string(&path).unwrap_or_default();
+    let stripped = strip_jsonc(&content);
+    let mut cfg: Value = serde_json::from_str(&stripped)
+        .unwrap_or_else(|_| json!({}));
+    if !cfg.is_object() {
+        return Err(BadRequest("опencode.jsonc: ожидается JSON-объект".into()).into_response());
+    }
+    let models: Vec<Value> = body.models.iter().map(|m| json!(m.trim())).collect();
+    cfg["models"] = json!(models);
+    // Печатаем с 2-отступом; комментарии из исходника теряются — это осознанно,
+    // файл управляется админкой.
+    let mut out = serde_json::to_string_pretty(&cfg).unwrap_or_default();
+    out.push('\n');
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| AppError::msg(e.to_string()).into_response())?;
+    }
+    std::fs::write(&path, &out)
+        .map_err(|e| AppError::msg(e.to_string()).into_response())?;
+    tracing::info!("opencode: config models updated for {} ({} models)", row.name, body.models.len());
+    audit::ensure_imported(Path::new(&row.config_dir));
+    audit::record(
+        &state, &ident.user_id, &ident.username, "oc-config", &row.name, "update", &path,
+    ).await;
+    Ok(Json(json!({ "ok": true, "path": path.to_string_lossy().to_string() })))
+}
+
+/// GET /opencode/servers/{id}/config/models — список моделей из opencode.jsonc.
+/// Если ключа нет — автозаполняем из провайдеров админки: `<имя>/<модель>`
+/// (так OpenCode именует модели локальных провайдеров).
+pub async fn config_models_get(
+    State(state): State<Arc<AppState>>,
+    AxPath(id): AxPath<String>,
+) -> Result<Json<Value>, axum::response::Response> {
+    use axum::response::IntoResponse;
+    let row = {
+        let db = state.db.lock().await;
+        match read_row(&db, &id) {
+            Some(r) => r,
+            None => return Err(NotFound.into_response()),
+        }
+    };
+    let path = config_file(Path::new(&row.config_dir));
+    let content = std::fs::read_to_string(&path).unwrap_or_default();
+    let cfg: Value = serde_json::from_str(&strip_jsonc(&content)).unwrap_or_else(|_| json!({}));
+    if let Some(models) = cfg["models"].as_array() {
+        let names: Vec<String> = models.iter().filter_map(|m| m.as_str().map(String::from)).collect();
+        return Ok(Json(json!({ "models": names, "auto": false })));
+    }
+    // Автозаполнение из двух источников:
+    // 1) providers в самом opencode.jsonc — полные имена local-<порт>/<модель>
+    //    (то, как их реально видит OpenCode);
+    // 2) провайдеры админки — name/модель.
+    let mut names: Vec<String> = Vec::new();
+    if let Some(provs) = cfg.get("providers").and_then(|v| v.as_object()) {
+        for (pname, pval) in provs {
+            if let Some(models) = pval.get("models").and_then(|v| v.as_object()) {
+                for mname in models.keys() {
+                    let full = format!("{}/{}", pname, mname);
+                    if !names.contains(&full) { names.push(full); }
+                }
+            }
+        }
+    }
+    let providers = crate::api::admin::model_providers::list(axum::extract::State(state.clone())).await.0;
+    for p in &providers {
+        if !p.enabled { continue; }
+        for m in &p.models {
+            let full = format!("{}/{}", p.name, m);
+            if !names.contains(&full) { names.push(full); }
+        }
+    }
+    // Запишем в конфиг, чтобы дальше список был явным.
+    if !names.is_empty() {
+        let mut c = if cfg.is_object() { cfg } else { json!({}) };
+        c["models"] = json!(names.clone());
+        let mut out = serde_json::to_string_pretty(&c).unwrap_or_default();
+        out.push('\n');
+        let _ = std::fs::write(&path, out);
+    }
+    Ok(Json(json!({ "models": names, "auto": true })))
+}
+
 // ─── агенты и скилы (файлы в config/<server>) ──────────────────────
 
 fn agents_dir(config_dir: &Path) -> PathBuf {
@@ -2054,6 +2161,10 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route(
             "/servers/{id}/config",
             get(config_get).put(config_put),
+        )
+        .route(
+            "/servers/{id}/config/models",
+            get(config_models_get).put(config_models_put),
         )
         .route("/servers/{id}/agents", get(agents_list))
         .route("/servers/{id}/agents/{name}", put(agent_put))

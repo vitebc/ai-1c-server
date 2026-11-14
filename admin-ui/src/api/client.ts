@@ -330,6 +330,10 @@ export const api = {
     request<{ exists: boolean; content: string | null; error?: string | null }>(`/opencode/servers/${id}/config`),
   putOpencodeConfig: (id: string, content: string) =>
     request<{ ok: boolean; path: string }>(`/opencode/servers/${id}/config`, { method: 'PUT', body: JSON.stringify({ content }) }),
+  getOpencodeConfigModels: (id: string) =>
+    request<{ models: string[]; auto?: boolean }>(`/opencode/servers/${id}/config/models`),
+  putOpencodeConfigModels: (id: string, models: string[]) =>
+    request<{ ok: boolean; path: string }>(`/opencode/servers/${id}/config/models`, { method: 'PUT', body: JSON.stringify({ models }) }),
   getOpencodeAgents: (id: string) =>
     request<{ server: string; dir: string; agents: { name: string; title?: string; description?: string; mode?: string; model?: string; frontmatter: string; body: string }[] }>(`/opencode/servers/${id}/agents`),
   putOpencodeAgent: (id: string, data: { name?: string; frontmatter?: string; body: string }) =>
