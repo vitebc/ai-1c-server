@@ -651,22 +651,17 @@ function ConfigTab({ server }: { server: OpencodeServer }) {
   async function doSave() {
     setMsg(''); setErr('');
     try {
+      // Сначала модели (PUT создаёт/обновляет providers и лимиты), потом контент.
+      await api.putOpencodeConfigModels(server.id, models);
       const r = await api.putOpencodeConfig(server.id, content);
       setMsg(t.opencode.configSaveOk(r.path));
-      load();
+      load(); // перечитать файл — providers могли появиться/обновиться
     } catch (e) { setErr(errText(e, 'Ошибка')); }
   }
 
-  async function saveModels(next: string[]) {
-    // Оптимистично обновляем чипы; при ошибке перечитываем с бэкенда.
+  // Модели меняются локально; PUT уходит только по кнопке «Сохранить».
+  function saveModels(next: string[]) {
     setModels(next);
-    try {
-      await api.putOpencodeConfigModels(server.id, next);
-      load(); // контент файла изменился — пересync textarea
-    } catch (e) {
-      setErr(errText(e, 'Ошибка'));
-      loadModels();
-    }
   }
 
   return (
