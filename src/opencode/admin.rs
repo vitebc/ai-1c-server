@@ -776,10 +776,14 @@ pub async fn config_models_put(
     cfg["models"] = json!(models);
 
     // Для каждого `<provider>/<model>` проверяем, есть ли provider в конфиге.
-    // Если нет — создаём секцию из провайдеров админки (base_url → settings.baseURL).
-    // Провайдеры, которых нет в админке, игнорируем: модель останется в models[],
-    // но без providers OpenCode её не увидит.
+    // Если нет — создаём секцию:
+    // 1) если провайдер есть в админке — берём base_url оттуда;
+    // 2) если нет — генерируем baseURL из имени (local-<port> → http://localhost:<port>/v1).
     let admin_providers = crate::api::admin::model_providers::list(axum::extract::State(state.clone())).await.0;
+    // Создаём объект providers, если его нет.
+    if cfg.get("providers").is_none() {
+        cfg["providers"] = json!({});
+    }
     let mut cfg_provs = cfg.get_mut("providers").and_then(|v| v.as_object_mut());
     for m in &body.models {
         let trimmed = m.trim();
@@ -793,9 +797,20 @@ pub async fn config_models_put(
         }
         // Ищем провайдера в админке: точное совпадение имени или совпадение по порту
         // (имя модели `local-12800/qwen3.8` → порт 12800, имя провайдера может быть `12800`).
-        let Some(ap) = admin_providers.iter().find(|p| {
+        let base_url = if let Some(ap) = admin_providers.iter().find(|p| {
             p.enabled && (p.name == pname || pname.ends_with(&format!("-{}", p.name)))
-        }) else { continue };
+        }) {
+            ap.base_url.clone()
+        } else {
+            // Провайдера нет в админке — генерируем baseURL из имени.
+            // local-12600 → http://localhost:12600/v1
+            let port = pname.strip_prefix("local-").and_then(|s| s.parse::<u16>().ok());
+            match port {
+                Some(p) => format!("http://localhost:{}/v1", p),
+                None => String::new(), // не удалось извлечь порт — оставляем пустым
+            }
+        };
+        if base_url.is_empty() { continue; } // нет baseURL — не создаём provider
         // Строим секцию provider: name, package, settings.baseURL, models.<mname>.
         let model_entry = json!({
             "capabilities": { "input": ["text", "image"], "output": ["text"], "tools": true },
@@ -807,7 +822,7 @@ pub async fn config_models_put(
             "models": { mname: model_entry },
             "name": pname,
             "package": "aisdk:@ai-sdk/openai-compatible",
-            "settings": { "baseURL": ap.base_url },
+            "settings": { "baseURL": base_url },
         });
         if let Some(provs) = cfg_provs.as_mut() {
             provs.insert(pname.to_string(), provider_entry);
