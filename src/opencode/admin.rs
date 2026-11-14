@@ -774,6 +774,47 @@ pub async fn config_models_put(
     }
     let models: Vec<Value> = body.models.iter().map(|m| json!(m.trim())).collect();
     cfg["models"] = json!(models);
+
+    // Для каждого `<provider>/<model>` проверяем, есть ли provider в конфиге.
+    // Если нет — создаём секцию из провайдеров админки (base_url → settings.baseURL).
+    // Провайдеры, которых нет в админке, игнорируем: модель останется в models[],
+    // но без providers OpenCode её не увидит.
+    let admin_providers = crate::api::admin::model_providers::list(axum::extract::State(state.clone())).await.0;
+    let mut cfg_provs = cfg.get_mut("providers").and_then(|v| v.as_object_mut());
+    for m in &body.models {
+        let trimmed = m.trim();
+        let Some((pname, mname)) = trimmed.split_once('/') else { continue };
+        if pname.is_empty() || mname.is_empty() { continue; }
+        // Provider уже в конфиге — не трогаем.
+        if let Some(provs) = cfg_provs.as_mut() {
+            if provs.contains_key(pname) { continue; }
+        } else {
+            continue;
+        }
+        // Ищем провайдера в админке: точное совпадение имени или совпадение по порту
+        // (имя модели `local-12800/qwen3.8` → порт 12800, имя провайдера может быть `12800`).
+        let Some(ap) = admin_providers.iter().find(|p| {
+            p.enabled && (p.name == pname || pname.ends_with(&format!("-{}", p.name)))
+        }) else { continue };
+        // Строим секцию provider: name, package, settings.baseURL, models.<mname>.
+        let model_entry = json!({
+            "capabilities": { "input": ["text", "image"], "output": ["text"], "tools": true },
+            "limit": { "context": 64256, "output": 8192 },
+            "modelID": mname,
+            "name": mname,
+        });
+        let provider_entry = json!({
+            "models": { mname: model_entry },
+            "name": pname,
+            "package": "aisdk:@ai-sdk/openai-compatible",
+            "settings": { "baseURL": ap.base_url },
+        });
+        if let Some(provs) = cfg_provs.as_mut() {
+            provs.insert(pname.to_string(), provider_entry);
+            tracing::info!("opencode: auto-created provider {} in config for {}", pname, row.name);
+        }
+    }
+
     // Печатаем с 2-отступом; комментарии из исходника теряются — это осознанно,
     // файл управляется админкой.
     let mut out = serde_json::to_string_pretty(&cfg).unwrap_or_default();
