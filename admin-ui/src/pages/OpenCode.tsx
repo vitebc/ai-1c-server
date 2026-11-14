@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Plus, Pencil, Trash2, Play, Square, RotateCw, Check, X, RefreshCw, KeyRound, Package, Network, ChevronRight, Server as ServerIcon } from 'lucide-react';
 import { api } from '../api/client';
-import type { OpencodeServer } from '../types';
+import type { ModelProvider, OpencodeServer } from '../types';
 import { t } from '../i18n';
 import { errText } from '../errors';
-import { PageHeader, Btn, IconBtn, Badge, TableShell, Th, Td, Row, TextInput, TextArea, Field, Alert, Modal, Confirm, Segmented, inputCls, monoCls } from '../components/ui';
+import { PageHeader, Btn, IconBtn, Badge, TableShell, Th, Td, Row, TextInput, TextArea, Select, Field, Alert, Modal, Confirm, Segmented, inputCls, monoCls } from '../components/ui';
 
 type Section = 'config' | 'agents' | 'skills' | 'tools' | 'sessions';
 
@@ -563,6 +563,50 @@ function ChipsInput({ values, onChange, placeholder, mono }: { values: string[];
 
 // ─── Конфиг (opencode.jsonc) ────────────────────────────────────────
 
+/// Выпадающий список для выбора провайдера с моделью из списка админки.
+function ModelProviderSelect({ providers, onAdd, existingModels }: {
+  providers: ModelProvider[];
+  onAdd: (model: string) => void;
+  existingModels: string[];
+}) {
+  const [selected, setSelected] = useState('');
+  
+  // Формируем опции: <provider>/<model> для каждого enabled провайдера.
+  const options: { value: string; label: string }[] = [];
+  for (const p of providers) {
+    if (!p.enabled) continue;
+    for (const m of p.models) {
+      const full = `local-${p.name}/${m}`;
+      if (!existingModels.includes(full)) {
+        options.push({ value: full, label: `${p.name} → ${m}` });
+      }
+    }
+  }
+  
+  if (options.length === 0) return null;
+  
+  return (
+    <div className="flex items-center gap-2">
+      <Select
+        value={selected}
+        onChange={e => setSelected(e.target.value)}
+        className="flex-1"
+      >
+        <option value="">— выбрать модель —</option>
+        {options.map(o => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </Select>
+      <Btn
+        onClick={() => { if (selected) { onAdd(selected); setSelected(''); } }}
+        disabled={!selected}
+      >
+        <Plus size={14} /> Добавить
+      </Btn>
+    </div>
+  );
+}
+
 function ConfigTab({ server }: { server: OpencodeServer }) {
   const [content, setContent] = useState('');
   const [exists, setExists] = useState(true);
@@ -571,6 +615,7 @@ function ConfigTab({ server }: { server: OpencodeServer }) {
   const [err, setErr] = useState('');
   const [models, setModels] = useState<string[]>([]);
   const [modelsLoaded, setModelsLoaded] = useState(false);
+  const [providers, setProviders] = useState<ModelProvider[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -591,7 +636,15 @@ function ConfigTab({ server }: { server: OpencodeServer }) {
     } catch { /* конфиг нет — блок покажет пустой список */ }
   }, [server.id]);
 
-  useEffect(() => { load(); loadModels(); }, [load, loadModels]);
+  // Провайдеры из админки — для выпадающего списка.
+  const loadProviders = useCallback(async () => {
+    try {
+      const r = await api.getModelProviders();
+      setProviders(r);
+    } catch { /* нет прав или ошибка — список будет пустым */ }
+  }, []);
+
+  useEffect(() => { load(); loadModels(); loadProviders(); }, [load, loadModels, loadProviders]);
 
   async function doSave() {
     setMsg(''); setErr('');
@@ -622,7 +675,14 @@ function ConfigTab({ server }: { server: OpencodeServer }) {
       {err && <div className="mb-3"><Alert tone="red">{err}</Alert></div>}
       {modelsLoaded && (
         <Field label={t.opencode.configModelsTitle} hint={t.opencode.configModelsHint}>
-          <ChipsInput mono values={models} onChange={saveModels} placeholder={t.opencode.configModelsAddPlaceholder} />
+          <ModelProviderSelect
+            providers={providers}
+            onAdd={(m) => saveModels([...models, m])}
+            existingModels={models}
+          />
+          <div className="mt-2">
+            <ChipsInput mono values={models} onChange={saveModels} placeholder={t.opencode.configModelsAddPlaceholder} />
+          </div>
         </Field>
       )}
       <p className="text-xs text-slate-500 dark:text-slate-400 mb-2 mt-3">{t.opencode.configHint}</p>
