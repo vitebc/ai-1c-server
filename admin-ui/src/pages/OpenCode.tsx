@@ -659,6 +659,16 @@ function ConfigTab({ server }: { server: OpencodeServer }) {
     } catch (e) { setErr(errText(e, 'Ошибка')); }
   }
 
+  // Перечитать конфиг из файла (отменить локальные изменения).
+  async function doReload() {
+    setMsg(''); setErr('');
+    try {
+      await load();
+      await loadModels();
+      setMsg(t.opencode.configReloaded);
+    } catch (e) { setErr(errText(e, 'Ошибка')); }
+  }
+
   // Модели меняются локально; PUT уходит только по кнопке «Сохранить».
   function saveModels(next: string[]) {
     setModels(next);
@@ -705,7 +715,8 @@ function ConfigTab({ server }: { server: OpencodeServer }) {
       )}
       <p className="text-xs text-slate-500 dark:text-slate-400 mb-2 mt-3">{t.opencode.configHint}</p>
       <TextArea mono value={content} onChange={e => setContent(e.target.value)} rows={26} spellCheck={false} />
-      <div className="flex justify-end mt-2">
+      <div className="flex justify-end gap-2 mt-2">
+        <Btn variant="outline" onClick={doReload}><RefreshCw size={15} /> {t.opencode.configReload}</Btn>
         <Btn onClick={doSave}><Check size={15} /> {t.common.save}</Btn>
       </div>
     </div>
