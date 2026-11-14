@@ -97,6 +97,7 @@ export const t = {
     customModel: 'Своя модель…', noModelsYet: 'Введи адрес выше — список подтянется сам',
     probeOk: (n: number) => `Найдено моделей: ${n} — список подставлен в форму, сохраните.`,
     probeFail: (e: string) => `Проверка не удалась: ${e}`,
+    reachable: 'доступен', unreachable: 'недоступен',
   },
   logs: {
     title: 'Логи', server: 'Сервер', live: 'Вживую', paused: 'Пауза', clear: 'Очистить',

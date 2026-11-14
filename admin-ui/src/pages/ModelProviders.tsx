@@ -6,14 +6,41 @@ import { t } from '../i18n';
 import { errText } from '../errors';
 import { PageHeader, TableShell, Th, Td, Row, Badge, IconBtn, Btn, Modal, Field, TextInput, Alert, Confirm } from '../components/ui';
 
+type ProbeState = 'pending' | 'ok' | 'fail';
+interface ProviderHealth { state: ProbeState; models?: string[]; error?: string; }
+
 export default function ModelProviders() {
   const [items, setItems] = useState<ModelProvider[]>([]);
   const [edit, setEdit] = useState<ModelProvider | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [del, setDel] = useState<ModelProvider | null>(null);
+  const [health, setHealth] = useState<Record<string, ProviderHealth>>({});
 
   useEffect(() => { load(); }, []);
   function load() { api.getModelProviders().then(setItems).catch(() => {}); }
+
+  // Фоновая проверка доступности включённых провайдеров (debounce на смену списка).
+  useEffect(() => {
+    const enabled = items.filter(p => p.enabled);
+    if (enabled.length === 0) return;
+    setHealth(h => {
+      const next = { ...h };
+      for (const p of enabled) if (!next[p.id]) next[p.id] = { state: 'pending' };
+      return next;
+    });
+    const h = setTimeout(async () => {
+      // Параллельно, по одному запросу на провайдера.
+      await Promise.all(enabled.map(async (p) => {
+        try {
+          const r = await api.probeModelProvider(p.id);
+          setHealth(hh => ({ ...hh, [p.id]: r.ok ? { state: 'ok', models: r.models } : { state: 'fail', error: r.error || 'HTTP error' } }));
+        } catch (e) {
+          setHealth(hh => ({ ...hh, [p.id]: { state: 'fail', error: errText(e, 'ошибка запроса') } }));
+        }
+      }));
+    }, 500);
+    return () => clearTimeout(h);
+  }, [items]);
 
   return (
     <div>
@@ -42,9 +69,21 @@ export default function ModelProviders() {
             <Td><span className="font-mono text-xs text-slate-600 dark:text-slate-300 max-w-[280px] truncate block" title={item.base_url}>{item.base_url}</span></Td>
             <Td><span className="font-mono text-[11px] text-slate-500 max-w-[260px] truncate block" title={item.models.join(', ')}>{item.models.join(', ') || '—'}</span></Td>
             <Td>
-              <Badge tone={item.enabled ? 'green' : 'neutral'}>
-                {item.enabled ? t.common.enabled : t.common.disabled}
-              </Badge>
+              <div className="flex flex-col items-start gap-1">
+                <Badge tone={item.enabled ? 'green' : 'neutral'}>
+                  {item.enabled ? t.common.enabled : t.common.disabled}
+                </Badge>
+                {item.enabled && (() => {
+                  const h = health[item.id];
+                  if (!h || h.state === 'pending') {
+                    return <span className="text-[11px] text-slate-400 dark:text-slate-500 flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-slate-400 animate-pulse" />{t.models.probing}</span>;
+                  }
+                  if (h.state === 'ok') {
+                    return <span className="text-[11px] text-emerald-600 dark:text-emerald-400 flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" />{t.models.reachable}</span>;
+                  }
+                  return <span className="text-[11px] text-red-600 dark:text-red-400 flex items-center gap-1 max-w-[240px]" title={h.error}><span className="w-2 h-2 rounded-full bg-red-500 shrink-0" /><span className="truncate">{t.models.unreachable}: {h.error}</span></span>;
+                })()}
+              </div>
             </Td>
             <Td className="text-right whitespace-nowrap">
               <IconBtn title={t.common.edit} onClick={() => { setEdit(item); setShowForm(true); }}><Pencil size={15} /></IconBtn>
