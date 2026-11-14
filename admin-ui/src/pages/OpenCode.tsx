@@ -670,8 +670,16 @@ function ConfigTab({ server }: { server: OpencodeServer }) {
   }
 
   // Модели меняются локально; PUT уходит только по кнопке «Сохранить».
+  // При изменении чипов — синхронизируем textarea (локально, без PUT).
   function saveModels(next: string[]) {
     setModels(next);
+    try {
+      const cfg = JSON.parse(stripJsonc(content));
+      if (cfg && typeof cfg === 'object') {
+        cfg.models = next;
+        setContent(JSON.stringify(cfg, null, 2) + '\n');
+      }
+    } catch { /* контент не парсится — не трогаем */ }
   }
 
   return (
