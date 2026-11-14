@@ -917,7 +917,7 @@ pub async fn config_models_put(
         cfg["providers"] = json!({});
     }
 
-    // Собираем уникальных провайдеров: (pname, mname) из models[] + имена секций.
+    // Собираем уникальных провайдеров: (pname, mname) из models[].
     let mut wanted: Vec<(String, String)> = Vec::new(); // (provider, model)
     for m in &body.models {
         let trimmed = m.trim();
@@ -927,18 +927,17 @@ pub async fn config_models_put(
             }
         }
     }
-    // Существующие секции (для обновления лимитов).
-    if let Some(provs) = cfg.get("providers").and_then(|v| v.as_object()) {
-        for pname in provs.keys() {
-            if !wanted.iter().any(|(p, _)| p == pname) {
-                // Берём первую модель из секции для опроса.
-                let mname = provs.get(pname)
-                    .and_then(|p| p.get("models").and_then(|v| v.as_object()))
-                    .and_then(|m| m.keys().next())
-                    .cloned()
-                    .unwrap_or_else(|| "default".to_string());
-                wanted.push((pname.clone(), mname));
-            }
+
+    // Удаляем секции провайдеров, которые больше не нужны:
+    // провайдера нет в models[] ИЛИ все его модели удалены.
+    if let Some(provs) = cfg.get_mut("providers").and_then(|v| v.as_object_mut()) {
+        let to_remove: Vec<String> = provs.keys()
+            .filter(|pname| !wanted.iter().any(|(p, _)| p == *pname))
+            .cloned()
+            .collect();
+        for pname in to_remove {
+            provs.remove(&pname);
+            tracing::info!("opencode: removed provider {} from config (no models left) for {}", pname, row.name);
         }
     }
 
