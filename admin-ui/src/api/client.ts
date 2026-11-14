@@ -331,7 +331,7 @@ export const api = {
   putOpencodeConfig: (id: string, content: string) =>
     request<{ ok: boolean; path: string }>(`/opencode/servers/${id}/config`, { method: 'PUT', body: JSON.stringify({ content }) }),
   getOpencodeConfigModels: (id: string) =>
-    request<{ models: string[]; auto?: boolean }>(`/opencode/servers/${id}/config/models`),
+    request<{ models: string[]; auto?: boolean; providers_status?: Record<string, { available: boolean; context?: number; error?: string }> }>(`/opencode/servers/${id}/config/models`),
   putOpencodeConfigModels: (id: string, models: string[]) =>
     request<{ ok: boolean; path: string }>(`/opencode/servers/${id}/config/models`, { method: 'PUT', body: JSON.stringify({ models }) }),
   getOpencodeAgents: (id: string) =>

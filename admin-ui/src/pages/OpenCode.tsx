@@ -616,6 +616,7 @@ function ConfigTab({ server }: { server: OpencodeServer }) {
   const [models, setModels] = useState<string[]>([]);
   const [modelsLoaded, setModelsLoaded] = useState(false);
   const [providers, setProviders] = useState<ModelProvider[]>([]);
+  const [providerStatus, setProviderStatus] = useState<Record<string, { available: boolean; context?: number; error?: string }>>({});
 
   const load = useCallback(async () => {
     try {
@@ -632,6 +633,7 @@ function ConfigTab({ server }: { server: OpencodeServer }) {
     try {
       const r = await api.getOpencodeConfigModels(server.id);
       setModels(r.models || []);
+      if (r.providers_status) setProviderStatus(r.providers_status);
       setModelsLoaded(true);
     } catch { /* конфиг нет — блок покажет пустой список */ }
   }, [server.id]);
@@ -683,6 +685,27 @@ function ConfigTab({ server }: { server: OpencodeServer }) {
           <div className="mt-2">
             <ChipsInput mono values={models} onChange={saveModels} placeholder={t.opencode.configModelsAddPlaceholder} />
           </div>
+          {/* Статусы провайдеров */}
+          {Object.keys(providerStatus).length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {Object.entries(providerStatus).map(([pname, st]) => (
+                <div key={pname} className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs ${
+                  st.available 
+                    ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400' 
+                    : 'bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400'
+                }`}>
+                  <span className={`w-2 h-2 rounded-full ${st.available ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                  <span className="font-medium">{pname}</span>
+                  {st.available && st.context && (
+                    <span className="text-slate-500 dark:text-slate-400">ctx {(st.context / 1024).toFixed(0)}k</span>
+                  )}
+                  {!st.available && st.error && (
+                    <span className="text-red-600 dark:text-red-400 truncate max-w-[200px]">{st.error}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </Field>
       )}
       <p className="text-xs text-slate-500 dark:text-slate-400 mb-2 mt-3">{t.opencode.configHint}</p>

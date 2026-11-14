@@ -746,6 +746,142 @@ pub struct ConfigModelsBody {
     pub models: Vec<String>,
 }
 
+/// Результат опроса LLM-сервера за лимитами модели.
+#[derive(Debug, Clone)]
+struct ModelLimits {
+    context: u32,
+    output: u32,
+    input_modalities: Vec<String>,
+}
+
+impl Default for ModelLimits {
+    fn default() -> Self {
+        Self { context: 64256, output: 8192, input_modalities: vec!["text".into()] }
+    }
+}
+
+/// Извлекает лимиты из одного элемента `data[]` (llama.cpp meta / OpenAI context_length).
+fn apply_limits_from_entry(entry: &Value) -> ModelLimits {
+    let mut limits = ModelLimits::default();
+    // llama.cpp: meta.n_ctx
+    if let Some(n_ctx) = entry.get("meta").and_then(|m| m.get("n_ctx")).and_then(|v| v.as_u64()) {
+        if n_ctx > 0 {
+            limits.context = (n_ctx.min(u32::MAX as u64)) as u32;
+            // output: ~1/16 контекста, clamp [8192, 32768]
+            limits.output = (limits.context / 16).clamp(8192, 32768);
+        }
+    }
+    // OpenAI/vLLM: context_length
+    if let Some(cl) = entry.get("context_length").and_then(|v| v.as_u64()) {
+        if cl > 0 && limits.context == 64256 {
+            limits.context = (cl.min(u32::MAX as u64)) as u32;
+            limits.output = (limits.context / 16).clamp(8192, 32768);
+        }
+    }
+    // Модальности: llama.cpp capabilities[] содержит "multimodal" → image.
+    let caps = entry.get("capabilities").and_then(|c| c.as_array()).cloned().unwrap_or_default();
+    if caps.iter().any(|c| c.as_str() == Some("multimodal")) {
+        limits.input_modalities = vec!["text".into(), "image".into()];
+    }
+    limits
+}
+
+/// Опрашивает `{base_url}/models` (timeout 5 c) и извлекает лимиты для модели `model_name`.
+/// Если сервер не ответил или модель не найдена — дефолты.
+async fn fetch_model_limits(base_url: &str, model_name: &str) -> ModelLimits {
+    let url = format!("{}/models", base_url.trim().trim_end_matches('/'));
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!("opencode: fetch limits {} — client error: {}", url, e);
+            return ModelLimits::default();
+        }
+    };
+    let resp = match client.get(&url).send().await {
+        Ok(r) if r.status().is_success() => r,
+        Ok(r) => {
+            tracing::warn!("opencode: fetch limits {} — HTTP {}", url, r.status());
+            return ModelLimits::default();
+        }
+        Err(e) => {
+            tracing::warn!("opencode: fetch limits {} — unavailable: {}", url, e);
+            return ModelLimits::default();
+        }
+    };
+    let body: Value = match resp.json().await {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!("opencode: fetch limits {} — bad JSON: {}", url, e);
+            return ModelLimits::default();
+        }
+    };
+    // Ищем модель в data[] (llama.cpp / OpenAI-совместимые).
+    let Some(data) = body.get("data").and_then(|d| d.as_array()) else {
+        return ModelLimits::default();
+    };
+    if let Some(entry) = data.iter().find(|x| x.get("id").and_then(|i| i.as_str()) == Some(model_name)) {
+        apply_limits_from_entry(entry)
+    } else if data.len() == 1 {
+        // Модель не в списке — берём единственную (обычно одна модель на сервер).
+        apply_limits_from_entry(&data[0])
+    } else {
+        ModelLimits::default()
+    }
+}
+
+/// Статус провайдера для UI: доступен ли сервер и какой контекст.
+#[derive(Debug, Clone, serde::Serialize)]
+struct ProviderStatus {
+    available: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    context: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+/// Опрашивает провайдера (timeout 3 c) и возвращает статус для UI.
+async fn probe_provider_status(base_url: &str, model_name: &str) -> ProviderStatus {
+    let url = format!("{}/models", base_url.trim().trim_end_matches('/'));
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => {
+            return ProviderStatus { available: false, context: None, error: Some(format!("недоступен: {url}")) };
+        }
+    };
+    match client.get(&url).send().await {
+        Ok(r) if r.status().is_success() => {
+            let limits = fetch_model_limits(base_url, model_name).await;
+            ProviderStatus { available: true, context: Some(limits.context), error: None }
+        }
+        _ => ProviderStatus {
+            available: false,
+            context: None,
+            error: Some(format!("недоступен: {url}")),
+        },
+    }
+}
+
+/// Определяет baseURL провайдера: из model_providers админки или генерация из имени.
+fn resolve_provider_base_url(
+    pname: &str,
+    admin_providers: &[crate::api::admin::model_providers::ModelProviderRow],
+) -> Option<String> {
+    if let Some(ap) = admin_providers.iter().find(|p| {
+        p.enabled && (p.name == pname || pname.ends_with(&format!("-{}", p.name)))
+    }) {
+        return Some(ap.base_url.clone());
+    }
+    // Провайдера нет в админке — генерируем из имени: local-<port> → http://localhost:<port>/v1
+    let port = pname.strip_prefix("local-").and_then(|s| s.parse::<u16>().ok())?;
+    Some(format!("http://localhost:{}/v1", port))
+}
+
 /// Ключ `models` в opencode.jsonc — список полных имён моделей
 /// (`local-12600/qwen3.8`), как их видит OpenCode. Не штатный ключ
 /// рантайма — читает только админка: селектор модели в форме агента.
@@ -775,58 +911,104 @@ pub async fn config_models_put(
     let models: Vec<Value> = body.models.iter().map(|m| json!(m.trim())).collect();
     cfg["models"] = json!(models);
 
-    // Для каждого `<provider>/<model>` проверяем, есть ли provider в конфиге.
-    // Если нет — создаём секцию:
-    // 1) если провайдер есть в админке — берём base_url оттуда;
-    // 2) если нет — генерируем baseURL из имени (local-<port> → http://localhost:<port>/v1).
+    // Провайдеры из списка моделей + уже существующие секции в конфиге.
     let admin_providers = crate::api::admin::model_providers::list(axum::extract::State(state.clone())).await.0;
-    // Создаём объект providers, если его нет.
     if cfg.get("providers").is_none() {
         cfg["providers"] = json!({});
     }
-    let mut cfg_provs = cfg.get_mut("providers").and_then(|v| v.as_object_mut());
+
+    // Собираем уникальных провайдеров: (pname, mname) из models[] + имена секций.
+    let mut wanted: Vec<(String, String)> = Vec::new(); // (provider, model)
     for m in &body.models {
         let trimmed = m.trim();
-        let Some((pname, mname)) = trimmed.split_once('/') else { continue };
-        if pname.is_empty() || mname.is_empty() { continue; }
-        // Provider уже в конфиге — не трогаем.
-        if let Some(provs) = cfg_provs.as_mut() {
-            if provs.contains_key(pname) { continue; }
-        } else {
-            continue;
-        }
-        // Ищем провайдера в админке: точное совпадение имени или совпадение по порту
-        // (имя модели `local-12800/qwen3.8` → порт 12800, имя провайдера может быть `12800`).
-        let base_url = if let Some(ap) = admin_providers.iter().find(|p| {
-            p.enabled && (p.name == pname || pname.ends_with(&format!("-{}", p.name)))
-        }) {
-            ap.base_url.clone()
-        } else {
-            // Провайдера нет в админке — генерируем baseURL из имени.
-            // local-12600 → http://localhost:12600/v1
-            let port = pname.strip_prefix("local-").and_then(|s| s.parse::<u16>().ok());
-            match port {
-                Some(p) => format!("http://localhost:{}/v1", p),
-                None => String::new(), // не удалось извлечь порт — оставляем пустым
+        if let Some((pname, mname)) = trimmed.split_once('/') {
+            if !pname.is_empty() && !mname.is_empty() && !wanted.iter().any(|(p, _)| p == pname) {
+                wanted.push((pname.to_string(), mname.to_string()));
             }
-        };
-        if base_url.is_empty() { continue; } // нет baseURL — не создаём provider
-        // Строим секцию provider: name, package, settings.baseURL, models.<mname>.
+        }
+    }
+    // Существующие секции (для обновления лимитов).
+    if let Some(provs) = cfg.get("providers").and_then(|v| v.as_object()) {
+        for pname in provs.keys() {
+            if !wanted.iter().any(|(p, _)| p == pname) {
+                // Берём первую модель из секции для опроса.
+                let mname = provs.get(pname)
+                    .and_then(|p| p.get("models").and_then(|v| v.as_object()))
+                    .and_then(|m| m.keys().next())
+                    .cloned()
+                    .unwrap_or_else(|| "default".to_string());
+                wanted.push((pname.clone(), mname));
+            }
+        }
+    }
+
+    // Параллельно опрашиваем всех провайдеров за лимитами.
+    let futures: Vec<(String, String, tokio::task::JoinHandle<ModelLimits>)> = wanted
+        .iter()
+        .filter_map(|(pname, mname)| {
+            let base_url = cfg.get("providers")
+                .and_then(|p| p.get(pname))
+                .and_then(|p| p.get("settings"))
+                .and_then(|s| s.get("baseURL"))
+                .and_then(|v| v.as_str())
+                .map(String::from)
+                .or_else(|| resolve_provider_base_url(pname, &admin_providers))?;
+            if base_url.is_empty() { return None; }
+            let bu = base_url.clone();
+            let mn = mname.clone();
+            Some((pname.clone(), mname.clone(), tokio::spawn(async move { fetch_model_limits(&bu, &mn).await })))
+        })
+        .collect();
+
+    // Применяем результаты: создаём/обновляем секции.
+    for (pname, mname, handle) in futures {
+        let limits = handle.await.unwrap_or_default();
+        let base_url = cfg.get("providers")
+            .and_then(|p| p.get(&pname))
+            .and_then(|p| p.get("settings"))
+            .and_then(|s| s.get("baseURL"))
+            .and_then(|v| v.as_str())
+            .map(String::from)
+            .or_else(|| resolve_provider_base_url(&pname, &admin_providers));
+        let Some(base_url) = base_url else { continue };
+
         let model_entry = json!({
-            "capabilities": { "input": ["text", "image"], "output": ["text"], "tools": true },
-            "limit": { "context": 64256, "output": 8192 },
+            "capabilities": {
+                "input": limits.input_modalities,
+                "output": ["text"],
+                "tools": true,
+            },
+            "limit": { "context": limits.context, "output": limits.output },
             "modelID": mname,
             "name": mname,
         });
-        let provider_entry = json!({
-            "models": { mname: model_entry },
-            "name": pname,
-            "package": "aisdk:@ai-sdk/openai-compatible",
-            "settings": { "baseURL": base_url },
-        });
-        if let Some(provs) = cfg_provs.as_mut() {
-            provs.insert(pname.to_string(), provider_entry);
-            tracing::info!("opencode: auto-created provider {} in config for {}", pname, row.name);
+
+        let mut provs = cfg.get_mut("providers").and_then(|v| v.as_object_mut()).unwrap();
+        match provs.get_mut(&pname) {
+            Some(existing) => {
+                // Обновляем лимиты и capabilities существующей секции.
+                if let Some(models_obj) = existing.get_mut("models").and_then(|v| v.as_object_mut()) {
+                    if let Some(me) = models_obj.get_mut(&mname) {
+                        me["limit"] = json!({ "context": limits.context, "output": limits.output });
+                        me["capabilities"] = json!({
+                            "input": limits.input_modalities,
+                            "output": ["text"],
+                            "tools": true,
+                        });
+                    }
+                }
+                tracing::debug!("opencode: refreshed limits for {} in {}", pname, row.name);
+            }
+            None => {
+                let provider_entry = json!({
+                    "models": { mname: model_entry },
+                    "name": pname,
+                    "package": "aisdk:@ai-sdk/openai-compatible",
+                    "settings": { "baseURL": base_url },
+                });
+                provs.insert(pname.clone(), provider_entry);
+                tracing::info!("opencode: auto-created provider {} (ctx={}) in config for {}", pname, limits.context, row.name);
+            }
         }
     }
 
@@ -868,7 +1050,25 @@ pub async fn config_models_get(
     let cfg: Value = serde_json::from_str(&strip_jsonc(&content)).unwrap_or_else(|_| json!({}));
     if let Some(models) = cfg["models"].as_array() {
         let names: Vec<String> = models.iter().filter_map(|m| m.as_str().map(String::from)).collect();
-        return Ok(Json(json!({ "models": names, "auto": false })));
+        // Статусы провайдеров (доступность + контекст) для UI.
+        let admin_providers = crate::api::admin::model_providers::list(axum::extract::State(state.clone())).await.0;
+        let mut status_map: serde_json::Map<String, Value> = serde_json::Map::new();
+        for name in &names {
+            let Some((pname, mname)) = name.split_once('/') else { continue };
+            if status_map.contains_key(pname) { continue; }
+            let base_url = cfg.get("providers")
+                .and_then(|p| p.get(pname))
+                .and_then(|p| p.get("settings"))
+                .and_then(|s| s.get("baseURL"))
+                .and_then(|v| v.as_str())
+                .map(String::from)
+                .or_else(|| resolve_provider_base_url(pname, &admin_providers));
+            if let Some(bu) = base_url {
+                let st = probe_provider_status(&bu, mname).await;
+                status_map.insert(pname.to_string(), serde_json::to_value(st).unwrap_or(Value::Null));
+            }
+        }
+        return Ok(Json(json!({ "models": names, "auto": false, "providers_status": status_map })));
     }
     // Автозаполнение из двух источников:
     // 1) providers в самом opencode.jsonc — полные имена local-<порт>/<модель>
@@ -895,13 +1095,31 @@ pub async fn config_models_get(
     }
     // Запишем в конфиг, чтобы дальше список был явным.
     if !names.is_empty() {
-        let mut c = if cfg.is_object() { cfg } else { json!({}) };
+        let mut c = if cfg.is_object() { cfg.clone() } else { json!({}) };
         c["models"] = json!(names.clone());
         let mut out = serde_json::to_string_pretty(&c).unwrap_or_default();
         out.push('\n');
         let _ = std::fs::write(&path, out);
     }
-    Ok(Json(json!({ "models": names, "auto": true })))
+    // Статусы провайдеров для UI.
+    let admin_providers2 = crate::api::admin::model_providers::list(axum::extract::State(state.clone())).await.0;
+    let mut status_map: serde_json::Map<String, Value> = serde_json::Map::new();
+    for name in &names {
+        let Some((pname, mname)) = name.split_once('/') else { continue };
+        if status_map.contains_key(pname) { continue; }
+        let base_url = cfg.get("providers")
+            .and_then(|p| p.get(pname))
+            .and_then(|p| p.get("settings"))
+            .and_then(|s| s.get("baseURL"))
+            .and_then(|v| v.as_str())
+            .map(String::from)
+            .or_else(|| resolve_provider_base_url(pname, &admin_providers2));
+        if let Some(bu) = base_url {
+            let st = probe_provider_status(&bu, mname).await;
+            status_map.insert(pname.to_string(), serde_json::to_value(st).unwrap_or(Value::Null));
+        }
+    }
+    Ok(Json(json!({ "models": names, "auto": true, "providers_status": status_map })))
 }
 
 // ─── агенты и скилы (файлы в config/<server>) ──────────────────────
