@@ -235,5 +235,10 @@ impl HttpMcpSession {
 
 
 fn session_not_found(err: &str) -> bool {
-    err.contains("404") && err.to_lowercase().contains("session not found")
+    let lower = err.to_lowercase();
+    // 404 "Session not found" — штатный ответ при stale session id.
+    (err.contains("404") && lower.contains("session not found"))
+        // 422 "Unexpected message, expect initialize request" — bsl-indexer serve
+        // отвечает так, когда получает запрос с неактуальным session id.
+        || (err.contains("422") && lower.contains("expect initialize"))
 }
