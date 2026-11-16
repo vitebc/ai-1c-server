@@ -932,22 +932,24 @@ pub async fn config_models_put(
         cfg["providers"] = json!({});
     }
 
-    // Собираем уникальных провайдеров: (pname, mname) из models[].
-    let mut wanted: Vec<(String, String)> = Vec::new(); // (provider, model)
+    // Собираем все пары (provider, model) из body.models.
+    let mut wanted: Vec<(String, String)> = Vec::new();
     for m in &body.models {
         let trimmed = m.trim();
         if let Some((pname, mname)) = trimmed.split_once('/') {
-            if !pname.is_empty() && !mname.is_empty() && !wanted.iter().any(|(p, _)| p == pname) {
+            if !pname.is_empty() && !mname.is_empty() {
                 wanted.push((pname.to_string(), mname.to_string()));
             }
         }
     }
 
-    // Удаляем секции провайдеров, которые больше не нужны:
-    // провайдера нет в models[] ИЛИ все его модели удалены.
+    // Уникальные провайдеры из wanted — для удаления лишних секций.
+    let wanted_providers: std::collections::HashSet<String> = wanted.iter().map(|(p, _)| p.clone()).collect();
+
+    // Удаляем секции провайдеров, которые больше не нужны.
     if let Some(provs) = cfg.get_mut("providers").and_then(|v| v.as_object_mut()) {
         let to_remove: Vec<String> = provs.keys()
-            .filter(|pname| !wanted.iter().any(|(p, _)| p == *pname))
+            .filter(|pname| !wanted_providers.contains(*pname))
             .cloned()
             .collect();
         for pname in to_remove {
@@ -974,7 +976,7 @@ pub async fn config_models_put(
         })
         .collect();
 
-    // Применяем результаты: создаём/обновляем секции.
+    // Применяем результаты: создаём/обновляем секции со ВСЕМИ выбранными моделями.
     for (pname, mname, handle) in futures {
         let limits = handle.await.unwrap_or_default();
         let base_url = cfg.get("providers")
@@ -1000,18 +1002,11 @@ pub async fn config_models_put(
         let mut provs = cfg.get_mut("providers").and_then(|v| v.as_object_mut()).unwrap();
         match provs.get_mut(&pname) {
             Some(existing) => {
-                // Обновляем лимиты и capabilities существующей секции.
+                // Добавляем/обновляем модель в существующей секции.
                 if let Some(models_obj) = existing.get_mut("models").and_then(|v| v.as_object_mut()) {
-                    if let Some(me) = models_obj.get_mut(&mname) {
-                        me["limit"] = json!({ "context": limits.context, "output": limits.output });
-                        me["capabilities"] = json!({
-                            "input": limits.input_modalities,
-                            "output": ["text"],
-                            "tools": true,
-                        });
-                    }
+                    models_obj.insert(mname.clone(), model_entry);
                 }
-                tracing::debug!("opencode: refreshed limits for {} in {}", pname, row.name);
+                tracing::debug!("opencode: updated model {} in provider {} for {}", mname, pname, row.name);
             }
             None => {
                 let provider_entry = json!({
