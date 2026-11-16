@@ -596,7 +596,7 @@ function ProviderPicker({ providers, selected, onChange }: {
   return (
     <div className="space-y-2">
       {enabled.map(p => {
-        const pname = `local-${p.name}`;
+        const pname = p.name;
         const sel = selected[pname] || [];
         const allSelected = p.models.every(m => sel.includes(m));
         return (
@@ -640,7 +640,7 @@ function ConfigTab({ server }: { server: OpencodeServer }) {
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
   const [saving, setSaving] = useState(false);
-  // Выбранные провайдеры/модели: local-<name> → [model, ...]. Локальное состояние.
+  // Выбранные провайдеры/модели: <name из вкладки «Модели»> → [model, ...]. Локальное состояние.
   const [selected, setSelected] = useState<Record<string, string[]>>({});
   const [defaultModel, setDefaultModel] = useState('');
   const [providers, setProviders] = useState<ModelProvider[]>([]);
@@ -693,13 +693,12 @@ function ConfigTab({ server }: { server: OpencodeServer }) {
 
   useEffect(() => { loadAll(); }, [server.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Полный список моделей из selected: local-<name>/<model>.
+  // Полный список моделей из selected: <name>/<model>.
   const allModels: string[] = Object.entries(selected).flatMap(([p, ms]) => ms.map(m => `${p}/${m}`));
 
-  // baseURL провайдера: из провайдеров админки (имя без префикса local-).
+  // baseURL провайдера: имя совпадает с именем на вкладке «Модели».
   function providerBaseUrl(pname: string): string | null {
-    const adminName = pname.replace(/^local-/, '');
-    const p = providers.find(x => x.name === adminName);
+    const p = providers.find(x => x.name === pname);
     return p?.base_url || null;
   }
 
