@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Plus, Pencil, Trash2, Play, Square, RotateCw, Check, X, RefreshCw, KeyRound, Package, Network, ChevronRight, Server as ServerIcon } from 'lucide-react';
 import { api } from '../api/client';
 import type { ModelProvider, OpencodeServer } from '../types';
@@ -646,6 +646,8 @@ function ConfigTab({ server }: { server: OpencodeServer }) {
   const [providers, setProviders] = useState<ModelProvider[]>([]);
   const [providerStatus, setProviderStatus] = useState<Record<string, { available: boolean; context?: number; error?: string }>>({});
   const [loaded, setLoaded] = useState(false);
+  // Пока пользователь печатает в textarea — не затираем его текст автосборкой.
+  const editingRef = useRef(false);
 
   // Перечитать файл + модели из providers + провайдеры админки.
   async function loadAll() {
@@ -655,7 +657,6 @@ function ConfigTab({ server }: { server: OpencodeServer }) {
         api.getOpencodeConfigModels(server.id),
         api.getModelProviders(),
       ]);
-      setContent(cfgR.content || '');
       setExists(cfgR.exists);
       setParseErr(cfgR.error || null);
       if (modelsR.providers_status) setProviderStatus(modelsR.providers_status);
@@ -681,6 +682,10 @@ function ConfigTab({ server }: { server: OpencodeServer }) {
         dm = typeof cfg?.model === 'string' ? cfg.model : '';
       } catch { /* ignore */ }
       setDefaultModel(dm);
+
+      // Контент — как в файле (автосборка перезапишет при первом изменении блоков).
+      editingRef.current = false;
+      setContent(cfgR.content || '');
 
       setLoaded(true);
     } catch (e) { setErr(errText(e, 'Ошибка')); }
@@ -745,14 +750,18 @@ function ConfigTab({ server }: { server: OpencodeServer }) {
     return JSON.stringify(cfg, null, 2) + '\n';
   }
 
+  // Живое отражение: при изменении чекбоксов / default model пересобираем
+  // textarea (если пользователь не печатает в нём прямо сейчас).
+  useEffect(() => {
+    if (!loaded || editingRef.current) return;
+    setContent(buildConfig());
+  }, [selected, defaultModel]); // eslint-disable-line react-hooks/exhaustive-deps
+
   async function doSave() {
     setSaving(true); setMsg(''); setErr('');
     try {
-      // Собираем итоговый JSON и показываем его в textarea (окно редактирования).
-      const next = buildConfig();
-      setContent(next);
-      // Единственный PUT: записываем файл как есть.
-      const r = await api.putOpencodeConfig(server.id, next);
+      // Итоговый JSON — уже в textarea (автосборка). Записываем файл как есть.
+      const r = await api.putOpencodeConfig(server.id, content);
       setMsg(t.opencode.configSaveOk(r.path));
       // Перечитать статусы провайдеров (лимиты могли обновиться).
       try {
@@ -818,7 +827,18 @@ function ConfigTab({ server }: { server: OpencodeServer }) {
         </>
       )}
       <p className="text-xs text-slate-500 dark:text-slate-400 mb-2 mt-3">{t.opencode.configHint}</p>
-      <TextArea mono value={content} onChange={e => setContent(e.target.value)} rows={26} spellCheck={false} />
+      <TextArea
+        mono
+        value={content}
+        onChange={e => { editingRef.current = true; setContent(e.target.value); }}
+        onBlur={() => {
+          editingRef.current = false;
+          // После потери фокуса — пересобрать, чтобы блоки и текст были синхронны.
+          setContent(buildConfig());
+        }}
+        rows={26}
+        spellCheck={false}
+      />
       <div className="flex justify-end gap-2 mt-2">
         <Btn variant="outline" onClick={doReload}><RefreshCw size={15} /> {t.opencode.configReload}</Btn>
         <Btn onClick={doSave} disabled={saving}><Check size={15} /> {t.common.save}</Btn>
