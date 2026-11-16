@@ -691,38 +691,74 @@ function ConfigTab({ server }: { server: OpencodeServer }) {
   // Полный список моделей из selected: local-<name>/<model>.
   const allModels: string[] = Object.entries(selected).flatMap(([p, ms]) => ms.map(m => `${p}/${m}`));
 
+  // baseURL провайдера: из провайдеров админки (имя без префикса local-).
+  function providerBaseUrl(pname: string): string | null {
+    const adminName = pname.replace(/^local-/, '');
+    const p = providers.find(x => x.name === adminName);
+    return p?.base_url || null;
+  }
+
+  // Сборка итогового JSON из textarea + selected + defaultModel.
+  // Все изменения — только в окне редактирования; файл пишется по кнопке.
+  function buildConfig(): string {
+    let cfg: any = {};
+    try {
+      const parsed = JSON.parse(stripJsonc(content));
+      if (parsed && typeof parsed === 'object') cfg = parsed;
+    } catch { /* контент не парсится — начинаем с пустого объекта */ }
+
+    // providers: только выбранные (selected). Снятые — удаляются.
+    const provs: Record<string, any> = {};
+    for (const [pname, ms] of Object.entries(selected)) {
+      if (ms.length === 0) continue;
+      const base_url = providerBaseUrl(pname);
+      // Существующая секция (ручная правка) — сохраняем её структуру.
+      const existing: any = cfg.providers?.[pname] || {};
+      const modelsObj: Record<string, any> = {};
+      for (const m of ms) {
+        const prev = existing.models?.[m];
+        const ctx = providerStatus[pname]?.context || 32768;
+        modelsObj[m] = prev && typeof prev === 'object' ? prev : {
+          modelID: m,
+          name: m,
+          capabilities: { input: ['text'], output: ['text'], tools: true },
+          limit: { context: ctx, output: 4096 },
+        };
+      }
+      provs[pname] = {
+        ...existing,
+        models: modelsObj,
+        name: pname,
+        package: existing.package || 'aisdk:@ai-sdk/openai-compatible',
+        settings: { baseURL: base_url || existing.settings?.baseURL || '' },
+      };
+    }
+    cfg.providers = provs;
+
+    // Default model: одна строка или удаление ключа.
+    if (defaultModel) cfg.model = defaultModel;
+    else delete cfg.model;
+
+    // models[] — нестандартный ключ OpenCode, удаляем.
+    delete cfg.models;
+
+    return JSON.stringify(cfg, null, 2) + '\n';
+  }
+
   async function doSave() {
     setSaving(true); setMsg(''); setErr('');
     try {
-      // PUT моделей: бэкенд создаёт/обновляет providers, удаляет лишние секции,
-      // ставит default model и убирает нестандартный ключ models[].
-      const r = await api.putOpencodeConfigModels(server.id, allModels, defaultModel || null);
+      // Собираем итоговый JSON и показываем его в textarea (окно редактирования).
+      const next = buildConfig();
+      setContent(next);
+      // Единственный PUT: записываем файл как есть.
+      const r = await api.putOpencodeConfig(server.id, next);
       setMsg(t.opencode.configSaveOk(r.path));
-      // Последовательно перечитать: сначала конфиг (файл уже записан), потом модели.
-      const cfgR = await api.getOpencodeConfig(server.id);
-      setContent(cfgR.content || '');
-      setExists(cfgR.exists);
-      setParseErr(cfgR.error || null);
-      const modelsR = await api.getOpencodeConfigModels(server.id);
-      if (modelsR.providers_status) setProviderStatus(modelsR.providers_status);
-      // Инициализация selected из актуального конфига.
-      const sel: Record<string, string[]> = {};
+      // Перечитать статусы провайдеров (лимиты могли обновиться).
       try {
-        const cfg = JSON.parse(stripJsonc(cfgR.content || ''));
-        if (cfg?.providers && typeof cfg.providers === 'object') {
-          for (const [pname, pval] of Object.entries<any>(cfg.providers)) {
-            const ms = Object.keys(pval?.models || {});
-            if (ms.length > 0) sel[pname] = ms;
-          }
-        }
+        const modelsR = await api.getOpencodeConfigModels(server.id);
+        if (modelsR.providers_status) setProviderStatus(modelsR.providers_status);
       } catch { /* ignore */ }
-      setSelected(sel);
-      let dm = '';
-      try {
-        const cfg = JSON.parse(stripJsonc(cfgR.content || ''));
-        dm = typeof cfg?.model === 'string' ? cfg.model : '';
-      } catch { /* ignore */ }
-      setDefaultModel(dm);
     } catch (e) { setErr(errText(e, 'Ошибка')); }
     finally { setSaving(false); }
   }

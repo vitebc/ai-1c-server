@@ -755,13 +755,6 @@ pub async fn config_put(
     Ok(Json(json!({ "ok": true, "path": path.to_string_lossy().to_string() })))
 }
 
-#[derive(Debug, Deserialize)]
-pub struct ConfigModelsBody {
-    pub models: Vec<String>,
-    /// Default model (`provider/model`) или null — удалить ключ `model`.
-    #[serde(default)]
-    pub model: Option<String>,
-}
 
 /// Результат опроса LLM-сервера за лимитами модели.
 #[derive(Debug, Clone)]
@@ -897,173 +890,6 @@ fn resolve_provider_base_url(
     // Провайдера нет в админке — генерируем из имени: local-<port> → http://localhost:<port>/v1
     let port = pname.strip_prefix("local-").and_then(|s| s.parse::<u16>().ok())?;
     Some(format!("http://localhost:{}/v1", port))
-}
-
-/// PUT /opencode/servers/{id}/config/models — применяет выбор моделей к файлу:
-/// - создаёт/обновляет секции `providers` для выбранных моделей (лимиты —
-///   опросом провайдера на лету);
-/// - удаляет секции провайдеров, у которых больше нет выбранных моделей;
-/// - устанавливает/удаляет ключ `model` (default model, одна строка);
-/// - удаляет нестандартный ключ `models[]`, если он есть в файле.
-pub async fn config_models_put(
-    State(state): State<Arc<AppState>>,
-    Extension(ident): Extension<crate::auth::AuthIdentity>,
-    AxPath(id): AxPath<String>,
-    Json(body): Json<ConfigModelsBody>,
-) -> Result<Json<Value>, axum::response::Response> {
-    use axum::response::IntoResponse;
-    let row = {
-        let db = state.db.lock().await;
-        match read_row(&db, &id) {
-            Some(r) => r,
-            None => return Err(NotFound.into_response()),
-        }
-    };
-    let path = config_file(Path::new(&row.config_dir));
-    let content = std::fs::read_to_string(&path).unwrap_or_default();
-    let stripped = strip_jsonc(&content);
-    let mut cfg: Value = serde_json::from_str(&stripped)
-        .unwrap_or_else(|_| json!({}));
-    if !cfg.is_object() {
-        return Err(BadRequest("опencode.jsonc: ожидается JSON-объект".into()).into_response());
-    }
-    let models: Vec<Value> = body.models.iter().map(|m| json!(m.trim())).collect();
-
-    // models[] — нестандартный ключ OpenCode: удаляем, если есть в файле.
-    if cfg.is_object() {
-        cfg.as_object_mut().unwrap().remove("models");
-    }
-
-    // Default model (одна строка `provider/model`) — из тела запроса или null.
-    match &body.model {
-        Some(m) if !m.trim().is_empty() => { cfg["model"] = json!(m.trim()); }
-        _ => { cfg.as_object_mut().unwrap().remove("model"); }
-    }
-
-    // Провайдеры из списка моделей + уже существующие секции в конфиге.
-    let admin_providers = crate::api::admin::model_providers::list(axum::extract::State(state.clone())).await.0;
-    if cfg.get("providers").is_none() {
-        cfg["providers"] = json!({});
-    }
-
-    // Собираем все пары (provider, model) из body.models.
-    let mut wanted: Vec<(String, String)> = Vec::new();
-    for m in &body.models {
-        let trimmed = m.trim();
-        if let Some((pname, mname)) = trimmed.split_once('/') {
-            if !pname.is_empty() && !mname.is_empty() {
-                wanted.push((pname.to_string(), mname.to_string()));
-            }
-        }
-    }
-
-    // Уникальные провайдеры из wanted — для удаления лишних секций.
-    let wanted_providers: std::collections::HashSet<String> = wanted.iter().map(|(p, _)| p.clone()).collect();
-
-    // Удаляем секции провайдеров, которые больше не нужны.
-    if let Some(provs) = cfg.get_mut("providers").and_then(|v| v.as_object_mut()) {
-        let to_remove: Vec<String> = provs.keys()
-            .filter(|pname| !wanted_providers.contains(*pname))
-            .cloned()
-            .collect();
-        for pname in to_remove {
-            provs.remove(&pname);
-            tracing::info!("opencode: removed provider {} from config (no models left) for {}", pname, row.name);
-        }
-    }
-
-    // Параллельно опрашиваем всех провайдеров за лимитами.
-    let futures: Vec<(String, String, tokio::task::JoinHandle<ModelLimits>)> = wanted
-        .iter()
-        .filter_map(|(pname, mname)| {
-            let base_url = cfg.get("providers")
-                .and_then(|p| p.get(pname))
-                .and_then(|p| p.get("settings"))
-                .and_then(|s| s.get("baseURL"))
-                .and_then(|v| v.as_str())
-                .map(String::from)
-                .or_else(|| resolve_provider_base_url(pname, &admin_providers))?;
-            if base_url.is_empty() { return None; }
-            let bu = base_url.clone();
-            let mn = mname.clone();
-            Some((pname.clone(), mname.clone(), tokio::spawn(async move { fetch_model_limits(&bu, &mn).await })))
-        })
-        .collect();
-
-    // Применяем результаты: создаём/обновляем секции со ВСЕМИ выбранными моделями.
-    for (pname, mname, handle) in futures {
-        let limits = handle.await.unwrap_or_default();
-        let base_url = cfg.get("providers")
-            .and_then(|p| p.get(&pname))
-            .and_then(|p| p.get("settings"))
-            .and_then(|s| s.get("baseURL"))
-            .and_then(|v| v.as_str())
-            .map(String::from)
-            .or_else(|| resolve_provider_base_url(&pname, &admin_providers));
-        let Some(base_url) = base_url else { continue };
-
-        let model_entry = json!({
-            "capabilities": {
-                "input": limits.input_modalities,
-                "output": ["text"],
-                "tools": true,
-            },
-            "limit": { "context": limits.context, "output": limits.output },
-            "modelID": mname,
-            "name": mname,
-        });
-
-        let mut provs = cfg.get_mut("providers").and_then(|v| v.as_object_mut()).unwrap();
-        match provs.get_mut(&pname) {
-            Some(existing) => {
-                // Добавляем/обновляем модель в существующей секции.
-                if let Some(models_obj) = existing.get_mut("models").and_then(|v| v.as_object_mut()) {
-                    models_obj.insert(mname.clone(), model_entry);
-                }
-                tracing::debug!("opencode: updated model {} in provider {} for {}", mname, pname, row.name);
-            }
-            None => {
-                let provider_entry = json!({
-                    "models": { mname: model_entry },
-                    "name": pname,
-                    "package": "aisdk:@ai-sdk/openai-compatible",
-                    "settings": { "baseURL": base_url },
-                });
-                provs.insert(pname.clone(), provider_entry);
-                tracing::info!("opencode: auto-created provider {} (ctx={}) in config for {}", pname, limits.context, row.name);
-            }
-        }
-    }
-
-    // Печатаем с 2-отступом; комментарии из исходника теряются — это осознанно,
-    // файл управляется админкой.
-    let mut out = serde_json::to_string_pretty(&cfg).unwrap_or_default();
-    out.push('\n');
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| AppError::msg(e.to_string()).into_response())?;
-    }
-    std::fs::write(&path, &out)
-        .map_err(|e| AppError::msg(e.to_string()).into_response())?;
-    tracing::info!("opencode: config models updated for {} ({} models)", row.name, body.models.len());
-    audit::ensure_imported(Path::new(&row.config_dir));
-    audit::record(
-        &state, &ident.user_id, &ident.username, "oc-config", &row.name, "update", &path,
-    ).await;
-
-    // Перечитываем финальный список моделей из providers (для ответа UI).
-    let mut final_names: Vec<String> = Vec::new();
-    if let Some(provs) = cfg.get("providers").and_then(|v| v.as_object()) {
-        for (pname, pval) in provs {
-            if let Some(models) = pval.get("models").and_then(|v| v.as_object()) {
-                for mname in models.keys() {
-                    let full = format!("{}/{}", pname, mname);
-                    if !final_names.contains(&full) { final_names.push(full); }
-                }
-            }
-        }
-    }
-    Ok(Json(json!({ "ok": true, "path": path.to_string_lossy().to_string(), "models": final_names })))
 }
 
 /// GET /opencode/servers/{id}/config/models — список моделей из секции
@@ -2437,10 +2263,7 @@ pub fn routes() -> Router<Arc<AppState>> {
             "/servers/{id}/config",
             get(config_get).put(config_put),
         )
-        .route(
-            "/servers/{id}/config/models",
-            get(config_models_get).put(config_models_put),
-        )
+        .route("/servers/{id}/config/models", get(config_models_get))
         .route("/servers/{id}/agents", get(agents_list))
         .route("/servers/{id}/agents/{name}", put(agent_put))
         .route("/servers/{id}/agents/{name}", axum::routing::delete(agent_delete))
