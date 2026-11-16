@@ -644,10 +644,24 @@ pub async fn config_get(
         .map_err(|e| AppError::msg(e.to_string()).into_response())?;
     // Валидация JSONC: убрать комментарии и хвостовые запятые → serde_json.
     let stripped = strip_jsonc(&content);
-    if let Err(e) = serde_json::from_str::<Value>(&stripped) {
-        return Ok(Json(json!({ "exists": true, "content": content, "error": e.to_string() })));
+    match serde_json::from_str::<Value>(&stripped) {
+        Ok(mut cfg) => {
+            // Нормализуем: если providers есть, но models[] — не массив, удаляем.
+            if cfg.is_object() {
+                if let Some(models) = cfg.get("models") {
+                    if !models.is_array() {
+                        cfg.as_object_mut().unwrap().remove("models");
+                    }
+                }
+                // Печатаем нормализованный JSON (2-отступ).
+                let normalized = serde_json::to_string_pretty(&cfg).unwrap_or_default();
+                Ok(Json(json!({ "exists": true, "content": normalized, "error": null })))
+            } else {
+                Err(BadRequest("opencode.jsonc: ожидается JSON-объект".into()).into_response())
+            }
+        }
+        Err(e) => Ok(Json(json!({ "exists": true, "content": content, "error": e.to_string() }))),
     }
-    Ok(Json(json!({ "exists": true, "content": content, "error": null })))
 }
 
 /// Минимальная очистка JSONC: строки сохраняются, `//` и `/* */` вне строк
