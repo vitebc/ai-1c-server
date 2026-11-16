@@ -741,8 +741,20 @@ function ConfigTab({ server }: { server: OpencodeServer }) {
     cfg.providers = provs;
 
     // Default model: одна строка или удаление ключа.
-    if (defaultModel) cfg.model = defaultModel;
-    else delete cfg.model;
+    // Если провайдер/модель сняты — сбрасываем, чтобы не было «висящей» ссылки.
+    const dm = defaultModel || '';
+    if (dm) {
+      const slash = dm.indexOf('/');
+      const pPart = slash > 0 ? dm.slice(0, slash) : dm;
+      const mPart = slash > 0 ? dm.slice(slash + 1) : '';
+      if ((provs[pPart]?.models && provs[pPart].models[mPart]) || (slash < 0 && provs[dm])) {
+        cfg.model = dm;
+      } else {
+        delete cfg.model;
+      }
+    } else {
+      delete cfg.model;
+    }
 
     // models[] — нестандартный ключ OpenCode, удаляем.
     delete cfg.models;
@@ -756,6 +768,17 @@ function ConfigTab({ server }: { server: OpencodeServer }) {
     if (!loaded || editingRef.current) return;
     setContent(buildConfig());
   }, [selected, defaultModel]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Если сняли провайдера/модель, на которую ссылается default model — сбрасываем её.
+  useEffect(() => {
+    if (!loaded || !defaultModel) return;
+    const slash = defaultModel.indexOf('/');
+    const pPart = slash > 0 ? defaultModel.slice(0, slash) : defaultModel;
+    const mPart = slash > 0 ? defaultModel.slice(slash + 1) : '';
+    if (slash < 0 || !selected[pPart]?.includes(mPart)) {
+      setDefaultModel('');
+    }
+  }, [selected]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function doSave() {
     setSaving(true); setMsg(''); setErr('');
