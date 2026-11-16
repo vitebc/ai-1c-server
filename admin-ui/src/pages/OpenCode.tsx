@@ -563,46 +563,72 @@ function ChipsInput({ values, onChange, placeholder, mono }: { values: string[];
 
 // ─── Конфиг (opencode.jsonc) ────────────────────────────────────────
 
-/// Выпадающий список для выбора провайдера с моделью из списка админки.
-function ModelProviderSelect({ providers, onAdd, existingModels }: {
+/// Выбор провайдеров и моделей из вкладки «Модели» админки.
+/// Состояние: selected[providerName] = Set<model>. Изменения — локально,
+/// PUT уходит только по кнопке «Сохранить».
+function ProviderPicker({ providers, selected, onChange }: {
   providers: ModelProvider[];
-  onAdd: (model: string) => void;
-  existingModels: string[];
+  selected: Record<string, string[]>;
+  onChange: (next: Record<string, string[]>) => void;
 }) {
-  const [selected, setSelected] = useState('');
-  
-  // Формируем опции: <provider>/<model> для каждого enabled провайдера.
-  const options: { value: string; label: string }[] = [];
-  for (const p of providers) {
-    if (!p.enabled) continue;
-    for (const m of p.models) {
-      const full = `local-${p.name}/${m}`;
-      if (!existingModels.includes(full)) {
-        options.push({ value: full, label: `${p.name} → ${m}` });
-      }
-    }
+  const enabled = providers.filter(p => p.enabled && p.models.length > 0);
+  if (enabled.length === 0) return <span className="text-xs text-slate-400">Нет доступных провайдеров</span>;
+
+  function toggleProvider(pname: string, models: string[]) {
+    const next = { ...selected };
+    if (next[pname] && next[pname].length > 0) delete next[pname];
+    else next[pname] = [...models];
+    onChange(next);
   }
-  
-  if (options.length === 0) return null;
-  
+
+  function toggleModel(pname: string, m: string) {
+    const cur = selected[pname] || [];
+    const next = { ...selected };
+    if (cur.includes(m)) {
+      const filtered = cur.filter(x => x !== m);
+      if (filtered.length === 0) delete next[pname]; else next[pname] = filtered;
+    } else {
+      next[pname] = [...cur, m];
+    }
+    onChange(next);
+  }
+
   return (
-    <div className="flex items-center gap-2">
-      <Select
-        value={selected}
-        onChange={e => setSelected(e.target.value)}
-        className="flex-1"
-      >
-        <option value="">— выбрать модель —</option>
-        {options.map(o => (
-          <option key={o.value} value={o.value}>{o.label}</option>
-        ))}
-      </Select>
-      <Btn
-        onClick={() => { if (selected) { onAdd(selected); setSelected(''); } }}
-        disabled={!selected}
-      >
-        <Plus size={14} /> Добавить
-      </Btn>
+    <div className="space-y-2">
+      {enabled.map(p => {
+        const pname = `local-${p.name}`;
+        const sel = selected[pname] || [];
+        const allSelected = p.models.every(m => sel.includes(m));
+        return (
+          <div key={p.id} className="border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={() => toggleProvider(pname, p.models)}
+                className="accent-blue-600"
+              />
+              <span className="font-medium text-sm">{pname}</span>
+              <span className="text-xs text-slate-400 font-mono truncate max-w-[280px]">{p.base_url}</span>
+            </label>
+            {sel.length > 0 && (
+              <div className="mt-1.5 ml-6 flex flex-wrap gap-x-3 gap-y-1">
+                {p.models.map(m => (
+                  <label key={m} className="flex items-center gap-1.5 cursor-pointer text-xs">
+                    <input
+                      type="checkbox"
+                      checked={sel.includes(m)}
+                      onChange={() => toggleModel(pname, m)}
+                      className="accent-blue-600"
+                    />
+                    <span className="font-mono">{m}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -613,83 +639,77 @@ function ConfigTab({ server }: { server: OpencodeServer }) {
   const [parseErr, setParseErr] = useState<string | null>(null);
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
-  const [models, setModels] = useState<string[]>([]);
-  const [modelsLoaded, setModelsLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+  // Выбранные провайдеры/модели: local-<name> → [model, ...]. Локальное состояние.
+  const [selected, setSelected] = useState<Record<string, string[]>>({});
+  const [defaultModel, setDefaultModel] = useState('');
   const [providers, setProviders] = useState<ModelProvider[]>([]);
   const [providerStatus, setProviderStatus] = useState<Record<string, { available: boolean; context?: number; error?: string }>>({});
+  const [loaded, setLoaded] = useState(false);
 
-  const load = useCallback(async () => {
+  // Перечитать файл + модели из providers + провайдеры админки.
+  async function loadAll() {
     try {
-      const r = await api.getOpencodeConfig(server.id);
-      setContent(r.content || '');
-      setExists(r.exists);
-      setParseErr(r.error || null);
+      const [cfgR, modelsR, provR] = await Promise.all([
+        api.getOpencodeConfig(server.id),
+        api.getOpencodeConfigModels(server.id),
+        api.getModelProviders(),
+      ]);
+      setContent(cfgR.content || '');
+      setExists(cfgR.exists);
+      setParseErr(cfgR.error || null);
+      if (modelsR.providers_status) setProviderStatus(modelsR.providers_status);
+      setProviders(provR);
+
+      // Инициализация selected из секции providers в конфиге.
+      const sel: Record<string, string[]> = {};
+      try {
+        const cfg = JSON.parse(stripJsonc(cfgR.content || ''));
+        if (cfg?.providers && typeof cfg.providers === 'object') {
+          for (const [pname, pval] of Object.entries<any>(cfg.providers)) {
+            const ms = Object.keys(pval?.models || {});
+            if (ms.length > 0) sel[pname] = ms;
+          }
+        }
+      } catch { /* контент не парсится — чекбоксы будут пустыми */ }
+      setSelected(sel);
+
+      // Default model из файла.
+      let dm = '';
+      try {
+        const cfg = JSON.parse(stripJsonc(cfgR.content || ''));
+        dm = typeof cfg?.model === 'string' ? cfg.model : '';
+      } catch { /* ignore */ }
+      setDefaultModel(dm);
+
+      setLoaded(true);
     } catch (e) { setErr(errText(e, 'Ошибка')); }
-  }, [server.id]);
+  }
 
-  // Модели — отдельный ключ models[] в том же файле; бэкенд автозаполняет
-  // из провайдеров при первом обращении.
-  const loadModels = useCallback(async () => {
-    try {
-      const r = await api.getOpencodeConfigModels(server.id);
-      setModels(r.models || []);
-      if (r.providers_status) setProviderStatus(r.providers_status);
-      setModelsLoaded(true);
-    } catch { /* конфиг нет — блок покажет пустой список */ }
-  }, [server.id]);
+  useEffect(() => { loadAll(); }, [server.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Провайдеры из админки — для выпадающего списка.
-  const loadProviders = useCallback(async () => {
-    try {
-      const r = await api.getModelProviders();
-      setProviders(r);
-    } catch { /* нет прав или ошибка — список будет пустым */ }
-  }, []);
-
-  useEffect(() => { load(); loadModels(); loadProviders(); }, [load, loadModels, loadProviders]);
+  // Полный список моделей из selected: local-<name>/<model>.
+  const allModels: string[] = Object.entries(selected).flatMap(([p, ms]) => ms.map(m => `${p}/${m}`));
 
   async function doSave() {
-    setMsg(''); setErr('');
+    setSaving(true); setMsg(''); setErr('');
     try {
-      // Сначала модели (PUT создаёт/обновляет providers и лимиты), потом контент.
-      await api.putOpencodeConfigModels(server.id, models);
-      const r = await api.putOpencodeConfig(server.id, content);
+      // PUT моделей: бэкенд создаёт/обновляет providers, удаляет лишние секции,
+      // ставит default model и убирает нестандартный ключ models[].
+      const r = await api.putOpencodeConfigModels(server.id, allModels, defaultModel || null);
       setMsg(t.opencode.configSaveOk(r.path));
-      load(); // перечитать файл — providers могли появиться/обновиться
+      await loadAll();
     } catch (e) { setErr(errText(e, 'Ошибка')); }
+    finally { setSaving(false); }
   }
 
   // Перечитать конфиг из файла (отменить локальные изменения).
   async function doReload() {
     setMsg(''); setErr('');
     try {
-      await load();
-      await loadModels();
+      await loadAll();
       setMsg(t.opencode.configReloaded);
     } catch (e) { setErr(errText(e, 'Ошибка')); }
-  }
-
-  // Модели меняются локально; PUT уходит только по кнопке «Сохранить».
-  // При изменении чипов — синхронизируем textarea (локально, без PUT):
-  // обновляем models[] и удаляем providers, у которых нет моделей.
-  function saveModels(next: string[]) {
-    setModels(next);
-    try {
-      const cfg = JSON.parse(stripJsonc(content));
-      if (cfg && typeof cfg === 'object') {
-        cfg.models = next;
-        // Удаляем providers, у которых нет моделей в новом списке.
-        if (cfg.providers && typeof cfg.providers === 'object') {
-          const wantedProviders = new Set(next.map((m: string) => m.split('/')[0]));
-          for (const pname of Object.keys(cfg.providers)) {
-            if (!wantedProviders.has(pname)) {
-              delete cfg.providers[pname];
-            }
-          }
-        }
-        setContent(JSON.stringify(cfg, null, 2) + '\n');
-      }
-    } catch { /* контент не парсится — не трогаем */ }
   }
 
   return (
@@ -698,44 +718,50 @@ function ConfigTab({ server }: { server: OpencodeServer }) {
       {parseErr && <div className="mb-3"><Alert tone="red">JSON: {parseErr}</Alert></div>}
       {msg && <div className="mb-3"><Alert tone="blue">{msg}</Alert></div>}
       {err && <div className="mb-3"><Alert tone="red">{err}</Alert></div>}
-      {modelsLoaded && (
-        <Field label={t.opencode.configModelsTitle} hint={t.opencode.configModelsHint}>
-          <ModelProviderSelect
-            providers={providers}
-            onAdd={(m) => saveModels([...models, m])}
-            existingModels={models}
-          />
-          <div className="mt-2">
-            <ChipsInput mono values={models} onChange={saveModels} placeholder={t.opencode.configModelsAddPlaceholder} />
-          </div>
-          {/* Статусы провайдеров */}
-          {Object.keys(providerStatus).length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {Object.entries(providerStatus).map(([pname, st]) => (
-                <div key={pname} className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs ${
-                  st.available 
-                    ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400' 
-                    : 'bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400'
-                }`}>
-                  <span className={`w-2 h-2 rounded-full ${st.available ? 'bg-emerald-500' : 'bg-red-500'}`} />
-                  <span className="font-medium">{pname}</span>
-                  {st.available && st.context && (
-                    <span className="text-slate-500 dark:text-slate-400">ctx {(st.context / 1024).toFixed(0)}k</span>
-                  )}
-                  {!st.available && st.error && (
-                    <span className="text-red-600 dark:text-red-400 truncate max-w-[200px]">{st.error}</span>
-                  )}
-                </div>
+      {loaded && (
+        <>
+          {/* Провайдеры и модели из админки */}
+          <Field label={t.opencode.configProvidersTitle} hint={t.opencode.configProvidersHint}>
+            <ProviderPicker providers={providers} selected={selected} onChange={setSelected} />
+            {/* Статусы провайдеров */}
+            {Object.keys(providerStatus).length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {Object.entries(providerStatus).map(([pname, st]) => (
+                  <div key={pname} className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs ${
+                    st.available 
+                      ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400' 
+                      : 'bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400'
+                  }`}>
+                    <span className={`w-2 h-2 rounded-full ${st.available ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                    <span className="font-medium">{pname}</span>
+                    {st.available && st.context && (
+                      <span className="text-slate-500 dark:text-slate-400">ctx {(st.context / 1024).toFixed(0)}k</span>
+                    )}
+                    {!st.available && st.error && (
+                      <span className="text-red-600 dark:text-red-400 truncate max-w-[200px]">{st.error}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </Field>
+
+          {/* Модель по умолчанию */}
+          <Field label={t.opencode.configDefaultModelTitle} hint={t.opencode.configDefaultModelHint}>
+            <Select value={defaultModel} onChange={e => setDefaultModel(e.target.value)} className="max-w-md">
+              <option value="">{t.opencode.configDefaultModelNone}</option>
+              {allModels.map(m => (
+                <option key={m} value={m}>{m}</option>
               ))}
-            </div>
-          )}
-        </Field>
+            </Select>
+          </Field>
+        </>
       )}
       <p className="text-xs text-slate-500 dark:text-slate-400 mb-2 mt-3">{t.opencode.configHint}</p>
       <TextArea mono value={content} onChange={e => setContent(e.target.value)} rows={26} spellCheck={false} />
       <div className="flex justify-end gap-2 mt-2">
         <Btn variant="outline" onClick={doReload}><RefreshCw size={15} /> {t.opencode.configReload}</Btn>
-        <Btn onClick={doSave}><Check size={15} /> {t.common.save}</Btn>
+        <Btn onClick={doSave} disabled={saving}><Check size={15} /> {t.common.save}</Btn>
       </div>
     </div>
   );

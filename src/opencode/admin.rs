@@ -744,6 +744,9 @@ pub async fn config_put(
 #[derive(Debug, Deserialize)]
 pub struct ConfigModelsBody {
     pub models: Vec<String>,
+    /// Default model (`provider/model`) или null — удалить ключ `model`.
+    #[serde(default)]
+    pub model: Option<String>,
 }
 
 /// Результат опроса LLM-сервера за лимитами модели.
@@ -882,10 +885,12 @@ fn resolve_provider_base_url(
     Some(format!("http://localhost:{}/v1", port))
 }
 
-/// Ключ `models` в opencode.jsonc — список полных имён моделей
-/// (`local-12600/qwen3.8`), как их видит OpenCode. Не штатный ключ
-/// рантайма — читает только админка: селектор модели в форме агента.
-/// Обновляем только этот ключ, остальной контент файла не трогаем.
+/// PUT /opencode/servers/{id}/config/models — применяет выбор моделей к файлу:
+/// - создаёт/обновляет секции `providers` для выбранных моделей (лимиты —
+///   опросом провайдера на лету);
+/// - удаляет секции провайдеров, у которых больше нет выбранных моделей;
+/// - устанавливает/удаляет ключ `model` (default model, одна строка);
+/// - удаляет нестандартный ключ `models[]`, если он есть в файле.
 pub async fn config_models_put(
     State(state): State<Arc<AppState>>,
     Extension(ident): Extension<crate::auth::AuthIdentity>,
@@ -909,7 +914,17 @@ pub async fn config_models_put(
         return Err(BadRequest("опencode.jsonc: ожидается JSON-объект".into()).into_response());
     }
     let models: Vec<Value> = body.models.iter().map(|m| json!(m.trim())).collect();
-    cfg["models"] = json!(models);
+
+    // models[] — нестандартный ключ OpenCode: удаляем, если есть в файле.
+    if cfg.is_object() {
+        cfg.as_object_mut().unwrap().remove("models");
+    }
+
+    // Default model (одна строка `provider/model`) — из тела запроса или null.
+    match &body.model {
+        Some(m) if !m.trim().is_empty() => { cfg["model"] = json!(m.trim()); }
+        _ => { cfg.as_object_mut().unwrap().remove("model"); }
+    }
 
     // Провайдеры из списка моделей + уже существующие секции в конфиге.
     let admin_providers = crate::api::admin::model_providers::list(axum::extract::State(state.clone())).await.0;
@@ -1026,12 +1041,26 @@ pub async fn config_models_put(
     audit::record(
         &state, &ident.user_id, &ident.username, "oc-config", &row.name, "update", &path,
     ).await;
-    Ok(Json(json!({ "ok": true, "path": path.to_string_lossy().to_string() })))
+
+    // Перечитываем финальный список моделей из providers (для ответа UI).
+    let mut final_names: Vec<String> = Vec::new();
+    if let Some(provs) = cfg.get("providers").and_then(|v| v.as_object()) {
+        for (pname, pval) in provs {
+            if let Some(models) = pval.get("models").and_then(|v| v.as_object()) {
+                for mname in models.keys() {
+                    let full = format!("{}/{}", pname, mname);
+                    if !final_names.contains(&full) { final_names.push(full); }
+                }
+            }
+        }
+    }
+    Ok(Json(json!({ "ok": true, "path": path.to_string_lossy().to_string(), "models": final_names })))
 }
 
-/// GET /opencode/servers/{id}/config/models — список моделей из opencode.jsonc.
-/// Если ключа нет — автозаполняем из провайдеров админки: `<имя>/<модель>`
-/// (так OpenCode именует модели локальных провайдеров).
+/// GET /opencode/servers/{id}/config/models — список моделей из секции
+/// `providers` opencode.jsonc (полные имена `local-<порт>/<модель>`),
+/// текущий default model и статусы провайдеров. Файл не модифицирует;
+/// нестандартный ключ models[] в ответ не попадает.
 pub async fn config_models_get(
     State(state): State<Arc<AppState>>,
     AxPath(id): AxPath<String>,
@@ -1047,32 +1076,8 @@ pub async fn config_models_get(
     let path = config_file(Path::new(&row.config_dir));
     let content = std::fs::read_to_string(&path).unwrap_or_default();
     let cfg: Value = serde_json::from_str(&strip_jsonc(&content)).unwrap_or_else(|_| json!({}));
-    if let Some(models) = cfg["models"].as_array() {
-        let names: Vec<String> = models.iter().filter_map(|m| m.as_str().map(String::from)).collect();
-        // Статусы провайдеров (доступность + контекст) для UI.
-        let admin_providers = crate::api::admin::model_providers::list(axum::extract::State(state.clone())).await.0;
-        let mut status_map: serde_json::Map<String, Value> = serde_json::Map::new();
-        for name in &names {
-            let Some((pname, mname)) = name.split_once('/') else { continue };
-            if status_map.contains_key(pname) { continue; }
-            let base_url = cfg.get("providers")
-                .and_then(|p| p.get(pname))
-                .and_then(|p| p.get("settings"))
-                .and_then(|s| s.get("baseURL"))
-                .and_then(|v| v.as_str())
-                .map(String::from)
-                .or_else(|| resolve_provider_base_url(pname, &admin_providers));
-            if let Some(bu) = base_url {
-                let st = probe_provider_status(&bu, mname).await;
-                status_map.insert(pname.to_string(), serde_json::to_value(st).unwrap_or(Value::Null));
-            }
-        }
-        return Ok(Json(json!({ "models": names, "auto": false, "providers_status": status_map })));
-    }
-    // Автозаполнение из двух источников:
-    // 1) providers в самом opencode.jsonc — полные имена local-<порт>/<модель>
-    //    (то, как их реально видит OpenCode);
-    // 2) провайдеры админки — name/модель.
+
+    // Список моделей — только из providers (models[] не храним и не читаем).
     let mut names: Vec<String> = Vec::new();
     if let Some(provs) = cfg.get("providers").and_then(|v| v.as_object()) {
         for (pname, pval) in provs {
@@ -1084,24 +1089,12 @@ pub async fn config_models_get(
             }
         }
     }
-    let providers = crate::api::admin::model_providers::list(axum::extract::State(state.clone())).await.0;
-    for p in &providers {
-        if !p.enabled { continue; }
-        for m in &p.models {
-            let full = format!("{}/{}", p.name, m);
-            if !names.contains(&full) { names.push(full); }
-        }
-    }
-    // Запишем в конфиг, чтобы дальше список был явным.
-    if !names.is_empty() {
-        let mut c = if cfg.is_object() { cfg.clone() } else { json!({}) };
-        c["models"] = json!(names.clone());
-        let mut out = serde_json::to_string_pretty(&c).unwrap_or_default();
-        out.push('\n');
-        let _ = std::fs::write(&path, out);
-    }
-    // Статусы провайдеров для UI.
-    let admin_providers2 = crate::api::admin::model_providers::list(axum::extract::State(state.clone())).await.0;
+
+    // Default model (одна строка).
+    let default_model = cfg.get("model").and_then(|v| v.as_str()).map(String::from);
+
+    // Статусы провайдеров (доступность + контекст) для UI.
+    let admin_providers = crate::api::admin::model_providers::list(axum::extract::State(state.clone())).await.0;
     let mut status_map: serde_json::Map<String, Value> = serde_json::Map::new();
     for name in &names {
         let Some((pname, mname)) = name.split_once('/') else { continue };
@@ -1112,13 +1105,13 @@ pub async fn config_models_get(
             .and_then(|s| s.get("baseURL"))
             .and_then(|v| v.as_str())
             .map(String::from)
-            .or_else(|| resolve_provider_base_url(pname, &admin_providers2));
+            .or_else(|| resolve_provider_base_url(pname, &admin_providers));
         if let Some(bu) = base_url {
             let st = probe_provider_status(&bu, mname).await;
             status_map.insert(pname.to_string(), serde_json::to_value(st).unwrap_or(Value::Null));
         }
     }
-    Ok(Json(json!({ "models": names, "auto": true, "providers_status": status_map })))
+    Ok(Json(json!({ "models": names, "model": default_model, "providers_status": status_map })))
 }
 
 // ─── агенты и скилы (файлы в config/<server>) ──────────────────────
