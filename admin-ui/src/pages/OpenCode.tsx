@@ -698,7 +698,31 @@ function ConfigTab({ server }: { server: OpencodeServer }) {
       // ставит default model и убирает нестандартный ключ models[].
       const r = await api.putOpencodeConfigModels(server.id, allModels, defaultModel || null);
       setMsg(t.opencode.configSaveOk(r.path));
-      await loadAll();
+      // Последовательно перечитать: сначала конфиг (файл уже записан), потом модели.
+      const cfgR = await api.getOpencodeConfig(server.id);
+      setContent(cfgR.content || '');
+      setExists(cfgR.exists);
+      setParseErr(cfgR.error || null);
+      const modelsR = await api.getOpencodeConfigModels(server.id);
+      if (modelsR.providers_status) setProviderStatus(modelsR.providers_status);
+      // Инициализация selected из актуального конфига.
+      const sel: Record<string, string[]> = {};
+      try {
+        const cfg = JSON.parse(stripJsonc(cfgR.content || ''));
+        if (cfg?.providers && typeof cfg.providers === 'object') {
+          for (const [pname, pval] of Object.entries<any>(cfg.providers)) {
+            const ms = Object.keys(pval?.models || {});
+            if (ms.length > 0) sel[pname] = ms;
+          }
+        }
+      } catch { /* ignore */ }
+      setSelected(sel);
+      let dm = '';
+      try {
+        const cfg = JSON.parse(stripJsonc(cfgR.content || ''));
+        dm = typeof cfg?.model === 'string' ? cfg.model : '';
+      } catch { /* ignore */ }
+      setDefaultModel(dm);
     } catch (e) { setErr(errText(e, 'Ошибка')); }
     finally { setSaving(false); }
   }
