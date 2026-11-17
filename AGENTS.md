@@ -73,7 +73,9 @@ start/stop/status/restart. Выкатка в prod — `scripts/deploy.sh`.
   RLS-мост `/onec/rpc`). Инструменты 1С в OpenCode — штатный плагин v2
   (`Plugin.define` + `ctx.tool.transform`), генерируется кнопкой «Применить»
   (sync из 1С → generate index.ts → restart контейнера). RLS: JWT пользователя
-  из формы подставляется шлюзом в запрос к `{base}/hs/mcp/rpc`.
+  из формы подставляется шлюзом в запрос к `{base}/hs/mcp/rpc`. Вкладка Конфиг:
+   все изменения — в textarea, файл пишется только по «Сохранить» (один PUT);
+   имена провайдеров = имена с вкладки «Модели», default model — одна строка.
 - **Admin UI** (React 19 + Vite 7 + Tailwind CSS v4 + react-router 7):
   Dashboard, MCP Servers, Models, Agent Studio, Skills, BSL LS, Configs,
   Client Versions, Clients, Logs, Users, OpenCode. Тёмная тема, i18n (ru),

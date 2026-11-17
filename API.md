@@ -290,7 +290,8 @@ Authorization: Bearer <JWT HS256, sub = onec_id>
 | GET/PUT/DELETE | `/opencode/servers/{id}` | по id или name; PUT — частичное (пустой `password`/`onec_password` = оставить) |
 | POST | `/opencode/servers/{id}/up\|stop\|restart` | `docker compose <action> <compose_service>` в `project_root` |
 | GET | `/opencode/servers/{id}/logs?tail=` | compose-логи |
-| GET/PUT | `/opencode/servers/{id}/config` | `opencode.jsonc` (JSONC, валидация при записи); читается из `config_dir` сервера — каталог реестра должен совпадать с реальным (регистр важен) |
+| GET/PUT | `/opencode/servers/{id}/config` | `opencode.jsonc` (JSONC, валидация при записи); читается из `config_dir` сервера — каталог реестра должен совпадать с реальным (регистр важен). GET возвращает нормализованный pretty-print JSON (JSONC-комментарии и нестандартный ключ `models[]` отбрасываются) |
+| GET | `/opencode/servers/{id}/config/models` | список моделей из секции `providers` opencode.jsonc (полные имена `<провайдер>/<модель>`), текущий default model (`model`, одна строка) и `providers_status` — live-статусы провайдеров (доступность + context limit). Файл не модифицирует; нестандартный ключ `models[]` в ответ не попадает |
 | GET | `/opencode/servers/{id}/agents` | плоские агенты `config/<server>/agents/*.md` (frontmatter + body) |
 | PUT/DELETE | `/opencode/servers/{id}/agents/{name}` | создать/изменить / удалить агент |
 | GET | `/opencode/servers/{id}/skills` | скилы `config/<server>/skills/*.md` |
@@ -322,6 +323,16 @@ Authorization: Bearer <JWT HS256, sub = onec_id>
 **Кнопка «Применить»** (UI, вкладка Инструменты) = `POST /tools/apply`:
 синхронизация каталога из 1С + генерация плагина + рестарт контейнера
 (если каталог изменился). При добавлении/удалении тулзы в 1С — один клик.
+
+**Вкладка Конфиг (UI):** все изменения копятся в окне редактирования
+(textarea), физическое сохранение файла — только по кнопке «Сохранить»
+(один `PUT /config`). Чекбоксы провайдеров/моделей и dropdown модели по
+умолчанию меняют только локальное состояние и сразу пересобирают textarea
+(живое отражение; ручная печать не затирается, после onBlur — пересборка).
+Имена провайдеров в `opencode.jsonc` совпадают с именами на вкладке
+«Модели» (`model_providers`). Default model — одна строка `<провайдер>/<модель>`;
+если провайдер/модель сняты, ключ `model` сбрасывается. Нестандартный ключ
+`models[]` при сборке удаляется. «Перечитать» — отмена локальных изменений.
 
 **Маршрутизация по базе:** claim `base` из JWT → заголовок `X-1C-Base` →
 query `?base=` → путь `/b/{base}/api/...` → сервер по умолчанию
