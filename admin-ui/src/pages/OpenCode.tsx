@@ -979,7 +979,13 @@ function setPermsBlock(fm: string, p: PermsState): string {
   if (!full) return fm.replace(/^permissions:[^\S\r\n]*\r?\n(?:(?:[ \t]*-|[ \t]).+\r?\n?)*/m, '').replace(/\n{3,}/g, '\n\n').trim();
   if (existing) {
     const re = /^permissions:[^\S\r\n]*\r?\n(?:(?:[ \t]*-|[ \t]).+\r?\n?)*/m;
-    return fm.replace(re, full);
+    const replaced = fm.replace(re, full);
+    // Убедиться, что после блока есть перевод строки (если дальше есть контент).
+    // Без этого последняя строка блока склеивается со следующим ключом.
+    if (!replaced.endsWith('\n') && replaced.length > full.length) {
+      return full + '\n' + replaced.slice(full.length);
+    }
+    return replaced;
   }
   const trimmed = fm.trim();
   return trimmed ? `${trimmed}\n${full}` : full;
