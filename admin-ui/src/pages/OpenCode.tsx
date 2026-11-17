@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Plus, Pencil, Trash2, Play, Square, RotateCw, Check, X, RefreshCw, KeyRound, Package, Network, ChevronRight, Server as ServerIcon } from 'lucide-react';
+import * as yaml from 'js-yaml';
 import { api } from '../api/client';
 import type { ModelProvider, OpencodeServer } from '../types';
 import { t } from '../i18n';
@@ -927,27 +928,25 @@ const BUILTIN_ACTIONS = [
 /// Правила разрешений агента из frontmatter.
 interface PermRule { action: string; resource: string; effect: string; }
 
-function parsePerms(fm: string): PermsState {
+/// Парсит permissions из YAML-объекта (не из строки).
+function parsePermsFromObj(obj: Record<string, unknown>): PermsState {
   const st: PermsState = { global: 'default', actions: {} };
-  // Правила могут идти без отступа (YAML допускает) — ищем до строки,
-  // начинающейся с «ключ:» или --- (конец frontmatter).
-  const m = fm.match(/^permissions:[^\S\r\n]*\r?\n((?:(?:[ \t]*-|[ \t]).+\r?\n?)*)/m);
-  if (!m) return st;
-  // Правила идут блоком из трёх строк (action/resource/effect). Кавычки
-  // в значениях — обрезаем, чтобы не создавать дубликаты при сохранении.
-  const unq = (s: string) => s.replace(/^["']|["']$/g, '');
-  for (const rm of m[1].matchAll(/- action: "?([^"\r\n]+)"?[ \t]*\r?\n\s+resource: "?([^"\r\n]+)"?[ \t]*\r?\n\s+effect: "?([^"\r\n]+)"?/g)) {
-    const action = unq(rm[1]), effect = rm[3];
-    if (effect !== 'allow' && effect !== 'ask' && effect !== 'deny') continue;
+  const perms = obj.permissions;
+  if (!Array.isArray(perms)) return st;
+  for (const rule of perms) {
+    if (typeof rule !== 'object' || rule === null) continue;
+    const r = rule as Record<string, unknown>;
+    const action = typeof r.action === 'string' ? r.action : '';
+    const effect = typeof r.effect === 'string' ? r.effect : '';
+    if (!action || (effect !== 'allow' && effect !== 'ask' && effect !== 'deny')) continue;
     if (action === '*') st.global = effect;
     else st.actions[action] = effect;
   }
   return st;
 }
 
-/// Вставляет/переписывает блок permissions в frontmatter. Правила с нестандартным
-/// resource (не «*») не затираются — сохраняются как есть после сгенерированных.
-function setPermsBlock(fm: string, p: PermsState): string {
+/// Собирает правила permissions из PermsState.
+function buildPermsRules(p: PermsState): PermRule[] {
   const rules: PermRule[] = [];
   if (p.global !== 'default') rules.push({ action: '*', resource: '*', effect: p.global });
   for (const a of BUILTIN_ACTIONS) {
@@ -959,36 +958,25 @@ function setPermsBlock(fm: string, p: PermsState): string {
     if (BUILTIN_ACTIONS.includes(a) || a === '*') continue;
     if (e && e !== 'default') rules.push({ action: a, resource: '*', effect: e });
   }
-  const yaml = rules.map(r => `  - action: "${r.action}"\n    resource: "${r.resource}"\n    effect: ${r.effect}`).join('\n');
-  const block = rules.length ? `permissions:\n${yaml}` : '';
+  return rules;
+}
 
-  // Существующие нестандартные правила (resource ≠ «*») — не трогаем.
-  const existing = fm.match(/^permissions:[^\S\r\n]*\r?\n((?:(?:[ \t]*-|[ \t]).+\r?\n?)*)/m);
-  let extra = '';
-  if (existing) {
-    const unq = (s: string) => s.replace(/^["']|["']$/g, '');
-    const keep: PermRule[] = [];
-    for (const rm of existing[1].matchAll(/- action: "?([^"\r\n]+)"?[ \t]*\r?\n\s+resource: "?([^"\r\n]+)"?[ \t]*\r?\n\s+effect: "?([^"\r\n]+)"?/g)) {
-      const action = unq(rm[1]), resource = unq(rm[2]);
-      if (resource !== '*') keep.push({ action, resource, effect: rm[3] });
+/// Сохраняет нестандартные правила (resource ≠ «*») из исходного frontmatter.
+function extractCustomPerms(obj: Record<string, unknown>): PermRule[] {
+  const perms = obj.permissions;
+  if (!Array.isArray(perms)) return [];
+  const keep: PermRule[] = [];
+  for (const rule of perms) {
+    if (typeof rule !== 'object' || rule === null) continue;
+    const r = rule as Record<string, unknown>;
+    const action = typeof r.action === 'string' ? r.action : '';
+    const resource = typeof r.resource === 'string' ? r.resource : '*';
+    const effect = typeof r.effect === 'string' ? r.effect : '';
+    if (action && resource !== '*' && (effect === 'allow' || effect === 'ask' || effect === 'deny')) {
+      keep.push({ action, resource, effect });
     }
-    extra = keep.map(r => `  - action: "${r.action}"\n    resource: "${r.resource}"\n    effect: ${r.effect}`).join('\n');
   }
-
-  const full = [block, extra].filter(Boolean).join('\n');
-  if (!full) return fm.replace(/^permissions:[^\S\r\n]*\r?\n(?:(?:[ \t]*-|[ \t]).+\r?\n?)*/m, '').replace(/\n{3,}/g, '\n\n').trim();
-  if (existing) {
-    const re = /^permissions:[^\S\r\n]*\r?\n(?:(?:[ \t]*-|[ \t]).+\r?\n?)*/m;
-    const replaced = fm.replace(re, full);
-    // Убедиться, что после блока есть перевод строки (если дальше есть контент).
-    // Без этого последняя строка блока склеивается со следующим ключом.
-    if (!replaced.endsWith('\n') && replaced.length > full.length) {
-      return full + '\n' + replaced.slice(full.length);
-    }
-    return replaced;
-  }
-  const trimmed = fm.trim();
-  return trimmed ? `${trimmed}\n${full}` : full;
+  return keep;
 }
 
 interface AgentForm { name: string; title: string; description: string; mode: AgentMode; model: string; frontmatter: string; body: string; perms: PermsState; mcpNames: string[]; onecTools: string[]; customKey: string; tab?: 'main' | 'tools' | 'yaml'; fmBroken?: boolean; }
@@ -1049,35 +1037,34 @@ function AgentsTab({ server }: { server: OpencodeServer }) {
 
   /// Подставляет/удаляет ключ в frontmatter. Если значение совпадает с
   /// текущим — не трогаем (чтобы не дублировать строку).
-  function setFmKey(fm: string, key: string, value: string): string {
-    const re = new RegExp(`^${key}:.*$`, 'm');
-    if (re.test(fm)) {
-      return value ? fm.replace(re, `${key}: ${value}`) : fm.replace(re, '').replace(/\n{3,}/g, '\n\n').trim();
-    }
-    if (!value) return fm;
-    const trimmed = fm.trim();
-    return trimmed ? `${trimmed}\n${key}: ${value}` : `${key}: ${value}`;
-  }
-
   const load = useCallback(async () => {
     try {
       const [r, mcpNames] = await Promise.all([api.getOpencodeAgents(server.id), loadMcpServerNames(server.id)]);
-      setAgents(r.agents.map(a => ({
-        name: a.name,
-        title: a.title || '',
-        description: a.description || '',
-        mode: parseMode(a.frontmatter || ''),
-        model: parseModel(a.frontmatter || ''),
-        frontmatter: a.frontmatter || '',
-        body: a.body,
-        perms: parsePerms(a.frontmatter || ''),
-        mcpNames,
-        onecTools: [],
-        customKey: '',
-        // Frontmatter был в файле, но не распарсился как YAML (бэкенд
-        // вернул пустую карту). Показываем алерт в форме.
-        fmBroken: !!(a.frontmatter && /^{}\s*$/m.test(a.frontmatter) && a.body.trim()),
-      })));
+      setAgents(r.agents.map(a => {
+        // Парсим frontmatter в объект для извлечения полей.
+        let fmObj: Record<string, unknown> = {};
+        try {
+          const parsed = yaml.load(a.frontmatter || '');
+          if (typeof parsed === 'object' && parsed !== null) fmObj = parsed as Record<string, unknown>;
+        } catch { /* ignore */ }
+        
+        return {
+          name: a.name,
+          title: typeof fmObj.title === 'string' ? fmObj.title : '',
+          description: typeof fmObj.description === 'string' ? fmObj.description : '',
+          mode: parseMode(a.frontmatter || ''),
+          model: parseModel(a.frontmatter || ''),
+          frontmatter: a.frontmatter || '',
+          body: a.body,
+          perms: parsePermsFromObj(fmObj),
+          mcpNames,
+          onecTools: [],
+          customKey: '',
+          // Frontmatter был в файле, но не распарсился как YAML (бэкенд
+          // вернул пустую карту). Показываем алерт в форме.
+          fmBroken: !!(a.frontmatter && /^{}\s*$/m.test(a.frontmatter) && a.body.trim()),
+        };
+      }));
     } catch (e) { setErr(errText(e, 'Ошибка')); }
   }, [server.id]);
 
@@ -1095,17 +1082,46 @@ function AgentsTab({ server }: { server: OpencodeServer }) {
   async function doSave() {
     if (!form) return;
     setErr('');
-    // Title / description / mode / model — отдельные поля формы, при сохранении
-    // подставляем в frontmatter. Пустое значение = убрать ключ.
-    let fm = form.frontmatter.trim();
-    fm = setFmKey(fm, 'title', form.title.trim());
-    fm = setFmKey(fm, 'description', form.description.trim());
-    fm = setFmKey(fm, 'mode', form.mode === 'all' ? '' : form.mode);
-    fm = setFmKey(fm, 'model', form.model.trim());
-    // Разрешения — блок permissions из состояния UI.
-    fm = setPermsBlock(fm, form.perms);
+    
+    // Парсим frontmatter в объект.
+    let fmObj: Record<string, unknown>;
     try {
-      await api.putOpencodeAgent(server.id, { name: form.name, frontmatter: fm, body: form.body });
+      const parsed = yaml.load(form.frontmatter);
+      fmObj = (typeof parsed === 'object' && parsed !== null) ? parsed as Record<string, unknown> : {};
+    } catch (e) {
+      setErr(`YAML parse error: ${e instanceof Error ? e.message : String(e)}`);
+      return;
+    }
+    
+    // Извлекаем нестандартные правила permissions (resource ≠ «*») до перезаписи.
+    const customPerms = extractCustomPerms(fmObj);
+    
+    // Title / description / mode / model — из полей формы. Пустое значение = убрать ключ.
+    if (form.title.trim()) fmObj.title = form.title.trim();
+    else delete fmObj.title;
+    
+    if (form.description.trim()) fmObj.description = form.description.trim();
+    else delete fmObj.description;
+    
+    if (form.mode !== 'all') fmObj.mode = form.mode;
+    else delete fmObj.mode;
+    
+    if (form.model.trim()) fmObj.model = form.model.trim();
+    else delete fmObj.model;
+    
+    // Permissions — из состояния UI + сохранённые нестандартные правила.
+    const rules = buildPermsRules(form.perms);
+    if (rules.length || customPerms.length) {
+      fmObj.permissions = [...rules, ...customPerms];
+    } else {
+      delete fmObj.permissions;
+    }
+    
+    // Сериализуем обратно в YAML. js-yaml сам экранирует все значения.
+    const fmStr = yaml.dump(fmObj, { indent: 2, lineWidth: -1 });
+    
+    try {
+      await api.putOpencodeAgent(server.id, { name: form.name, frontmatter: fmStr, body: form.body });
       setForm(null); load();
     } catch (e) { setErr(errText(e, 'Ошибка')); }
   }
@@ -1124,7 +1140,16 @@ function AgentsTab({ server }: { server: OpencodeServer }) {
         <Btn onClick={() => {
           setIsNew(true);
           const fm = DEFAULT_AGENT_FRONTMATTER;
-          setForm({ name: '', title: '', description: '', mode: 'primary', model: '', frontmatter: fm, body: '', perms: parsePerms(fm), mcpNames: [], onecTools: [], customKey: '', tab: 'main' });
+          // Парсим permissions из DEFAULT_AGENT_FRONTMATTER.
+          let defaultPerms: PermsState = { global: 'default', actions: {} };
+          try {
+            const parsed = yaml.load(fm);
+            if (typeof parsed === 'object' && parsed !== null) {
+              defaultPerms = parsePermsFromObj(parsed as Record<string, unknown>);
+            }
+          } catch { /* ignore */ }
+          
+          setForm({ name: '', title: '', description: '', mode: 'primary', model: '', frontmatter: fm, body: '', perms: defaultPerms, mcpNames: [], onecTools: [], customKey: '', tab: 'main' });
           api.opencodeToolsCatalog(server.id).then(r => {
             setForm(f => f ? { ...f, onecTools: (r.tools || []).map((x: any) => x.name as string) } : f);
           }).catch(() => {});

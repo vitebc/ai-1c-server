@@ -22,6 +22,7 @@ main-*.md
 
 *.jar
 .openchamber/
+openchamber/
 
 # Python (agent/ — бэкенд 1c-ai-agent)
 __pycache__/
