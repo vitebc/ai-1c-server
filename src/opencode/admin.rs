@@ -2205,6 +2205,10 @@ pub async fn status(State(state): State<Arc<AppState>>) -> Json<Value> {
             .flatten()
             .collect()
     };
+    let secret = {
+        let db = state.db.lock().await;
+        crate::auth::jwt_secret_pub(&db)
+    };
     let mut servers: Vec<Value> = Vec::new();
     for (id, name, url) in &rows {
         let healthy = match client.as_ref() {
@@ -2221,12 +2225,25 @@ pub async fn status(State(state): State<Arc<AppState>>) -> Json<Value> {
             read_row(&db, id).map(|r| r.config_dir.clone()).unwrap_or_default()
         };
         let cfg_path = Path::new(&config_dir);
+        // Токен плагина устарел, если в index.ts зашито значение, не совпадающее
+        // с HMAC от ТЕКУЩЕГО JWT_SECRET (ротация секрета инвалидирует токен —
+        // шлюз отдаст 401 «неверный токен плагина», пока не нажато «Применить»).
+        let plugin_file = cfg_path.join("plugins/1c-tools/index.ts");
+        let (plugin_generated, plugin_stale) = match std::fs::read_to_string(&plugin_file) {
+            Ok(src) => {
+                let expected = crate::opencode::plugin_token(&secret, name);
+                let stale = !expected.is_empty() && !src.contains(&format!("const TOKEN = \"{}\"", expected));
+                (true, stale)
+            }
+            Err(_) => (false, false),
+        };
         servers.push(json!({
             "id": id,
             "name": name,
             "url": url,
             "healthy": healthy,
-            "plugin_generated": cfg_path.join("plugins/1c-tools/index.ts").exists(),
+            "plugin_generated": plugin_generated,
+            "plugin_stale": plugin_stale,
             "deps_installed": cfg_path.join("node_modules/@opencode/plugin").exists(),
         }));
     }

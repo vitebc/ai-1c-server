@@ -293,7 +293,8 @@ export const t = {
     // Вкладка «Шлюз»
     gatewayState: 'Состояние шлюза', gatewayUp: 'Запущен', gatewayDown: 'Не запущен',
     gatewayAddr: 'Адрес', serversLabel: 'Серверы (живые)', sessionsLabel: 'Сессии',
-    stateCol: 'Статус', upState: 'OK', downState: 'DOWN', pluginCol: 'Плагин', depsCol: 'Зависимости',
+    stateCol: 'Статус', upState: 'OK', downState: 'DOWN', pluginCol: 'Плагин', tokenCol: 'Токен плагина', depsCol: 'Зависимости',
+    tokenOk: 'актуален', tokenStale: 'устарел — нажмите «Применить» (вкладка Тулзы)',
     gatewaySettings: 'Настройки шлюза',
     gatewayUrlSetting: 'URL шлюза (для формы 1С и UI)',
     gatewayUrlHint: 'Адрес, который видит форма 1С. Пусто = http://192.168.60.39:9020.',

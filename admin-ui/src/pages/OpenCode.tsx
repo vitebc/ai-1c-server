@@ -215,14 +215,19 @@ function GatewayTab() {
       </div>
 
       {/* Серверы (сводка) */}
-      <TableShell colSpan={5} empty={st.servers.length === 0 ? { text: t.opencode.noServers } : null}
-        head={<><Th>{t.opencode.name}</Th><Th>{t.opencode.url}</Th><Th>{t.opencode.stateCol}</Th><Th>{t.opencode.pluginCol}</Th><Th>{t.opencode.depsCol}</Th></>}>
+      <TableShell colSpan={6} empty={st.servers.length === 0 ? { text: t.opencode.noServers } : null}
+        head={<><Th>{t.opencode.name}</Th><Th>{t.opencode.url}</Th><Th>{t.opencode.stateCol}</Th><Th>{t.opencode.pluginCol}</Th><Th>{t.opencode.tokenCol}</Th><Th>{t.opencode.depsCol}</Th></>}>
         {st.servers.map((s: any) => (
           <Row key={s.id}>
             <Td><span className="font-medium">{s.name}</span>{s.is_default && <span className="ml-2"><Badge tone="green">{t.opencode.defaultBadge}</Badge></span>}</Td>
             <Td><span className={monoCls + ' text-xs'}>{s.url}</span></Td>
             <Td><Badge tone={s.healthy ? 'green' : 'red'}>{s.healthy ? t.opencode.upState : t.opencode.downState}</Badge></Td>
             <Td><Badge tone={s.plugin_generated ? 'green' : 'amber'}>{s.plugin_generated ? '✓' : '—'}</Badge></Td>
+            <Td>{!s.plugin_generated
+              ? <span className="text-slate-400 dark:text-slate-500 text-xs">—</span>
+              : s.plugin_stale
+                ? <span title={t.opencode.tokenStale}><Badge tone="red">{t.opencode.tokenStale}</Badge></span>
+                : <Badge tone="green">{t.opencode.tokenOk}</Badge>}</Td>
             <Td><Badge tone={s.deps_installed ? 'green' : 'amber'}>{s.deps_installed ? '✓' : '—'}</Badge></Td>
           </Row>
         ))}
@@ -1431,6 +1436,7 @@ function ToolsTab({ server, onChanged }: { server: OpencodeServer; onChanged: ()
   const [testArgs, setTestArgs] = useState('{}');
   const [testResult, setTestResult] = useState<string>('');
   const [pluginGenerated, setPluginGenerated] = useState(false);
+  const [pluginStale, setPluginStale] = useState(false);
   const [depsInstalled, setDepsInstalled] = useState(false);
 
   const load = useCallback(async () => {
@@ -1443,7 +1449,7 @@ function ToolsTab({ server, onChanged }: { server: OpencodeServer; onChanged: ()
     try {
       const st = await api.getOpencodeStatus();
       const me = (st.servers as any[]).find((s: any) => s.id === server.id || s.name === server.name);
-      if (me) { setPluginGenerated(!!me.plugin_generated); setDepsInstalled(!!me.deps_installed); }
+      if (me) { setPluginGenerated(!!me.plugin_generated); setPluginStale(!!me.plugin_stale); setDepsInstalled(!!me.deps_installed); }
     } catch { /* status недоступен — ок */ }
   }, [server.id, server.name]);
 
@@ -1491,6 +1497,7 @@ function ToolsTab({ server, onChanged }: { server: OpencodeServer; onChanged: ()
       )}
       <div className="flex gap-2 mb-3">
         <Badge tone={pluginGenerated ? 'green' : 'amber'}>{t.opencode.pluginState(pluginGenerated)}</Badge>
+        {pluginStale && <span title={t.opencode.tokenStale}><Badge tone="red">{t.opencode.tokenStale}</Badge></span>}
         <Badge tone={depsInstalled ? 'green' : 'amber'}>{t.opencode.depsState(depsInstalled)}</Badge>
       </div>
       {syncMsg && <div className="mb-3"><Alert tone="blue">{syncMsg}</Alert></div>}
