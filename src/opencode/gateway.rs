@@ -184,9 +184,10 @@ fn load_servers(db: &crate::db::Database) -> (Vec<ServerInfo>, Option<ServerInfo
 /// Штатные агенты OpenCode, которые никогда не отдаются клиенту.
 const HIDDEN_AGENTS: &[&str] = &["build", "plan"];
 
-/// Читает title из frontmatter файлов agents/*.md сервера → мапа id → title.
-/// Ошибки чтения — молча пропускаются (title просто не будет подставлен).
-fn load_agent_titles(config_dir: &str) -> std::collections::HashMap<String, String> {
+/// Читает title и description из frontmatter файлов agents/*.md сервера →
+/// мапа id → (title, description). Ошибки чтения — молча пропускаются
+/// (поля просто не будут подставлены).
+fn load_agent_meta(config_dir: &str) -> std::collections::HashMap<String, (Option<String>, Option<String>)> {
     use crate::opencode::admin::{agents_dir_pub, is_valid_agent_name, parse_frontmatter_pub};
     let mut out = std::collections::HashMap::new();
     let dir = agents_dir_pub(std::path::Path::new(config_dir));
@@ -202,14 +203,16 @@ fn load_agent_titles(config_dir: &str) -> std::collections::HashMap<String, Stri
             };
             let Ok(content) = std::fs::read_to_string(&p) else { continue };
             let (meta, _body) = parse_frontmatter_pub(&content);
-            let title = meta
-                .get("title")
-                .and_then(|v| v.as_str())
-                .map(str::to_string)
-                .filter(|s| !s.trim().is_empty());
-            if let Some(t) = title {
-                out.insert(name, t);
+            let pick = |key: &str| -> Option<String> {
+                meta.get(key)
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+                    .filter(|s| !s.trim().is_empty())
+            };
+            if pick("title").is_none() && pick("description").is_none() {
+                continue;
             }
+            out.insert(name, (pick("title"), pick("description")));
         }
     }
     out
@@ -250,15 +253,16 @@ fn rewrite_agent_response(mut resp: Response, server: &ServerInfo) -> Response {
                                 .unwrap_or(false)
                         });
                     }
-                    // 3. Title: из frontmatter файла агента, иначе имя с заглавной.
-                    let titles = load_agent_titles(&server.config_dir);
+                    // 3. Title/description: из frontmatter файла агента; title
+                    // без описания — имя с заглавной, description без записи не отдаём.
+                    let meta = load_agent_meta(&server.config_dir);
                     for a in data.iter_mut() {
                         let name = a.get("name").and_then(|n| n.as_str()).unwrap_or_default();
-                        let title = titles
-                            .get(name)
-                            .cloned()
-                            .unwrap_or_else(|| default_agent_title(name));
-                        a["title"] = json!(title);
+                        let (title, description) = meta.get(name).cloned().unwrap_or((None, None));
+                        a["title"] = json!(title.unwrap_or_else(|| default_agent_title(name)));
+                        if let Some(d) = description {
+                            a["description"] = json!(d);
+                        }
                     }
                     // 4. Пустой список → 409 «нет доступных агентов».
                     if data.is_empty() {

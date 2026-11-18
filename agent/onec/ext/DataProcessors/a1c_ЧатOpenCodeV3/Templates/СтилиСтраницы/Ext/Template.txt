@@ -56,6 +56,9 @@ body {
 
 .hdr .row { margin-top: 7px; }
 
+/* Description of the current agent (from AGENT.md frontmatter). */
+.agent-desc { margin-top: 7px; font-size: 12px; line-height: 1.4; color: #6a737d; }
+
 .pill {
   display: inline-block;
   padding: 3px 12px;
