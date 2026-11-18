@@ -187,6 +187,37 @@ function setStatus(text, kind) {
 
 function setBusy(on) {
   document.body.className = on ? 'busy' : '';
+  if (!on) {
+    focusPrompt();
+  }
+}
+
+/* Composer: the textarea grows with its text (1 line up to ~7 lines) and the
+   page bottom padding follows the composer height, so a long input never
+   hides the last message behind it. */
+function canSend() {
+  var p = byId('prompt');
+  return !!(p && p.value && p.value.replace(/^\s+|\s+$/g, ''));
+}
+
+function syncComposer() {
+  var box = byId('cbox');
+  var p = byId('prompt');
+  if (!box || !p) {
+    return;
+  }
+  p.style.height = 'auto';
+  p.style.height = Math.min(p.scrollHeight, 200) + 'px';
+  box.className = canSend() ? 'c-box' : 'c-box empty';
+  var c = byId('composer');
+  if (c) {
+    document.body.style.paddingBottom = (c.offsetHeight + 16) + 'px';
+  }
+}
+
+function initComposer() {
+  syncComposer();
+  focusPrompt();
 }
 
 function setHeader(html) {
@@ -208,6 +239,7 @@ function clearPrompt() {
   if (p) {
     p.value = '';
   }
+  syncComposer();
   focusPrompt();
 }
 
