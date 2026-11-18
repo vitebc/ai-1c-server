@@ -376,65 +376,197 @@ pub async fn tools(
 }
 
 /// FNV hash identical to `mcp-1c-search` `fnv_hash` (multiply-then-xor).
-/// The binary stores per-root indexes as `{INDEX_DIR}/{hash:016x}.db`.
-fn search_index_hash(path: &str) -> u64 {
+/// The binary stores one index per source root as `{INDEX_DIR}/{hash:016x}.db`,
+/// where the hashed key is `{profile_fingerprint}\x01{root_id}`.
+fn search_index_hash(key: &str) -> u64 {
     let mut hash: u64 = 14695981039346656037;
-    for byte in path.bytes() {
+    for byte in key.bytes() {
         hash = hash.wrapping_mul(1099511628211);
         hash ^= byte as u64;
     }
     hash
 }
 
-/// Collect indexed source roots for a search row: from its env
-/// (`ONEC_CONFIG_PROFILES_JSON`) or, as fallback, from the linked
-/// config profile (`mcp_servers.config`).
-fn search_roots(
+/// Один источник индекса ровно так, как его видит `mcp-1c-search`.
+#[derive(Debug, Clone)]
+struct SearchRootSpec {
+    /// Полный id root'а: `{profile_id}:main` или `{profile_id}:{ext_id}`.
+    id: String,
+    path: String,
+}
+
+/// План индексации строки поиска: fingerprint профиля и его источники.
+#[derive(Debug, Clone, Default)]
+struct SearchPlan {
+    fingerprint: String,
+    roots: Vec<SearchRootSpec>,
+    index_dir: Option<String>,
+}
+
+impl SearchPlan {
+    fn paths(&self) -> Vec<String> {
+        self.roots.iter().map(|r| r.path.clone()).collect()
+    }
+}
+
+/// Идентичная копия `stable_id` из `mcp/1c-search/src/workspace.rs`:
+/// ASCII-буквы в нижний регистр, `-`/`_` сохраняются, остальное отбрасывается.
+fn stable_root_id(id: &str, name: &str, path: &str, fallback: &str) -> String {
+    let raw = [id.trim(), name.trim(), path.trim()]
+        .into_iter()
+        .find(|s| !s.is_empty())
+        .unwrap_or(fallback);
+    let mut out = String::new();
+    for ch in raw.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+        } else if ch == '-' || ch == '_' {
+            out.push(ch);
+        }
+    }
+    if out.is_empty() {
+        fallback.to_string()
+    } else {
+        out
+    }
+}
+
+/// Собирает fingerprint профиля и id всех его источников — так же, как
+/// `SearchWorkspace::from_profiles` в `mcp-1c-search`.
+fn build_plan(
+    main_id: &str,
+    main_name: &str,
+    main_path: &str,
+    extensions: &[(String, String, String)],
+) -> (String, Vec<SearchRootSpec>) {
+    let profile_id = stable_root_id(main_id, main_name, main_path, "profile");
+
+    let fingerprint = if main_id.trim().is_empty() {
+        // Legacy-профиль без id: fingerprint = все непустые пути через \x01.
+        let mut parts: Vec<&str> = Vec::new();
+        if !main_path.trim().is_empty() {
+            parts.push(main_path.trim());
+        }
+        for (_, _, path) in extensions {
+            if !path.trim().is_empty() {
+                parts.push(path.trim());
+            }
+        }
+        parts.join("\u{1}")
+    } else {
+        main_id.trim().to_string()
+    };
+
+    let mut roots = Vec::new();
+    if !main_path.trim().is_empty() {
+        roots.push(SearchRootSpec {
+            id: format!("{profile_id}:main"),
+            path: main_path.trim().to_string(),
+        });
+    }
+    for (idx, (id, name, path)) in extensions.iter().enumerate() {
+        if path.trim().is_empty() {
+            continue;
+        }
+        let ext_id = stable_root_id(id, name, path, &format!("ext{}", idx + 1));
+        roots.push(SearchRootSpec {
+            id: format!("{profile_id}:{ext_id}"),
+            path: path.trim().to_string(),
+        });
+    }
+    (fingerprint, roots)
+}
+
+/// План индексации строки поиска: из её env (`ONEC_CONFIG_PROFILES_JSON`)
+/// или, как fallback, из привязанного профиля конфигурации
+/// (`mcp_servers.config`).
+fn search_plan(
     db: &crate::db::Database,
     env: Option<&str>,
     profile_id: Option<&str>,
-) -> (Vec<String>, Option<String>) {
+) -> SearchPlan {
     if let Some(e) = env.and_then(|s| serde_json::from_str::<Value>(s).ok()) {
         let index_dir = e
             .get("MINI_AI_1C_SEARCH_INDEX_DIR")
             .and_then(|v| v.as_str())
             .map(str::to_string);
-        let mut roots = Vec::new();
-        if let Some(profiles) = e.get("ONEC_CONFIG_PROFILES_JSON").and_then(|v| v.as_str()) {
-            if let Ok(arr) = serde_json::from_str::<Vec<Value>>(profiles) {
-                for p in &arr {
-                    if let Some(m) = p.get("main_path").and_then(|v| v.as_str()) {
-                        if !m.trim().is_empty() {
-                            roots.push(m.trim().to_string());
-                        }
-                    }
-                    if let Some(exts) = p.get("extensions").and_then(|v| v.as_array()) {
-                        for x in exts {
-                            if let Some(xp) = x.get("path").and_then(|v| v.as_str()) {
-                                if !xp.trim().is_empty() {
-                                    roots.push(xp.trim().to_string());
-                                }
-                            }
-                        }
-                    }
-                }
+        let active = e
+            .get("ONEC_CONFIG_ACTIVE_PROFILE_ID")
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        let profiles = e
+            .get("ONEC_CONFIG_PROFILES_JSON")
+            .and_then(|v| v.as_str())
+            .and_then(|s| serde_json::from_str::<Vec<Value>>(s).ok())
+            .unwrap_or_default();
+
+        // Активный профиль, иначе первый с непустым main_path — как в бинарнике.
+        let selected = active
+            .as_deref()
+            .and_then(|id| {
+                profiles.iter().find(|p| {
+                    p.get("id").and_then(|v| v.as_str()).map(str::trim) == Some(id)
+                })
+            })
+            .or_else(|| {
+                profiles.iter().find(|p| {
+                    p.get("main_path")
+                        .and_then(|v| v.as_str())
+                        .is_some_and(|m| !m.trim().is_empty())
+                })
+            });
+        if let Some(p) = selected {
+            let text = |key: &str| {
+                p.get(key)
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string()
+            };
+            // Расширения передаём как есть: бинарник нумерует `extN` по позиции
+            // в полученном массиве, включая пустые пути.
+            let extensions: Vec<(String, String, String)> = p
+                .get("extensions")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .map(|x| {
+                            let f = |key: &str| {
+                                x.get(key)
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or_default()
+                                    .to_string()
+                            };
+                            (f("id"), f("name"), f("path"))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let (fingerprint, roots) =
+                build_plan(&text("id"), &text("name"), &text("main_path"), &extensions);
+            if !roots.is_empty() {
+                return SearchPlan {
+                    fingerprint,
+                    roots,
+                    index_dir,
+                };
             }
         }
-        if !roots.is_empty() {
-            return (roots, index_dir);
-        }
     }
-    // Fallback: linked config profile + its extensions.
+
+    // Fallback: привязанный профиль конфигурации + его расширения
+    // (ровно то, что `resync_search_servers` записал бы в env).
     if let Some(pid) = profile_id {
         let profiles = super::configs::load_all(db);
         if let Some(main) = profiles.iter().find(|p| p.id == pid) {
-            let mut roots = vec![main.path.clone()];
-            roots.extend(
-                profiles
-                    .iter()
-                    .filter(|p| p.parent_id.as_deref() == Some(pid))
-                    .map(|p| p.path.clone()),
-            );
+            let extensions: Vec<(String, String, String)> = profiles
+                .iter()
+                .filter(|p| p.parent_id.as_deref() == Some(pid))
+                .filter(|p| !p.path.trim().is_empty())
+                .map(|p| (p.id.clone(), p.name.clone(), p.path.clone()))
+                .collect();
+            let (fingerprint, roots) =
+                build_plan(&main.id, &main.name, &main.path, &extensions);
             let index_dir = db
                 .conn
                 .query_row(
@@ -443,20 +575,31 @@ fn search_roots(
                     |row| row.get::<_, String>(0),
                 )
                 .ok();
-            return (roots, index_dir);
+            return SearchPlan {
+                fingerprint,
+                roots,
+                index_dir,
+            };
         }
     }
-    (Vec::new(), None)
+    SearchPlan::default()
+}
+
+/// Путь к файлу индекса источника — та же формула, что `root_db_path`
+/// в `mcp-1c-search`: `fnv("{fingerprint}\x01{root_id}")`.
+fn search_root_db(index_dir: &str, fingerprint: &str, root_id: &str) -> std::path::PathBuf {
+    let key = format!("{}\u{1}{}", fingerprint, root_id);
+    std::path::Path::new(index_dir).join(format!("{:016x}.db", search_index_hash(&key)))
 }
 
 /// POST /api/admin/mcp-servers/{id}/reindex — full search reindex as a
 /// background job (returns immediately with `job_id`; poll
 /// `GET /api/admin/mcp-servers/reindex/job/{job_id}` for progress).
 ///
-/// Serialized for shared roots: all search rows indexing any of the same
-/// roots are stopped first (concurrent writers corrupt the shared `.db`),
-/// index files are deleted, the owner restarts and rebuilds from scratch,
-/// neighbors restart after `ready`.
+/// Serialized per profile: все search-строки с тем же fingerprint профиля
+/// останавливаются первыми (общий файл индекса — один писатель), файлы всех
+/// источников профиля удаляются, владелец пересобирает индекс с нуля,
+/// соседи стартуют после `ready`.
 pub async fn reindex(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -499,16 +642,19 @@ pub async fn reindex(
                 .into_response(),
         );
     }
-    let (roots, index_dir) = {
+    let plan = {
         let db = state.db.lock().await;
-        search_roots(&db, env.as_deref(), profile_id.as_deref())
+        search_plan(&db, env.as_deref(), profile_id.as_deref())
     };
-    if roots.is_empty() {
+    if plan.roots.is_empty() {
         return Err(
             super::BadRequest("no indexed roots found for this server".into()).into_response(),
         );
     }
-    let index_dir = index_dir
+    let roots = plan.paths();
+    let index_dir = plan
+        .index_dir
+        .clone()
         .unwrap_or_else(|| format!("{}/search-index", state.data_dir.trim_end_matches('/')));
 
     let job_id = uuid::Uuid::new_v4().to_string();
@@ -537,7 +683,7 @@ pub async fn reindex(
     let worker_state = state.clone();
     let (wjob, wsid) = (job_id.clone(), sid.clone());
     tokio::spawn(async move {
-        run_reindex_job(worker_state, wjob, wsid, name, roots, index_dir).await;
+        run_reindex_job(worker_state, wjob, wsid, name, plan, index_dir).await;
     });
 
     Ok(Json(json!({ "job_id": job_id, "server_id": sid })))
@@ -583,10 +729,25 @@ fn finish_job(
 }
 
 /// Latest `SEARCH_STATUS_JSON` state for a session, from the log buffer:
-/// (progress 0-100, state, message).
-fn index_progress(logs: &crate::log_buffer::LogBuffer, sid: &str) -> Option<(u8, String, String)> {
+/// (progress 0-100, state, message). Entries older than `since` are ignored:
+/// в буфере лежат состояния прошлых сборок той же сессии, и без отсечки
+/// задание мгновенно «увидело» бы старый `ready`.
+fn index_progress(
+    logs: &crate::log_buffer::LogBuffer,
+    sid: &str,
+    since: chrono::DateTime<chrono::Utc>,
+) -> Option<(u8, String, String)> {
     let entries = logs.entries(None, 500, Some(sid), None);
     for e in entries.iter().rev() {
+        let fresh = chrono::NaiveDateTime::parse_from_str(&e.ts, "%Y-%m-%dT%H:%M:%S%.3fZ")
+            .map(|dt| {
+                chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(dt, chrono::Utc) >= since
+            })
+            .unwrap_or(true);
+        if !fresh {
+            // Записи идут по времени: дальше только более старые.
+            break;
+        }
         if let Some(pos) = e.msg.find("SEARCH_STATUS_JSON:") {
             let body = e.msg[pos + "SEARCH_STATUS_JSON:".len()..].trim();
             if let Ok(v) = serde_json::from_str::<Value>(body) {
@@ -612,8 +773,8 @@ fn index_progress(logs: &crate::log_buffer::LogBuffer, sid: &str) -> Option<(u8,
     None
 }
 
-/// Roots indexed by every enabled search row: (row_id, row_name, roots).
-async fn all_search_roots(state: &Arc<AppState>) -> Vec<(String, String, Vec<String>)> {
+/// Источники всех включённых search-строк: (row_id, row_name, пути, fingerprint).
+async fn all_search_roots(state: &Arc<AppState>) -> Vec<(String, String, Vec<String>, String)> {
     let rows: Vec<(String, String, Option<String>, Option<String>)> = {
         let db = state.db.lock().await;
         let mut stmt = match db.conn.prepare(
@@ -638,8 +799,8 @@ async fn all_search_roots(state: &Arc<AppState>) -> Vec<(String, String, Vec<Str
     let db = state.db.lock().await;
     rows.into_iter()
         .map(|(id, name, env, cfg)| {
-            let (roots, _) = search_roots(&db, env.as_deref(), cfg.as_deref());
-            (id, name, roots)
+            let plan = search_plan(&db, env.as_deref(), cfg.as_deref());
+            (id, name, plan.paths(), plan.fingerprint)
         })
         .collect()
 }
@@ -649,14 +810,16 @@ async fn run_reindex_job(
     job_id: String,
     owner_id: String,
     owner_name: String,
-    roots: Vec<String>,
+    plan: SearchPlan,
     index_dir: String,
 ) {
-    // 1. Neighbors: search rows sharing any root with the owner.
+    // 1. Neighbors: search rows with the same profile fingerprint — только они
+    // делят файлы индексов. Совпадение путей больше не означает общий файл:
+    // KA РС/ТД/Маркет смотрят в один KA2, но индексы у них разные.
     let all = all_search_roots(&state).await;
     let mut neighbors: Vec<(String, String)> = Vec::new();
-    for (id, name, rroots) in &all {
-        if id != &owner_id && rroots.iter().any(|r| roots.contains(r)) {
+    for (id, name, _paths, fingerprint) in &all {
+        if id != &owner_id && !fingerprint.is_empty() && fingerprint == &plan.fingerprint {
             neighbors.push((id.clone(), name.clone()));
         }
     }
@@ -688,11 +851,10 @@ async fn run_reindex_job(
         state.mcp.stop_server(nid).await;
     }
 
-    // 3. Delete per-root index files.
+    // 3. Delete per-root index files (свой файл на каждый источник профиля).
     let mut deleted: Vec<String> = Vec::new();
-    for root in &roots {
-        let base =
-            std::path::Path::new(&index_dir).join(format!("{:016x}.db", search_index_hash(root)));
+    for root in &plan.roots {
+        let base = search_root_db(&index_dir, &plan.fingerprint, &root.id);
         for suffix in ["", "-wal", "-shm", "-journal"] {
             let p = format!("{}{}", base.display(), suffix);
             match std::fs::remove_file(&p) {
@@ -711,6 +873,8 @@ async fn run_reindex_job(
     }
 
     // 4. Start the owner; it rebuilds from scratch in the background.
+    // Метка времени: всё, что сессия писала ДО старта, к этой сборке не относится.
+    let rebuild_started = chrono::Utc::now();
     set_job_progress(
         &state,
         &job_id,
@@ -752,7 +916,7 @@ async fn run_reindex_job(
             );
             return;
         }
-        if let Some((p, st, msg)) = index_progress(&state.logs, &owner_id) {
+        if let Some((p, st, msg)) = index_progress(&state.logs, &owner_id, rebuild_started) {
             if p != last_progress || st == "ready" {
                 last_progress = p;
                 let label = if msg.is_empty() { st.clone() } else { msg };
@@ -793,7 +957,7 @@ async fn run_reindex_job(
         true,
         format!(
             "Index ready: {} root(s), {} file(s) removed, {} neighbor(s) restarted",
-            roots.len(),
+            plan.roots.len(),
             deleted.len(),
             neighbors.len()
         ),
