@@ -73,12 +73,72 @@ fn extract_calls_from_node(node: tree_sitter::Node, source: &[u8], seen: &mut st
     }
 }
 
+/// Похож ли текст на двоичный мусор.
+///
+/// Признаки: NUL или управляющие символы (кроме \t \r \n) либо заметная доля
+/// символов замены U+FFFD. Нормальный BSL-модуль (UTF-8 или корректно
+/// раскодированный cp1251) таких байтов не содержит.
+fn looks_binary(source: &str) -> bool {
+    if source.is_empty() {
+        return false;
+    }
+    let mut control = 0usize;
+    let mut replacement = 0usize;
+    for ch in source.chars() {
+        if ch == '\u{FFFD}' {
+            replacement += 1;
+        } else if ch != '\n' && ch != '\r' && ch != '\t' && (ch as u32) < 0x20 {
+            control += 1;
+            if control > 2 {
+                return true;
+            }
+        }
+    }
+    replacement * 50 > source.chars().count()
+}
+
 /// Extract all procedure and function definitions from BSL source code.
 pub fn extract_symbols(source: &str) -> Vec<BslSymbol> {
+    // Бинарные/повреждённые модули: в выгрузках KA2 встречаются .bsl не в
+    // UTF-8 и не в cp1251 — высокоэнтропийный мусор с NUL и управляющими
+    // байтами. На таком «исходнике» внешний сканер tree-sitter-bsl уходит в
+    // бесконечный цикл (progress-callback при этом не вызывается), поэтому
+    // такие файлы индексируются без символов, но не блокируют сборку.
+    if looks_binary(source) {
+        return vec![];
+    }
+
+    // NUL-байты в остальном тексте всё равно вычищаем (дешёвая страховка).
+    let sanitized: String;
+    let source = if source.as_bytes().contains(&0) {
+        sanitized = source.replace('\0', " ");
+        sanitized.as_str()
+    } else {
+        source
+    };
     let mut parser = create_bsl_parser();
-    let tree = match parser.parse(source, None) {
+    let bytes = source.as_bytes();
+    // Предохранитель от бесконечного парсинга: progress-callback получает
+    // управление по ходу разбора и отменяет его по дедлайну. Некоторые
+    // win1251-модули (KA2/Documents/Увольнение) вешали парсер навсегда.
+    //
+    // ВАЖНО: в tree-sitter callback ОТМЕНЯЕТ разбор, когда возвращает true
+    // (см. ts_parser__check_progress: `... && progress_callback(...)`).
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    let mut input = |offset: usize, _point: tree_sitter::Point| -> &[u8] {
+        if offset >= bytes.len() { &[] } else { &bytes[offset..] }
+    };
+    let mut progress = |_state: &tree_sitter::ParseState| std::time::Instant::now() > deadline;
+    let options = tree_sitter::ParseOptions::new().progress_callback(&mut progress);
+    let tree = match parser.parse_with_options(&mut input, None, Some(options)) {
         Some(t) => t,
-        None => return vec![],
+        None => {
+            eprintln!(
+                "[1c-search] Парсинг прерван по таймауту ({} КБ) — файл индексируется без символов",
+                bytes.len() / 1024
+            );
+            return vec![];
+        }
     };
     let root = tree.root_node();
     let source_bytes = source.as_bytes();

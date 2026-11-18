@@ -399,17 +399,47 @@ pub fn extract_comment_head(source: &str, start_line: u32) -> String {
 
 /// Rebuild symbol_weights from the calls graph.
 /// Should be called after a full build or sync.
+///
+/// Агрегация вызовов идёт во временную таблицу (GROUP BY по `calls`), а не
+/// коррелированным JOIN'ом `symbols × calls` — на крупных конфигах (20k+
+/// файлов, сотни тысяч символов) прежний вариант выполнялся десятки минут.
 pub fn rebuild_symbol_weights(conn: &Connection) {
+    eprintln!("SEARCH_STATUS:syncing:98:Пересчёт весов символов...");
+
     let _ = conn.execute("DELETE FROM symbol_weights", []);
+    // Индексы критичны для JOIN и для выборок по имени символа.
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_calls_callee ON calls(callee_name_lower)",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_symbols_name_lower ON symbols(name_lower)",
+        [],
+    );
+
+    eprintln!("SEARCH_STATUS:syncing:98:Агрегация вызовов...");
+    let _ = conn.execute_batch(
+        "CREATE TEMP TABLE IF NOT EXISTS _call_agg (
+            callee_name_lower TEXT PRIMARY KEY,
+            call_count INTEGER,
+            caller_diversity INTEGER
+        );
+        DELETE FROM _call_agg;
+        INSERT INTO _call_agg (callee_name_lower, call_count, caller_diversity)
+        SELECT callee_name_lower, COUNT(*), COUNT(DISTINCT caller_file)
+        FROM calls
+        GROUP BY callee_name_lower;",
+    );
+
+    // Один JOIN на агрегат — O(symbols + calls), без повторного скана calls.
+    eprintln!("SEARCH_STATUS:syncing:99:Запись весов...");
     let _ = conn.execute_batch(
         "INSERT INTO symbol_weights (symbol_id, call_count, caller_diversity)
-         SELECT s.id,
-                COUNT(c.id),
-                COUNT(DISTINCT c.caller_file)
+         SELECT s.id, COALESCE(a.call_count, 0), COALESCE(a.caller_diversity, 0)
          FROM symbols s
-         LEFT JOIN calls c ON c.callee_name_lower = s.name_lower
-         GROUP BY s.id;"
+         LEFT JOIN _call_agg a ON a.callee_name_lower = s.name_lower;",
     );
+    let _ = conn.execute("DROP TABLE IF EXISTS _call_agg", []);
 }
 
 // ─── Synonym expansion ────────────────────────────────────────────────────────

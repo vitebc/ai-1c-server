@@ -69,7 +69,7 @@ fn decode_windows_1251(bytes: &[u8]) -> String {
             0x95 => s.push('\u{2022}'), // .
             0x96 => s.push('\u{2013}'), // -
             0x97 => s.push('\u{2014}'), // --
-            0x98 => s.push('\u{0000}'), // undefined
+            0x98 => s.push(' '), // undefined (NUL ломал tree-sitter — бесконечный цикл)
             0x99 => s.push('\u{2122}'), // (TM)
             0x9A => s.push('\u{0459}'), // љ
             0x9B => s.push('\u{203A}'), // >
@@ -1034,9 +1034,12 @@ pub fn sync_index(root: &Path, db_path: &Path) -> Result<SyncStats, String> {
             let symbols = bsl_ast::extract_symbols(&buf);
             let is_new = !indexed_mtimes.contains_key(rel_path);
             let done = processed.fetch_add(1, Ordering::Relaxed) + 1;
-            if total_to_parse > 0 && done % (total_to_parse / 10).max(1) == 0 {
-                let pct = done * 80 / total_to_parse + 10;
-                eprintln!("SEARCH_STATUS:syncing:{}:Парсинг {}/{}", pct, done, total_to_parse);
+            if total_to_parse > 0 {
+                let step = (total_to_parse / 100).max(200);
+                if done % step == 0 {
+                    let pct = done * 80 / total_to_parse + 10;
+                    eprintln!("SEARCH_STATUS:syncing:{}:Парсинг {}/{}", pct, done, total_to_parse);
+                }
             }
             Some(ParsedFile { rel_path: rel_path.clone(), mtime: *mtime, symbols, is_new })
         })
@@ -1047,15 +1050,13 @@ pub fn sync_index(root: &Path, db_path: &Path) -> Result<SyncStats, String> {
 
     // Keep WAL mode so concurrent readers are NOT blocked during sync.
     // synchronous=NORMAL is safe with WAL and much faster than FULL.
-    // Large page cache + temp_store=MEMORY for speed; drop indexes to rebuild once at the end.
+    // Индексы НЕ дропаем: пересоздание на каждом sync — самая дорогая фаза
+    // после записи. Они живут между запусками, а CREATE IF NOT EXISTS ниже
+    // добьёт недостающие (например, после старого бинарника).
     let _ = conn.execute_batch(
         "PRAGMA synchronous=NORMAL;
          PRAGMA cache_size=-262144;
-         PRAGMA temp_store=MEMORY;
-         DROP INDEX IF EXISTS idx_name_lower;
-         DROP INDEX IF EXISTS idx_file;
-         DROP INDEX IF EXISTS idx_calls_caller;
-         DROP INDEX IF EXISTS idx_calls_callee;"
+         PRAGMA temp_store=MEMORY;"
     );
 
     let total_parsed = parsed.len();
@@ -1152,6 +1153,7 @@ pub fn sync_index(root: &Path, db_path: &Path) -> Result<SyncStats, String> {
     );
 
     // Sync FTS5 semantic index for changed/new/deleted files
+    eprintln!("SEARCH_STATUS:syncing:97:Синхронизация FTS...");
     sync_semantic_fts(&conn, &deleted, &parsed);
     crate::semantic::rebuild_symbol_weights(&conn);
 
@@ -1257,10 +1259,12 @@ pub fn build_index(root: &Path, db_path: &Path) -> Result<usize, String> {
 
             let symbols = bsl_ast::extract_symbols(&buf);
 
-            // Progress reporting ~every 10%
+            // Progress reporting: каждые 200 файлов или ~1% (что чаще).
+            // Частый вывод держит busy_grace родителя — ping не убивает сессию.
             let done = processed.fetch_add(1, Ordering::Relaxed) + 1;
-            let pct = done * 90 / total_files + 5; // range 5..95
-            if done % (total_files / 10).max(1) == 0 {
+            let pct = done * 90 / total_files.max(1) + 5; // range 5..95
+            let step = (total_files / 100).max(200);
+            if done % step == 0 {
                 eprintln!(
                     "SEARCH_STATUS:indexing:{}:Парсинг {}/{} файлов",
                     pct, done, total_files

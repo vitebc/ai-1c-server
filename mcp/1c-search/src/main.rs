@@ -96,6 +96,17 @@ async fn main() {
             let mut last_built_at = 0u64;
             let mut degraded_messages = Vec::new();
 
+            // Сигнал «занят» ДО любого долгого этапа (скан/парсинг): родительский
+            // stderr-ридер поднимает busy_grace, и ping не убьёт живую сессию.
+            emit_search_status_json(
+                "scanning",
+                0,
+                &format!("Начало индексации: {} источн.", total_roots),
+                0,
+                0.0,
+                0,
+            );
+
             for (idx, root) in index_roots.iter().enumerate() {
                 let root_progress_base = (idx as u32 * 100 / total_roots as u32).min(99);
                 let db_for_index = workspace::root_db_path(root, &profile_fingerprint);

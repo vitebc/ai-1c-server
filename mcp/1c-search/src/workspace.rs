@@ -133,17 +133,24 @@ impl SearchWorkspace {
             return None;
         }
 
-        // Fingerprint = все пути профиля (main + extensions) — уникален для каждого профиля.
-        let mut fingerprint_parts: Vec<&str> = Vec::new();
-        if !selected.main_path.trim().is_empty() {
-            fingerprint_parts.push(selected.main_path.trim());
-        }
-        for ext in &selected.extensions {
-            if !ext.path.trim().is_empty() {
-                fingerprint_parts.push(ext.path.trim());
+        // Fingerprint профиля — его стабильный id (UUID из конфигурации).
+        // Привязка к id, а не к путям, даёт независимость профилей с общими
+        // источниками (KA РС/ТД/Маркет смотрят в один KA2, но индексы разные)
+        // и не создаёт новый файл при переименовании/добавлении расширения.
+        let profile_fingerprint = if !selected.id.trim().is_empty() {
+            selected.id.trim().to_string()
+        } else {
+            let mut fingerprint_parts: Vec<&str> = Vec::new();
+            if !selected.main_path.trim().is_empty() {
+                fingerprint_parts.push(selected.main_path.trim());
             }
-        }
-        let profile_fingerprint = fingerprint_parts.join("\u{1}");
+            for ext in &selected.extensions {
+                if !ext.path.trim().is_empty() {
+                    fingerprint_parts.push(ext.path.trim());
+                }
+            }
+            fingerprint_parts.join("\u{1}")
+        };
 
         Some(Self {
             active_profile_id: Some(profile_id),
@@ -183,13 +190,18 @@ impl SearchWorkspace {
 }
 
 /// Путь к файлу индекса для корня.
-/// Если `profile_fingerprint` не пуст — хэш от fingerprint (уникален для профиля),
-/// иначе — хэш от пути корня (legacy).
+/// Если `profile_fingerprint` не пуст — свой файл на каждый источник профиля:
+/// хэш от `(fingerprint профиля, id корня)`. Так main и расширения не затирают
+/// друг друга в общем файле (раньше sync одного root'а удалял файлы остальных),
+/// а профили с одинаковыми путями остаются независимыми.
 pub fn root_db_path(root: &SearchRoot, profile_fingerprint: &str) -> PathBuf {
-    if !profile_fingerprint.is_empty() {
-        crate::index::get_db_path_from_string(profile_fingerprint)
-    } else {
+    if profile_fingerprint.is_empty() {
         crate::index::get_db_path(&root.path)
+    } else {
+        crate::index::get_db_path_from_string(&format!(
+            "{}\u{1}{}",
+            profile_fingerprint, root.id
+        ))
     }
 }
 
