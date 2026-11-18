@@ -55,6 +55,9 @@ fn cors_preflight() -> Response {
 struct SessionEntry {
     server_id: String,
     base: Option<String>,
+    /// Адрес публикации базы из claim `base_url` JWT формы — fallback для
+    /// /onec/rpc, когда база не в мапе ONEC_BASES (контракт как у POST /chat).
+    base_url: Option<String>,
     sub: Option<String>,
     jwt: Option<String>,
     exp: u64, // unix-секунды; 0 = без TTL
@@ -82,7 +85,7 @@ fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
-fn record_session(session_id: &str, server_id: &str, base: Option<String>, sub: Option<String>, jwt: Option<String>, exp: u64) {
+fn record_session(session_id: &str, server_id: &str, base: Option<String>, base_url: Option<String>, sub: Option<String>, jwt: Option<String>, exp: u64) {
     let mut map = SESSIONS.lock().unwrap();
     if map.len() > 500 {
         let now = now_secs();
@@ -90,7 +93,7 @@ fn record_session(session_id: &str, server_id: &str, base: Option<String>, sub: 
     }
     map.insert(
         session_id.to_string(),
-        SessionEntry { server_id: server_id.to_string(), base, sub, jwt, exp },
+        SessionEntry { server_id: server_id.to_string(), base, base_url, sub, jwt, exp },
     );
 }
 
@@ -313,6 +316,35 @@ async fn resolve_onec_url(state: &AppState, base: &str) -> Option<String> {
     None
 }
 
+/// Валидация адреса публикации базы из claim `base_url` JWT формы — зеркало
+/// Python-валидатора бэкенда (app/onec/direct.py::validate_base_url): http/https,
+/// без кредов в URL, хост обязателен; возвращает нормализованный корень публикации.
+/// None — адрес кривой: fallback не применяется, /onec/rpc отдаст штатный 404.
+fn validate_onec_base_url(raw: &str) -> Option<String> {
+    let text = raw.trim().trim_matches('\'').trim_matches('"').trim();
+    if text.is_empty() {
+        return None;
+    }
+    let with_scheme = if text.contains("://") { text.to_string() } else { format!("http://{text}") };
+    let (scheme, rest) = with_scheme.split_once("://")?;
+    if !matches!(scheme, "http" | "https") {
+        return None;
+    }
+    // host[:port][/path] — userinfo запрещена (авторизация 1С — JWT).
+    let (hostport, path) = match rest.find('/') {
+        Some(i) => (&rest[..i], &rest[i..]),
+        None => (rest, ""),
+    };
+    if hostport.is_empty() || hostport.contains('@') {
+        return None;
+    }
+    let host = hostport.rsplit_once(':').map(|(h, _)| h).unwrap_or(hostport);
+    if host.is_empty() {
+        return None;
+    }
+    Some(format!("{scheme}://{hostport}{path}"))
+}
+
 fn urldecode(s: &str) -> String {
     let bytes = s.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
@@ -342,8 +374,8 @@ fn urldecode(s: &str) -> String {
 }
 
 /// JWT пользователя 1С: HS256, секрет = jwt_secret админки (единый с бэкендом),
-/// aud=mcp обязателен. Возвращает (sub, exp, base).
-fn decode_onec_jwt(db: &crate::db::Database, token: &str) -> Option<(String, u64, Option<String>)> {
+/// aud=mcp обязателен. Возвращает (sub, exp, base, base_url).
+fn decode_onec_jwt(db: &crate::db::Database, token: &str) -> Option<(String, u64, Option<String>, Option<String>)> {
     use jsonwebtoken::{DecodingKey, Validation};
     let secret = crate::auth::jwt_secret_pub(db);
     if secret.is_empty() {
@@ -364,7 +396,13 @@ fn decode_onec_jwt(db: &crate::db::Database, token: &str) -> Option<(String, u64
     }
     let exp = claims.get("exp").and_then(|v| v.as_u64()).unwrap_or(0);
     let base = claims.get("base").and_then(|v| v.as_str()).map(|s| s.to_lowercase());
-    Some((sub, exp, base))
+    // Адрес публикации базы (claim формы): fallback /onec/rpc при промахе в мапе.
+    let base_url = claims
+        .get("base_url")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    Some((sub, exp, base, base_url))
 }
 
 /// Только claim `base` из JWT (без проверки подписи — для маршрутизации).
@@ -428,7 +466,8 @@ async fn gateway_any(
     let query = uri.query().map(|q| q.to_string()).unwrap_or_default();
 
     // Заполняется блоком допуска ниже (декодированный JWT формы, если есть).
-    let mut jwt_info_global: Option<(String, u64, Option<String>)> = None;
+    #[allow(unused_assignments)]
+    let mut jwt_info_global: Option<(String, u64, Option<String>, Option<String>)> = None;
 
     // JWT формы: Bearer из заголовка ИЛИ ?onec_token= (BSL не может переопределить
     // Authorization — он занят Basic-конструктором HTTPСоединения).
@@ -483,7 +522,7 @@ async fn gateway_any(
         }
         if is_prompt {
             stats = Some(match &jwt_info {
-                Some((sub, _, _)) => StatsRec { client: "onec".into(), user_id: Some(sub.clone()), base: String::new(), server: String::new(), prompt: prompt_text.clone() },
+                Some((sub, _, _, _)) => StatsRec { client: "onec".into(), user_id: Some(sub.clone()), base: String::new(), server: String::new(), prompt: prompt_text.clone() },
                 None => StatsRec { client: "vitra".into(), user_id: None, base: String::new(), server: String::new(), prompt: prompt_text.clone() },
             });
         }
@@ -535,7 +574,7 @@ async fn gateway_any(
     tracing::info!(
         "gateway: {} {} — клиент={} base={} → {}",
         method, path,
-        jwt_info.as_ref().map(|(s, _, _)| s.clone()).unwrap_or_else(|| "Витра".into()),
+        jwt_info.as_ref().map(|(s, _, _, _)| s.clone()).unwrap_or_else(|| "Витра".into()),
         base_routed.clone().unwrap_or_default(),
         server.name
     );
@@ -547,12 +586,13 @@ async fn gateway_any(
     }
 
     // Реестр сессий: обновляем при запросах к /api/session/{id}/...
-    if let Some((sub, exp, _)) = &jwt_info {
+    if let Some((sub, exp, _, _)) = &jwt_info {
         if let Some(sid) = extract_session_id(&path, &bytes) {
             record_session(
                 &sid,
                 &server.id,
-                jwt_info.as_ref().and_then(|(_, _, b)| b.clone()),
+                jwt_info.as_ref().and_then(|(_, _, b, _)| b.clone()),
+                jwt_info.as_ref().and_then(|(_, _, _, bu)| bu.clone()),
                 Some(sub.clone()),
                 bearer.clone(),
                 *exp,
@@ -608,10 +648,11 @@ async fn gateway_any(
                         record_session(
                             sid,
                             &server.id,
-                            jwt_info.as_ref().and_then(|(_, _, b)| b.clone()),
-                            jwt_info.as_ref().map(|(s, _, _)| s.clone()),
+                            jwt_info.as_ref().and_then(|(_, _, b, _)| b.clone()),
+                            jwt_info.as_ref().and_then(|(_, _, _, bu)| bu.clone()),
+                            jwt_info.as_ref().map(|(s, _, _, _)| s.clone()),
                             bearer,
-                            jwt_info.map(|(_, e, _)| e).unwrap_or(0),
+                            jwt_info.map(|(_, e, _, _)| e).unwrap_or(0),
                         );
                     }
                 }
@@ -999,12 +1040,25 @@ async fn onec_rpc(
         return (StatusCode::BAD_REQUEST, Json(json!({ "error": "база не указана и не задана у сервера" }))).into_response();
     }
     // resolve_onec_url сам берёт db-лок — вызываем БЕЗ удержанного лока.
+    // Контракт как у POST /chat (Python-бэкенд): мапа ONEC_BASES — только
+    // исключения, промах → присланный формой адрес публикации (claim base_url
+    // JWT) после валидации; и только если его нет — 404.
     let onec_url = match resolve_onec_url(&state, &base_final).await {
         Some(u) => u.trim_end_matches('/').to_string(),
-        None => {
-            tracing::warn!("onec-rpc: 404 база {base_final:?} не найдена в мапе ONEC_BASES");
-            return (StatusCode::NOT_FOUND, Json(json!({ "error": format!("база {base_final:?} не найдена в мапе ONEC_BASES") }))).into_response();
-        }
+        None => match entry.base_url.as_deref().and_then(validate_onec_base_url) {
+            Some(u) => {
+                tracing::info!("onec-rpc: база {base_final:?} не в мапе ONEC_BASES — использую адрес публикации из JWT");
+                u
+            }
+            None => {
+                let known: Vec<String> = bases.iter().cloned().collect();
+                tracing::warn!(
+                    "onec-rpc: 404 база {base_final:?} не найдена в мапе ONEC_BASES и без адреса публикации (сервер {server_name}, известны: {})",
+                    known.join(", ")
+                );
+                return (StatusCode::NOT_FOUND, Json(json!({ "error": format!("база {base_final:?} не найдена в мапе ONEC_BASES"), "known_bases": known }))).into_response();
+            }
+        },
     };
 
     // 4. JSON-RPC в 1С под JWT пользователя (per-user RLS).
