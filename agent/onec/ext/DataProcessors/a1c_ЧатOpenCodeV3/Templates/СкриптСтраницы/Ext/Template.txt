@@ -207,7 +207,7 @@ function syncComposer() {
     return;
   }
   p.style.height = 'auto';
-  p.style.height = Math.min(p.scrollHeight, 200) + 'px';
+  p.style.height = Math.max(96, Math.min(p.scrollHeight, 200)) + 'px';
   box.className = canSend() ? 'c-box' : 'c-box empty';
   var c = byId('composer');
   if (c) {

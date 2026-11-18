@@ -1843,7 +1843,7 @@
 	ПодсказкаКлавиш = НСтр("ru = 'Enter — отправить, Shift+Enter — новая строка'");
 
 	Возврат "<div class='c-box empty' id='cbox'>"
-		+ "<textarea id='prompt' class='c-input' rows='1' placeholder='" + ЭкранироватьHTML(Подсказка)
+		+ "<textarea id='prompt' class='c-input' rows='4' placeholder='" + ЭкранироватьHTML(Подсказка)
 		+ "' onkeydown='onPromptKey(event)' oninput='syncComposer()'></textarea>"
 		+ "<a class='c-send' id='send' href='#act:send' title='" + ЭкранироватьHTML(НСтр("ru = 'Отправить'"))
 		+ "' onclick='return canSend()'>&#8593;</a>"
