@@ -5,6 +5,21 @@
         "type": "remote",
         "url": "http://192.168.60.39:9224/api/mcp/b933f258-6800-4673-b588-4e521d49d1d1",
         "disabled": false
+      },
+      "code-index-obrabotki": {
+        "type": "remote",
+        "url": "http://192.168.60.39:9224/api/mcp/code-index-obrabotki",
+        "disabled": false
+      },
+      "1c-help": {
+        "type": "remote",
+        "url": "http://192.168.60.39:9224/api/mcp/1c-help",
+        "disabled": false
+      },
+      "v8std": {
+        "type": "remote",
+        "url": "http://192.168.60.39:9224/api/mcp/v8std",
+        "disabled": false
       }
     }
   }

@@ -9,6 +9,16 @@
       "code-index-obrabotki": {
         "type": "remote",
         "url": "http://192.168.60.39:9224/api/mcp/code-index-obrabotki",
+        "disabled": true
+      },
+      "1c-help": {
+        "type": "remote",
+        "url": "http://192.168.60.39:9224/api/mcp/1c-help",
+        "disabled": false
+      },
+      "v8std": {
+        "type": "remote",
+        "url": "http://192.168.60.39:9224/api/mcp/v8std",
         "disabled": false
       }
     }
