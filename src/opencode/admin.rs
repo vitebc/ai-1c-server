@@ -2093,7 +2093,19 @@ pub async fn server_sessions(
     // «Активна» — была активна в последние 5 минут (idle ≈ время последнего события).
     const ACTIVE_WINDOW_MS: u64 = 5 * 60 * 1000;
     let mut sessions: Vec<Value> = Vec::new();
-    for s in arr.iter().rev().take(limit) {
+    // Сортировка по убыванию даты обновления (updated → idle → created).
+    let mut sorted: Vec<&Value> = arr.iter().collect();
+    sorted.sort_by(|a, b| {
+        let key = |v: &Value| -> u64 {
+            v.get("time").and_then(|t| t.get("updated"))
+                .or_else(|| v.get("time").and_then(|t| t.get("idle")))
+                .or_else(|| v.get("time").and_then(|t| t.get("created")))
+                .and_then(|x| x.as_u64())
+                .unwrap_or(0)
+        };
+        key(b).cmp(&key(a))
+    });
+    for s in sorted.iter().take(limit) {
         let sid = s.get("id").and_then(|v| v.as_str()).unwrap_or_default().to_string();
         let idle = s.get("time").and_then(|t| t.get("idle")).and_then(|v| v.as_u64());
         let active = idle.map(|i| now_ms.saturating_sub(i) <= ACTIVE_WINDOW_MS).unwrap_or(false);
