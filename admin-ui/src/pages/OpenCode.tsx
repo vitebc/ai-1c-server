@@ -569,6 +569,66 @@ function ChipsInput({ values, onChange, placeholder, mono }: { values: string[];
 
 // ─── Конфиг (opencode.jsonc) ────────────────────────────────────────
 
+/// Выбор MCP-серверов из админки для секции mcp.servers в opencode.jsonc.
+/// Стиль — как McpSelect в редакторе агента (AgentStudio).
+function McpPicker({ serverId, selected, onChange }: {
+  serverId: string;
+  selected: Record<string, boolean>; // name → disabled
+  onChange: (next: Record<string, boolean>) => void;
+}) {
+  const [options, setOptions] = useState<{ name: string; transport: string; running: boolean }[] | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    api.getOpencodeMcpOptions(serverId)
+      .then(r => { if (alive) setOptions(r.servers); })
+      .catch(() => { if (alive) setOptions(null); });
+    return () => { alive = false; };
+  }, [serverId]);
+
+  function toggle(name: string) {
+    const next = { ...selected };
+    if (next[name] !== undefined) delete next[name];
+    else next[name] = true; // new → disabled by default
+    onChange(next);
+  }
+
+  if (options === null) return <span className="text-xs text-slate-400">Загрузка…</span>;
+  if (options.length === 0) return <span className="text-xs text-slate-400">Нет включённых MCP-серверов в админке</span>;
+
+  const sorted = [...options].sort((a, b) =>
+    ((b.running ? 1 : 0) - (a.running ? 1 : 0)) || a.name.localeCompare(b.name));
+  // Extra entries in selected that are not in options (external / removed).
+  const extra = Object.keys(selected).filter(n => !sorted.some(o => o.name === n));
+
+  return (
+    <div>
+      <div className="border border-slate-300 dark:border-slate-700 rounded-lg p-2 overflow-y-auto flex flex-col gap-0 bg-slate-50 dark:bg-slate-950 max-h-48">
+        {sorted.map(s => {
+          const dis = selected[s.name] !== undefined && selected[s.name];
+          return (
+            <label key={s.name} className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 px-1 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
+              title={`${s.name} (${s.transport})${dis ? ' — выключен' : ''}`}>
+              <input type="checkbox" checked={selected[s.name] !== undefined} onChange={() => toggle(s.name)} className="rounded accent-blue-600 shrink-0" />
+              <span className="font-mono break-all">{s.name}</span>
+              {dis && <Badge tone="neutral">disabled</Badge>}
+              {s.running && <span className="text-[10px] text-emerald-500 shrink-0">●</span>}
+            </label>
+          );
+        })}
+        {extra.map(name => (
+          <label key={name} className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 px-1 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer" title="Внешний (нет в списке админки)">
+            <input type="checkbox" checked onChange={() => toggle(name)} className="rounded accent-blue-600 shrink-0" />
+            <span className="font-mono break-all">{name}</span>
+            {selected[name] && <Badge tone="neutral">disabled</Badge>}
+            <Badge tone="sky">внешний</Badge>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /// Выбор провайдеров и моделей из вкладки «Модели» админки.
 /// Состояние: selected[providerName] = Set<model>. Изменения — локально,
 /// PUT уходит только по кнопке «Сохранить».
@@ -649,6 +709,9 @@ function ConfigTab({ server }: { server: OpencodeServer }) {
   // Выбранные провайдеры/модели: <name из вкладки «Модели»> → [model, ...]. Локальное состояние.
   const [selected, setSelected] = useState<Record<string, string[]>>({});
   const [defaultModel, setDefaultModel] = useState('');
+  // MCP-серверы: name → disabled (true = выключен). Пусто = не выбран.
+  const [mcpSelected, setMcpSelected] = useState<Record<string, boolean>>({});
+  const [mcpBaseUrl, setMcpBaseUrl] = useState('');
   const [providers, setProviders] = useState<ModelProvider[]>([]);
   const [providerStatus, setProviderStatus] = useState<Record<string, { available: boolean; context?: number; error?: string }>>({});
   const [loaded, setLoaded] = useState(false);
@@ -688,6 +751,36 @@ function ConfigTab({ server }: { server: OpencodeServer }) {
         dm = typeof cfg?.model === 'string' ? cfg.model : '';
       } catch { /* ignore */ }
       setDefaultModel(dm);
+
+      // MCP-серверы из mcp.servers: name → disabled.
+      const mcpSel: Record<string, boolean> = {};
+      try {
+        const cfg = JSON.parse(stripJsonc(cfgR.content || ''));
+        const servers = cfg?.mcp?.servers;
+        if (servers && typeof servers === 'object') {
+          for (const [name, val] of Object.entries<any>(servers)) {
+            mcpSel[name] = val?.disabled === true;
+          }
+        }
+      } catch { /* ignore */ }
+      setMcpSelected(mcpSel);
+
+      // Базовый URL MCP-шлюза — из первой записи (type: remote → url).
+      let base = '';
+      try {
+        const cfg = JSON.parse(stripJsonc(cfgR.content || ''));
+        const servers = cfg?.mcp?.servers;
+        if (servers && typeof servers === 'object') {
+          for (const val of Object.values<any>(servers)) {
+            if (val?.url && typeof val.url === 'string') {
+              // Берём origin из первого URL.
+              try { base = new URL(val.url).origin; } catch { base = val.url.replace(/\/api\/mcp\/.*$/, ''); }
+              break;
+            }
+          }
+        }
+      } catch { /* ignore */ }
+      setMcpBaseUrl(base);
 
       // Контент — как в файле (автосборка перезапишет при первом изменении блоков).
       editingRef.current = false;
@@ -761,18 +854,38 @@ function ConfigTab({ server }: { server: OpencodeServer }) {
       delete cfg.model;
     }
 
+    // mcp.servers: только выбранные (mcpSelected). Снятые — удаляются.
+    const base = mcpBaseUrl || window.location.origin;
+    const mcpServers: Record<string, any> = {};
+    for (const [name, disabled] of Object.entries(mcpSelected)) {
+      // Существующая запись (ручная правка) — сохраняем прочие поля.
+      const prev = cfg.mcp?.servers?.[name];
+      mcpServers[name] = {
+        ...(prev && typeof prev === 'object' ? prev : {}),
+        type: 'remote',
+        url: `${base.replace(/\/$/, '')}/api/mcp/${encodeURIComponent(name)}`,
+        oauth: false,
+        disabled,
+      };
+    }
+    if (Object.keys(mcpServers).length > 0) {
+      cfg.mcp = { ...cfg.mcp, servers: mcpServers };
+    } else {
+      delete cfg.mcp;
+    }
+
     // models[] — нестандартный ключ OpenCode, удаляем.
     delete cfg.models;
 
     return JSON.stringify(cfg, null, 2) + '\n';
   }
 
-  // Живое отражение: при изменении чекбоксов / default model пересобираем
+  // Живое отражение: при изменении чекбоксов / default model / MCP пересобираем
   // textarea (если пользователь не печатает в нём прямо сейчас).
   useEffect(() => {
     if (!loaded || editingRef.current) return;
     setContent(buildConfig());
-  }, [selected, defaultModel]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selected, defaultModel, mcpSelected, mcpBaseUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Если сняли провайдера/модель, на которую ссылается default model — сбрасываем её.
   useEffect(() => {
@@ -841,6 +954,19 @@ function ConfigTab({ server }: { server: OpencodeServer }) {
                 ))}
               </div>
             )}
+          </Field>
+
+          {/* MCP-серверы из админки */}
+          <Field label={t.opencode.configMcpTitle} hint={t.opencode.configMcpHint}>
+            <div className="space-y-2">
+              <McpPicker serverId={server.id} selected={mcpSelected} onChange={setMcpSelected} />
+              <TextInput
+                value={mcpBaseUrl}
+                onChange={e => setMcpBaseUrl(e.target.value)}
+                placeholder={window.location.origin}
+                mono
+              />
+            </div>
           </Field>
 
           {/* Модель по умолчанию */}

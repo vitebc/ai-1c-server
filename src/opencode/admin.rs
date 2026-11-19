@@ -2485,6 +2485,50 @@ pub async fn status(State(state): State<Arc<AppState>>) -> Json<Value> {
     }))
 }
 
+/// GET /servers/{id}/mcp-options — enabled MCP servers (name, transport, running)
+/// for the ConfigTab picker. RBAC: section `opencode`.
+pub async fn mcp_options(
+    State(state): State<Arc<AppState>>,
+    AxPath(id): AxPath<String>,
+) -> Result<Json<Value>, axum::response::Response> {
+    use axum::response::IntoResponse;
+    // Validate server exists (404 if not).
+    {
+        let db = state.db.lock().await;
+        if read_row(&db, &id).is_none() {
+            return Err(NotFound.into_response());
+        }
+    }
+    let rows: Vec<(String, String, String)> = {
+        let db = state.db.lock().await;
+        let prepared = db.conn.prepare(
+            "SELECT id, name, transport FROM mcp_servers WHERE enabled = 1 ORDER BY name",
+        );
+        match prepared {
+            Ok(mut stmt) => stmt
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                })
+                .map(|r| r.flatten().collect())
+                .unwrap_or_default(),
+            Err(_) => Vec::new(),
+        }
+    };
+    let mut servers = Vec::new();
+    for (sid, name, transport) in rows {
+        servers.push(json!({
+            "name": name,
+            "transport": transport,
+            "running": state.mcp.is_running(&sid).await,
+        }));
+    }
+    Ok(Json(json!({ "servers": servers })))
+}
+
 // ─── routes ─────────────────────────────────────────────────────────
 
 pub fn routes() -> Router<Arc<AppState>> {
@@ -2503,6 +2547,7 @@ pub fn routes() -> Router<Arc<AppState>> {
             get(config_get).put(config_put),
         )
         .route("/servers/{id}/config/models", get(config_models_get))
+        .route("/servers/{id}/mcp-options", get(mcp_options))
         .route("/servers/{id}/agents", get(agents_list))
         .route("/servers/{id}/agents/{name}", put(agent_put))
         .route("/servers/{id}/agents/{name}", axum::routing::delete(agent_delete))
