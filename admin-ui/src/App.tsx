@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
-import { Route, Routes, NavLink } from 'react-router-dom';
+import { Route, Routes, NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Server, Brain, FileJson, Package, Users as UsersIcon, ScrollText, Code, KeyRound, LogOut, Bot, UserCog, Sun, Moon, Cpu, BarChart3, History, Database, GitBranch,
 } from 'lucide-react';
@@ -103,6 +103,8 @@ function Shell() {
   if (!authed) return <Login onDone={() => setAuthed(true)} />;
 
   const visibleNav = nav.filter(n => canSee(me, n.section));
+  const location = useLocation();
+  const isWide = location.pathname.startsWith('/opencode');
 
   return (
     <div className="flex h-dvh bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
@@ -160,7 +162,7 @@ function Shell() {
         </div>
       </aside>
       <main className="flex-1 overflow-y-auto">
-        <div className="max-w-[1200px] mx-auto p-6">
+        <div className={`${isWide ? 'w-full' : 'max-w-[1200px]'} mx-auto p-6`}>
           <Suspense fallback={<p className="text-sm text-slate-500">{t.common.loading}</p>}>
           <Routes>
             <Route path="/" element={<Guard me={me} section="dashboard"><Dashboard /></Guard>} />
