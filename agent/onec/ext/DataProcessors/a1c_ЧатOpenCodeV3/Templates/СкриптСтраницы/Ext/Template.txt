@@ -196,9 +196,17 @@ function setBusy(on) {
    page bottom padding follows the composer height, so a long input never
    hides the last message behind it. */
 function canSend() {
-  var p = byId('prompt');
-  return !!(p && p.value && p.value.replace(/^\s+|\s+$/g, ''));
+  var box = byId('chips');
+  if (box && box.children.length > 0) {
+    return true;
+  }
+  if (readPasted().length > 2) {
+    return true;
+  }
+  var el = byId('prompt');
+  return el ? el.value.trim().length > 0 : false;
 }
+
 
 function syncComposer() {
   var box = byId('cbox');
@@ -214,6 +222,8 @@ function syncComposer() {
     document.body.style.paddingBottom = (c.offsetHeight + 16) + 'px';
   }
 }
+
+
 
 function initComposer() {
   syncComposer();
@@ -265,11 +275,16 @@ function onPromptKey(e) {
     return;
   }
   e.preventDefault();
-  var s = byId('send');
-  if (s) {
-    s.click();
+  // Enter с пустым текстом, но есть вложения — тоже отправляем.
+  if (canSend()) {
+    var s = byId('send');
+    if (s) {
+      s.click();
+    }
   }
 }
+
+
 
 /* Enter in the free-answer field answers the question. */
 function onQuestionKey(e) {
@@ -285,3 +300,202 @@ function onQuestionKey(e) {
     a.click();
   }
 }
+
+/* Attachments. Chips live in #chips (composer), pasted images are kept as a
+   JSON array of data-URIs in the hidden #pastebuf field. 1C reads both at
+   send time: chips are removed from the DOM, pastebuf is cleared. */
+
+function chipHTML(id, name) {
+  return "<a class='chip-x' href='#act:detach|" + id + "' title='" + name + "'>&times;</a>"
+    + "<span class='chip-name'>" + name + "</span>";
+}
+
+function addChip(id, name) {
+  var box = byId('chips');
+  if (!box) {
+    return;
+  }
+  var chip = document.createElement('div');
+  chip.className = 'chip';
+  chip.id = 'chip_' + id;
+  chip.innerHTML = chipHTML(id, name);
+  box.appendChild(chip);
+  renderChips();
+}
+
+function removeChip(id) {
+  var chip = byId('chip_' + id);
+  if (chip && chip.parentNode) {
+    chip.parentNode.removeChild(chip);
+  }
+  renderChips();
+}
+
+function clearChips() {
+  var box = byId('chips');
+  if (box) {
+    box.innerHTML = '';
+  }
+  renderChips();
+}
+
+/* Hides the empty placeholder and resizes the composer: chips take space. */
+function renderChips() {
+  var box = byId('chips');
+  if (!box) {
+    return;
+  }
+  box.style.display = (box.children.length > 0) ? 'flex' : 'none';
+  syncComposer();
+}
+
+/* Ctrl+V in the prompt: images from the clipboard are downscaled to a
+   data-URI and appended to the pastebuf JSON array. Non-image pastes keep
+   the browser default (text insertion). */
+function onPromptPaste(e) {
+  e = e || window.event;
+  var items = (e.clipboardData && e.clipboardData.items) ? e.clipboardData.items : null;
+  if (!items) {
+    return;
+  }
+  var foundImage = false;
+  for (var i = 0; i < items.length; i++) {
+    if (items[i].type && String(items[i].type).indexOf('image/') === 0) {
+      foundImage = true;
+      break;
+    }
+  }
+  if (!foundImage) {
+    return;
+  }
+  if (e.preventDefault) {
+    e.preventDefault();
+  }
+  var buf = byId('pastebuf');
+  if (!buf) {
+    return;
+  }
+  var list = [];
+  try {
+    var parsed = JSON.parse(buf.value || '[]');
+    if (parsed && parsed.length) {
+      list = parsed;
+    }
+  } catch (err) {
+    list = [];
+  }
+  for (var j = 0; j < items.length; j++) {
+    if (!(items[j].type && String(items[j].type).indexOf('image/') === 0)) {
+      continue;
+    }
+    var file = items[j].getAsFile ? items[j].getAsFile() : null;
+    if (!file) {
+      continue;
+    }
+    (function(fileItem, mime) {
+      var reader = new FileReader();
+      reader.onload = function(ev) {
+        var img = document.createElement('img');
+        img.onload = function() {
+          var scale = Math.min(1, 1600 / Math.max(img.width, img.height));
+          var w = Math.max(1, Math.round(img.width * scale));
+          var h = Math.max(1, Math.round(img.height * scale));
+          var canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          try {
+            canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+            list.push(canvas.toDataURL(mime === 'image/png' ? 'image/png' : 'image/jpeg', 0.85));
+          } catch (err) {
+            return;
+          }
+          buf.value = JSON.stringify(list);
+          renderPasteChips();
+        };
+        img.onerror = function() {};
+        img.src = ev.target.result;
+      };
+      reader.readAsDataURL(fileItem);
+    })(file, items[j].type);
+  }
+}
+
+function readPasted() {
+  var buf = byId('pastebuf');
+  return buf ? (buf.value || '') : '';
+}
+
+function clearPasted() {
+  var buf = byId('pastebuf');
+  if (buf) {
+    buf.value = '';
+  }
+  renderPasteChips();
+}
+
+/* Pasted-image chips: one per data-URI in #pastebuf, with a thumbnail. The
+   chip row is shared with file chips (#chips); paste chips carry the "p"
+   prefix and are managed together with pastebuf (clearPasted removes them). */
+
+function pasteChipHTML(n, dataUri) {
+  var thumb = '';
+  if (dataUri) {
+    thumb = "<img class='chip-thumb' src='" + dataUri + "' alt=''/>";
+  }
+  return "<a class='chip-x' href='#act:detach|p" + n + "' title='"
+    + 'Убрать вставку' + "'>&times;</a>"
+    + thumb
+    + "<span class='chip-name'>" + 'Вставка ' + (n + 1) + "</span>";
+}
+
+function renderPasteChips() {
+  var buf = byId('pastebuf');
+  var box = byId('chips');
+  if (!buf || !box) {
+    return;
+  }
+  // Remove existing paste chips.
+  var nodes = box.querySelectorAll('.chip.paste');
+  for (var i = 0; i < nodes.length; i++) {
+    nodes[i].parentNode.removeChild(nodes[i]);
+  }
+  var list = [];
+  try {
+    var parsed = JSON.parse(buf.value || '[]');
+    if (parsed && parsed.length) {
+      list = parsed;
+    }
+  } catch (err) {
+    list = [];
+  }
+  for (var j = 0; j < list.length; j++) {
+    var chip = document.createElement('div');
+    chip.className = 'chip paste';
+    chip.id = 'chip_p' + j;
+    chip.innerHTML = pasteChipHTML(j, list[j]);
+    box.appendChild(chip);
+  }
+  renderChips();
+}
+
+function removePasteChip(n) {
+  var buf = byId('pastebuf');
+  if (!buf) {
+    return;
+  }
+  var list = [];
+  try {
+    var parsed = JSON.parse(buf.value || '[]');
+    if (parsed && parsed.length) {
+      list = parsed;
+    }
+  } catch (err) {
+    list = [];
+  }
+  if (n >= 0 && n < list.length) {
+    list.splice(n, 1);
+  }
+  buf.value = JSON.stringify(list);
+  renderPasteChips();
+}
+
