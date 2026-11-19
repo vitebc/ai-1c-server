@@ -2165,7 +2165,9 @@ pub async fn server_session_messages(
     let arr = v.get("data").and_then(|d| d.as_array()).cloned().unwrap_or_default();
     // Нормализуем сообщения для UI (только читабельные поля).
     let mut messages: Vec<Value> = Vec::new();
-    for m in arr.iter() {
+    // API отдаёт сообщения от новых к старым — обращаем порядок, чтобы диалог
+    // читался сверху вниз (user → assistant → user → …).
+    for m in arr.iter().rev() {
         let typ = m.get("type").and_then(|v| v.as_str()).unwrap_or("");
         if typ == "idle" || typ == "system" { continue; }
         let role = if typ == "user" { "user" } else { "assistant" };
