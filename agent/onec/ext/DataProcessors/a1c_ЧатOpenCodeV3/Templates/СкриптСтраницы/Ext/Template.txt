@@ -207,6 +207,12 @@ function canSend() {
   return el ? el.value.trim().length > 0 : false;
 }
 
+/* Document load: register the capture-phase paste listener (the inline
+   onpaste may not reach JS in the thin client) and reset the hint line. */
+function initPage() {
+  initPasteListener();
+}
+
 
 function syncComposer() {
   var box = byId('cbox');
@@ -349,32 +355,57 @@ function renderChips() {
   syncComposer();
 }
 
-/* Ctrl+V in the prompt: images from the clipboard are downscaled to a
-   data-URI and appended to the pastebuf JSON array. Non-image pastes keep
-   the browser default (text insertion). */
+/* Ctrl+V in the prompt. Anything that is a file (image or text) from the
+   clipboard becomes an attachment: images are downscaled to a data-URI, other
+   files are read raw as a data-URI with their name. Text-only pastes keep the
+   browser default (text insertion). Each paste writes a short diagnostic into
+   the hint line so we can tell apart "event never arrived", "old engine" and
+   "empty buffer" in the thin client.
+
+   The listener is registered on document in capture phase (initPage); the
+   inline onpaste on the textarea calls this too — same timestamp dedups. */
+var _lastPasteTs = 0;
+
 function onPromptPaste(e) {
   e = e || window.event;
-  var items = (e.clipboardData && e.clipboardData.items) ? e.clipboardData.items : null;
-  if (!items) {
+  if (!e) {
     return;
   }
-  var foundImage = false;
-  for (var i = 0; i < items.length; i++) {
-    if (items[i].type && String(items[i].type).indexOf('image/') === 0) {
-      foundImage = true;
-      break;
+  var ts = e.timeStamp || 0;
+  if (ts && ts === _lastPasteTs) {
+    // The document-level capture listener already processed this event.
+    return;
+  }
+  _lastPasteTs = ts;
+
+  var cd = e.clipboardData || (window.clipboardData ? window.clipboardData : null);
+  var items = (cd && cd.items) ? cd.items : null;
+  var files = (cd && cd.files) ? cd.files : null;
+
+  // Collect what the clipboard actually carried.
+  var diag = 'ua=' + String(navigator.userAgent).slice(0, 40);
+  var kinds = [];
+  var i;
+  if (items) {
+    for (i = 0; i < items.length; i++) {
+      kinds.push((items[i].kind || '?') + ':' + (items[i].type || '-'));
+    }
+  } else if (files && files.length) {
+    for (i = 0; i < files.length; i++) {
+      kinds.push('file:' + (files[i].type || '-'));
     }
   }
-  if (!foundImage) {
-    return;
+  diag += ' | items=' + (items ? items.length : 0) + ' files=' + (files ? files.length : 0);
+  if (kinds.length) {
+    diag += ' [' + kinds.join(', ') + ']';
   }
-  if (e.preventDefault) {
-    e.preventDefault();
-  }
+
   var buf = byId('pastebuf');
   if (!buf) {
+    setPasteDiag(diag + ' | no pastebuf');
     return;
   }
+
   var list = [];
   try {
     var parsed = JSON.parse(buf.value || '[]');
@@ -384,40 +415,127 @@ function onPromptPaste(e) {
   } catch (err) {
     list = [];
   }
-  for (var j = 0; j < items.length; j++) {
-    if (!(items[j].type && String(items[j].type).indexOf('image/') === 0)) {
-      continue;
+
+  // Files to attach: images from items, any kind:"file" entry otherwise.
+  var foundFile = false;
+  var queue = [];
+  if (items) {
+    for (i = 0; i < items.length; i++) {
+      var it = items[i];
+      var isImage = it.type && String(it.type).indexOf('image/') === 0;
+      var isFileKind = it.kind === 'file';
+      if (!isImage && !isFileKind) {
+        continue;
+      }
+      foundFile = true;
+      queue.push({ item: it, image: isImage });
     }
-    var file = items[j].getAsFile ? items[j].getAsFile() : null;
-    if (!file) {
-      continue;
+  } else if (files && files.length) {
+    // Old engines without clipboardData.items: FileList only.
+    for (i = 0; i < files.length; i++) {
+      foundFile = true;
+      queue.push({ item: null, file: files[i], image: String(files[i].type || '').indexOf('image/') === 0 });
     }
-    (function(fileItem, mime) {
+  }
+
+  if (!foundFile) {
+    // Plain text paste: let the browser insert it into the textarea.
+    setPasteDiag(diag + ' | text');
+    return;
+  }
+
+  if (e.preventDefault) {
+    e.preventDefault();
+  }
+
+  var added = 0;
+  function doneOne(ok) {
+    if (ok) {
+      added++;
+    }
+    buf.value = JSON.stringify(list);
+    renderPasteChips();
+    setPasteDiag(diag + ' | +' + added);
+  }
+
+  for (i = 0; i < queue.length; i++) {
+    (function(entry) {
+      var fileObj = entry.file || (entry.item && entry.item.getAsFile ? entry.item.getAsFile() : null);
+      if (!fileObj) {
+        doneOne(false);
+        return;
+      }
+      var name = fileObj.name || ('paste_' + (list.length + 1));
+      var mime = fileObj.type || 'application/octet-stream';
+      var hasCanvas = false;
+      try {
+        hasCanvas = !!(document.createElement('canvas').getContext && document.createElement('canvas').getContext('2d'));
+      } catch (err) {
+        hasCanvas = false;
+      }
       var reader = new FileReader();
       reader.onload = function(ev) {
-        var img = document.createElement('img');
-        img.onload = function() {
-          var scale = Math.min(1, 1600 / Math.max(img.width, img.height));
-          var w = Math.max(1, Math.round(img.width * scale));
-          var h = Math.max(1, Math.round(img.height * scale));
-          var canvas = document.createElement('canvas');
-          canvas.width = w;
-          canvas.height = h;
-          try {
-            canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-            list.push(canvas.toDataURL(mime === 'image/png' ? 'image/png' : 'image/jpeg', 0.85));
-          } catch (err) {
-            return;
-          }
-          buf.value = JSON.stringify(list);
-          renderPasteChips();
-        };
-        img.onerror = function() {};
-        img.src = ev.target.result;
+        if (entry.image && hasCanvas) {
+          // Downscale the image through a canvas, keep it small.
+          var dataUri = ev.target.result;
+          var img = document.createElement('img');
+          img.onload = function() {
+            var scale = Math.min(1, 1600 / Math.max(img.width, img.height));
+            var w = Math.max(1, Math.round(img.width * scale));
+            var h = Math.max(1, Math.round(img.height * scale));
+            var canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+            try {
+              canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+              list.push({ uri: canvas.toDataURL(mime === 'image/png' ? 'image/png' : 'image/jpeg', 0.85), name: name });
+            } catch (err) {
+              list.push({ uri: dataUri, name: name });
+            }
+            doneOne(true);
+          };
+          img.onerror = function() {
+            list.push({ uri: dataUri, name: name });
+            doneOne(true);
+          };
+          img.src = dataUri;
+        } else {
+          // Non-image file (or no canvas): raw data-URI, 1C inlines text files.
+          list.push({ uri: ev.target.result, name: name });
+          doneOne(true);
+        }
       };
-      reader.readAsDataURL(fileItem);
-    })(file, items[j].type);
+      reader.onerror = function() {
+        doneOne(false);
+      };
+      reader.readAsDataURL(fileObj);
+    })(queue[i]);
   }
+}
+
+/* Document-level paste listener (capture phase): the thin-client engine may
+   not deliver the inline onpaste, but document events reach JS. Registered
+   once from initPage; the same timestamp dedups with the inline handler. */
+function initPasteListener() {
+  if (document.addEventListener) {
+    document.addEventListener('paste', function(e) {
+      onPromptPaste(e);
+    }, true);
+  } else if (document.attachEvent) {
+    document.attachEvent('onpaste', function() {
+      onPromptPaste(window.event);
+    });
+  }
+}
+
+/* Short diagnostic line under the composer after each paste; the keyboard
+   hint comes back on the next render or send. */
+function setPasteDiag(text) {
+  var el = byId('hint');
+  if (!el || !text) {
+    return;
+  }
+  el.textContent = text;
 }
 
 function readPasted() {
@@ -433,19 +551,34 @@ function clearPasted() {
   renderPasteChips();
 }
 
-/* Pasted-image chips: one per data-URI in #pastebuf, with a thumbnail. The
+/* Pasted chips: one per entry in #pastebuf, with a thumbnail for images. The
    chip row is shared with file chips (#chips); paste chips carry the "p"
    prefix and are managed together with pastebuf (clearPasted removes them). */
 
-function pasteChipHTML(n, dataUri) {
+function pasteEntryUri(entry) {
+  if (entry && typeof entry === 'object') {
+    return entry.uri || '';
+  }
+  return String(entry || '');
+}
+
+function pasteEntryName(entry, n) {
+  if (entry && typeof entry === 'object' && entry.name) {
+    return entry.name;
+  }
+  return 'Вставка ' + (n + 1);
+}
+
+function pasteChipHTML(n, entry) {
+  var uri = pasteEntryUri(entry);
   var thumb = '';
-  if (dataUri) {
-    thumb = "<img class='chip-thumb' src='" + dataUri + "' alt=''/>";
+  if (uri && String(uri).indexOf('data:image') === 5) {
+    thumb = "<img class='chip-thumb' src='" + uri + "' alt=''/>";
   }
   return "<a class='chip-x' href='#act:detach|p" + n + "' title='"
     + 'Убрать вставку' + "'>&times;</a>"
     + thumb
-    + "<span class='chip-name'>" + 'Вставка ' + (n + 1) + "</span>";
+    + "<span class='chip-name'>" + pasteEntryName(entry, n) + "</span>";
 }
 
 function renderPasteChips() {

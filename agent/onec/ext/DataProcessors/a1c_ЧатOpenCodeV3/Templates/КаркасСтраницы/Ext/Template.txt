@@ -13,6 +13,7 @@
 <div id="question" class="q-wrap" style="display:none"></div>
 <div id="composer" class="composer">{{COMPOSER}}</div>
 <script>{{SCRIPT}}
-{{ATTACHMENTS}}</script>
+{{ATTACHMENTS}}
+initPage();</script>
 </body>
 </html>
