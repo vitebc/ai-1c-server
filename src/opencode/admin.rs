@@ -1984,6 +1984,214 @@ pub async fn session_drop(
     Ok(Json(json!({ "ok": true, "session_id": body.session_id })))
 }
 
+// ─── сессии OpenCode (все: активные + закрытые) ─────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct ServerSessionsQuery {
+    /// Сколько последних сессий отдавать (по умолчанию 200).
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
+
+/// session_id из пути запроса в opencode_requests (/api/session/{id}/prompt).
+fn sid_from_path(path: &str) -> Option<String> {
+    path.strip_prefix("/api/session/")
+        .and_then(|rest| rest.split('/').next())
+        .filter(|s| !s.is_empty() && s.starts_with("ses_"))
+        .map(str::to_string)
+}
+
+/// Привязка сессии → (пользователь 1С, база): объединение реестра шлюза
+/// (живые, в памяти) и истории запросов из БД (permanently). Реестр важнее —
+/// он свежий; БД добирает закрытые сессии.
+fn session_bindings(db: &crate::db::Database) -> std::collections::HashMap<String, (Option<String>, Option<String>)> {
+    let mut map = std::collections::HashMap::new();
+    // 1. История из opencode_requests: последнее по ts на session_id.
+    if let Ok(mut stmt) = db.conn.prepare(
+        "SELECT path, user_id, base FROM opencode_requests ORDER BY id DESC") {
+        let rows: Vec<(String, Option<String>, Option<String>)> = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .flatten()
+            .collect();
+        for (path, user_id, base) in rows {
+            if let Some(sid) = sid_from_path(&path) {
+                map.entry(sid)
+                    .or_insert((user_id.clone(), base.filter(|b| !b.is_empty())));
+            }
+        }
+    }
+    // 2. Реестр шлюза (без JWT, только user/base) — поверх истории.
+    for e in crate::opencode::gateway::sessions_snapshot() {
+        let sid = e.get("session_id").and_then(|v| v.as_str()).unwrap_or_default();
+        if sid.is_empty() { continue; }
+        map.insert(
+            sid.to_string(),
+            (
+                e.get("user").and_then(|v| v.as_str()).map(String::from),
+                e.get("base").and_then(|v| v.as_str()).map(String::from),
+            ),
+        );
+    }
+    map
+}
+
+/// GET /opencode/servers/{id}/sessions — все сессии сервера OpenCode
+/// (активные и закрытые) из его API + привязка пользователя 1С/базы.
+pub async fn server_sessions(
+    State(state): State<Arc<AppState>>,
+    AxPath(id): AxPath<String>,
+    Query(q): Query<ServerSessionsQuery>,
+) -> Result<Json<Value>, axum::response::Response> {
+    use axum::response::IntoResponse;
+    let limit = q.limit.unwrap_or(200).min(1000);
+    let (url, username, password) = {
+        let db = state.db.lock().await;
+        match read_full(&db, &id) {
+            Some((u, un, p, _)) => (u.trim_end_matches('/').to_string(), un, p),
+            None => return Err(NotFound.into_response()),
+        }
+    };
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build();
+    let resp = match client.as_ref() {
+        Ok(c) => c
+            .get(format!("{url}/api/session"))
+            .basic_auth(username.clone(), Some(password.clone()))
+            .send()
+            .await,
+        Err(_) => return Err(StatusCode::BAD_GATEWAY.into_response()),
+    };
+    let v: Value = match resp {
+        Ok(r) if r.status().is_success() => match r.json().await {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!("opencode sessions: не удалось разобрать ответ {}: {e}", url);
+                return Err(StatusCode::BAD_GATEWAY.into_response());
+            }
+        },
+        Ok(r) => {
+            let status = r.status();
+            tracing::warn!("opencode sessions: {} /api/session → {}", url, status);
+            return Err(status.into_response());
+        }
+        Err(e) => {
+            tracing::warn!("opencode sessions: {} недоступен: {e}", url);
+            return Err(StatusCode::BAD_GATEWAY.into_response());
+        }
+    };
+    let arr = v.get("data").and_then(|d| d.as_array()).cloned().unwrap_or_default();
+    let bindings = {
+        let db = state.db.lock().await;
+        session_bindings(&db)
+    };
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    // «Активна» — была активна в последние 5 минут (idle ≈ время последнего события).
+    const ACTIVE_WINDOW_MS: u64 = 5 * 60 * 1000;
+    let mut sessions: Vec<Value> = Vec::new();
+    for s in arr.iter().rev().take(limit) {
+        let sid = s.get("id").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+        let idle = s.get("time").and_then(|t| t.get("idle")).and_then(|v| v.as_u64());
+        let active = idle.map(|i| now_ms.saturating_sub(i) <= ACTIVE_WINDOW_MS).unwrap_or(false);
+        let (user, base) = bindings.get(&sid).cloned().unwrap_or((None, None));
+        sessions.push(json!({
+            "id": sid,
+            "title": s.get("title"),
+            "agent": s.get("agent"),
+            "model": s.get("model").and_then(|m| m.get("id")).and_then(|v| v.as_str()),
+            "provider": s.get("model").and_then(|m| m.get("providerID")).and_then(|v| v.as_str()),
+            "created": s.get("time").and_then(|t| t.get("created")),
+            "updated": s.get("time").and_then(|t| t.get("updated")),
+            "idle": idle,
+            "viewed": s.get("time").and_then(|t| t.get("viewed")),
+            "outcome": s.get("outcome"),
+            "active": active,
+            "tokens_in": s.get("tokens").and_then(|t| t.get("input")).and_then(|v| v.as_u64()),
+            "tokens_out": s.get("tokens").and_then(|t| t.get("output")).and_then(|v| v.as_u64()),
+            "cost": s.get("cost"),
+            "user": user,
+            "base": base,
+        }));
+    }
+    Ok(Json(json!({ "count": sessions.len(), "sessions": sessions })))
+}
+
+/// GET /opencode/servers/{id}/sessions/{sid}/messages — диалог сессии.
+pub async fn server_session_messages(
+    State(state): State<Arc<AppState>>,
+    AxPath((id, sid)): AxPath<(String, String)>,
+) -> Result<Json<Value>, axum::response::Response> {
+    use axum::response::IntoResponse;
+    let (url, username, password) = {
+        let db = state.db.lock().await;
+        match read_full(&db, &id) {
+            Some((u, un, p, _)) => (u.trim_end_matches('/').to_string(), un, p),
+            None => return Err(NotFound.into_response()),
+        }
+    };
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .build();
+    let resp = match client.as_ref() {
+        Ok(c) => c
+            .get(format!("{url}/api/session/{sid}/message"))
+            .basic_auth(username.clone(), Some(password.clone()))
+            .send()
+            .await,
+        Err(_) => return Err(StatusCode::BAD_GATEWAY.into_response()),
+    };
+    let v: Value = match resp {
+        Ok(r) if r.status().is_success() => match r.json().await {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!("opencode messages: не удалось разобрать ответ {}: {e}", url);
+                return Err(StatusCode::BAD_GATEWAY.into_response());
+            }
+        },
+        Ok(r) => {
+            let status = r.status();
+            tracing::warn!("opencode messages: {} /api/session/{}/message → {}", url, sid, status);
+            return Err(status.into_response());
+        }
+        Err(e) => {
+            tracing::warn!("opencode messages: {} недоступен: {e}", url);
+            return Err(StatusCode::BAD_GATEWAY.into_response());
+        }
+    };
+    let arr = v.get("data").and_then(|d| d.as_array()).cloned().unwrap_or_default();
+    // Нормализуем сообщения для UI (только читабельные поля).
+    let mut messages: Vec<Value> = Vec::new();
+    for m in arr.iter() {
+        let typ = m.get("type").and_then(|v| v.as_str()).unwrap_or("");
+        if typ == "idle" || typ == "system" { continue; }
+        let role = if typ == "user" { "user" } else { "assistant" };
+        // Текст: user — поле text; assistant — массив content (text-части).
+        let mut text = String::new();
+        if let Some(t) = m.get("text").and_then(|v| v.as_str()) {
+            text.push_str(t);
+        } else if let Some(parts) = m.get("content").and_then(|c| c.as_array()) {
+            for p in parts {
+                if p.get("type").and_then(|v| v.as_str()) == Some("text") {
+                    if !text.is_empty() { text.push('\n'); }
+                    text.push_str(p.get("text").and_then(|v| v.as_str()).unwrap_or_default());
+                }
+            }
+        }
+        messages.push(json!({
+            "role": role,
+            "text": text,
+            "time": m.get("time").and_then(|t| t.get("created")),
+            "agent": m.get("agent"),
+            "model": m.get("model").and_then(|m2| m2.get("id")).and_then(|v| v.as_str()),
+        }));
+    }
+    Ok(Json(json!({ "count": messages.len(), "messages": messages })))
+}
+
 // ─── токен Витра AI (анонимный режим) ───────────────────────────────
 
 #[derive(Debug, Serialize)]
@@ -2296,6 +2504,11 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/servers/{id}/plugin/token", get(plugin_token_endpoint))
         .route("/sessions", get(sessions_list))
         .route("/sessions/drop", post(session_drop))
+        .route("/servers/{id}/sessions", get(server_sessions))
+        .route(
+            "/servers/{id}/sessions/{sid}/messages",
+            get(server_session_messages),
+        )
         .route("/vitra/token", get(vitra_token_get).put(vitra_token_put))
         .route("/logs", get(logs))
         .route("/stats", get(stats))

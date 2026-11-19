@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Plus, Pencil, Trash2, Play, Square, RotateCw, Check, X, RefreshCw, KeyRound, Package, Network, ChevronRight, Server as ServerIcon } from 'lucide-react';
+import { Plus, Pencil, Trash2, Play, Square, RotateCw, Check, X, RefreshCw, KeyRound, Package, Network, ChevronRight, Server as ServerIcon, MessageSquare } from 'lucide-react';
 import * as yaml from 'js-yaml';
 import { api } from '../api/client';
 import type { ModelProvider, OpencodeServer } from '../types';
@@ -1534,9 +1534,42 @@ function ToolsTab({ server, onChanged }: { server: OpencodeServer; onChanged: ()
 
 // ─── Сессии ─────────────────────────────────────────────────────────
 
+type OcSession = {
+  id: string; title?: string | null; agent?: string | null; model?: string | null; provider?: string | null;
+  created?: number | null; updated?: number | null; idle?: number | null; viewed?: number | null;
+  outcome?: string | null; active: boolean;
+  tokens_in?: number | null; tokens_out?: number | null; cost?: number | null;
+  user?: string | null; base?: string | null;
+};
+
+function fmtTs(ms?: number | null): string {
+  if (!ms) return '—';
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 function SessionsTab({ serverId }: { serverId: string }) {
+  const [oc, setOc] = useState<OcSession[]>([]);
+  const [ocErr, setOcErr] = useState('');
+  const [ocLoading, setOcLoading] = useState(false);
+  const [filter, setFilter] = useState<'active' | 'all'>('all');
+  const [search, setSearch] = useState('');
+  const [viewing, setViewing] = useState<OcSession | null>(null);
+
+  // Реестр шлюза (JWT 1С) — нижняя секция.
   const [all, setAll] = useState<{ session_id: string; server: string; user?: string | null; base?: string | null; has_jwt: boolean; expires_at: number }[]>([]);
   const [err, setErr] = useState('');
+
+  const loadOc = useCallback(async () => {
+    setOcLoading(true);
+    try {
+      const r = await api.getOpencodeServerSessions(serverId);
+      setOc(r.sessions);
+      setOcErr('');
+    } catch (e) { setOcErr(errText(e, 'Ошибка')); }
+    finally { setOcLoading(false); }
+  }, [serverId]);
 
   const load = useCallback(async () => {
     try {
@@ -1548,32 +1581,117 @@ function SessionsTab({ serverId }: { serverId: string }) {
   // Фильтр по выбранному серверу (server — id сервера из реестра шлюза).
   const sessions = all.filter(s => s.server === serverId);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadOc(); load(); }, [loadOc, load]);
 
   async function doDrop(id: string) {
     try { await api.dropOpencodeSession(id); load(); }
     catch (e) { setErr(errText(e, 'Ошибка')); }
   }
 
+  const q = search.trim().toLowerCase();
+  const shownOc = oc.filter(s =>
+    (filter === 'all' || s.active) &&
+    (!q || (s.title || '').toLowerCase().includes(q) || (s.user || '').toLowerCase().includes(q) || (s.base || '').toLowerCase().includes(q)));
+
+  function statusBadge(s: OcSession) {
+    if (s.outcome === 'failed') return <Badge tone="red">{t.opencode.ocFailed}</Badge>;
+    if (s.active) return <Badge tone="green">{t.opencode.ocActive}</Badge>;
+    return <Badge tone="neutral">{t.opencode.ocClosed}</Badge>;
+  }
+
   return (
     <div>
-      {err && <div className="mb-3"><Alert tone="red">{err}</Alert></div>}
-      <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">{t.opencode.sessionsHint}</p>
-      <div className="flex justify-end mb-2">
-        <Btn variant="outline" onClick={load}><RefreshCw size={15} /> {t.common.refresh}</Btn>
+      {ocErr && <div className="mb-3"><Alert tone="red">{ocErr}</Alert></div>}
+      <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">{t.opencode.ocSessionsHint}</p>
+      <div className="flex items-center gap-2 mb-2 flex-wrap">
+        <Segmented value={filter} onChange={(v) => setFilter(v as 'active' | 'all')} options={[
+          { key: 'active', label: t.opencode.ocActiveOnly },
+          { key: 'all', label: t.opencode.ocAllSessions },
+        ]} />
+        <div className="flex-1 min-w-[180px] max-w-xs">
+          <TextInput value={search} onChange={e => setSearch(e.target.value)} placeholder={t.common.filter} />
+        </div>
+        <Btn variant="outline" onClick={loadOc} disabled={ocLoading}><RefreshCw size={15} className={ocLoading ? 'animate-spin' : ''} /> {t.common.refresh}</Btn>
       </div>
-      <TableShell colSpan={5} empty={sessions.length === 0 ? { text: t.opencode.noSessions } : null}
-        head={<><Th>Session</Th><Th>{t.opencode.sessionUser}</Th><Th>{t.opencode.sessionBase}</Th><Th>{t.opencode.sessionJwT}</Th><Th right>{t.common.actions}</Th></>}>
-        {sessions.map(s => (
-          <Row key={s.session_id}>
-            <Td><span className={monoCls + ' text-xs'}>{s.session_id.slice(0, 24)}…</span></Td>
+      <TableShell colSpan={9} empty={shownOc.length === 0 ? { text: t.opencode.ocNoSessions } : null}
+        head={<><Th>{t.opencode.ocSessionTitle}</Th><Th>{t.opencode.ocSessionUser}</Th><Th>{t.opencode.ocSessionBase}</Th><Th>{t.opencode.ocSessionAgent}</Th><Th>{t.opencode.ocSessionModel}</Th><Th>{t.opencode.ocSessionUpdated}</Th><Th>{t.opencode.ocSessionStatus}</Th><Th right>{t.opencode.ocSessionTokens}</Th><Th right>{t.common.actions}</Th></>}>
+        {shownOc.map(s => (
+          <Row key={s.id} className="cursor-pointer" >
+            <Td>
+              <button type="button" onClick={() => setViewing(s)} className="text-sm font-medium text-slate-800 dark:text-slate-100 hover:underline cursor-pointer text-left">
+                {s.title || <span className={monoCls + ' text-xs'}>{s.id.slice(0, 24)}…</span>}
+              </button>
+            </Td>
             <Td><span className="text-sm">{s.user || '—'}</span></Td>
             <Td>{s.base ? <Badge tone="sky">{s.base}</Badge> : '—'}</Td>
-            <Td>{s.has_jwt ? <Badge tone="green">да</Badge> : <Badge tone="red">нет</Badge>}</Td>
-            <Td className="text-right"><IconBtn title={t.opencode.dropSession} onClick={() => doDrop(s.session_id)}><Trash2 size={14} /></IconBtn></Td>
+            <Td><span className="text-sm">{s.agent || '—'}</span></Td>
+            <Td><span className={monoCls + ' text-xs'}>{s.model || '—'}</span></Td>
+            <Td><span className="text-xs text-slate-500 dark:text-slate-400">{fmtTs(s.updated ?? s.idle)}</span></Td>
+            <Td>{statusBadge(s)}</Td>
+            <Td className="text-right"><span className={monoCls + ' text-xs text-slate-500 dark:text-slate-400'}>{s.tokens_in ? `${s.tokens_in} / ${s.tokens_out ?? 0}` : '—'}</span></Td>
+            <Td className="text-right"><IconBtn title={t.opencode.ocViewDialog} onClick={() => setViewing(s)}><MessageSquare size={14} /></IconBtn></Td>
           </Row>
         ))}
       </TableShell>
+
+      {viewing && <SessionDialogModal serverId={serverId} session={viewing} onClose={() => setViewing(null)} />}
+
+      {/* Реестр шлюза (JWT 1С) */}
+      <div className="mt-6">
+        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1">{t.opencode.ocGatewayRegistry}</h3>
+        <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">{t.opencode.ocGatewayRegistryHint}</p>
+        {err && <div className="mb-2"><Alert tone="red">{err}</Alert></div>}
+        <TableShell colSpan={5} empty={sessions.length === 0 ? { text: t.opencode.noSessions } : null}
+          head={<><Th>Session</Th><Th>{t.opencode.sessionUser}</Th><Th>{t.opencode.sessionBase}</Th><Th>{t.opencode.sessionJwT}</Th><Th right>{t.common.actions}</Th></>}>
+          {sessions.map(s => (
+            <Row key={s.session_id}>
+              <Td><span className={monoCls + ' text-xs'}>{s.session_id.slice(0, 24)}…</span></Td>
+              <Td><span className="text-sm">{s.user || '—'}</span></Td>
+              <Td>{s.base ? <Badge tone="sky">{s.base}</Badge> : '—'}</Td>
+              <Td>{s.has_jwt ? <Badge tone="green">да</Badge> : <Badge tone="red">нет</Badge>}</Td>
+              <Td className="text-right"><IconBtn title={t.opencode.dropSession} onClick={() => doDrop(s.session_id)}><Trash2 size={14} /></IconBtn></Td>
+            </Row>
+          ))}
+        </TableShell>
+      </div>
     </div>
+  );
+}
+
+function SessionDialogModal({ serverId, session, onClose }: { serverId: string; session: OcSession; onClose: () => void }) {
+  const [msgs, setMsgs] = useState<{ role: 'user' | 'assistant'; text: string; time?: number | null; agent?: string | null; model?: string | null }[] | null>(null);
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    setMsgs(null);
+    api.getOpencodeServerSessionMessages(serverId, session.id)
+      .then(r => { if (!cancelled) setMsgs(r.messages); })
+      .catch(e => { if (!cancelled) setErr(errText(e, 'Ошибка')); });
+    return () => { cancelled = true; };
+  }, [serverId, session.id]);
+
+  return (
+    <Modal title={`${session.title || session.id.slice(0, 24)}…`} onClose={onClose} wide fill>
+      {err && <Alert tone="red">{err}</Alert>}
+      {!msgs && !err && <p className="text-sm text-slate-500 dark:text-slate-400">{t.opencode.ocLoadingMessages}</p>}
+      {msgs && msgs.length === 0 && <p className="text-sm text-slate-500 dark:text-slate-400">{t.opencode.ocNoMessages}</p>}
+      {msgs && msgs.length > 0 && (
+        <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1">
+          {msgs.map((m, i) => (
+            <div key={i} className={`rounded-lg border px-3 py-2 ${m.role === 'user' ? 'border-blue-200 bg-blue-50 dark:border-blue-900/60 dark:bg-blue-950/30' : 'border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950/40'}`}>
+              <div className="flex items-center gap-2 mb-1">
+                <span className={`text-xs font-semibold ${m.role === 'user' ? 'text-blue-700 dark:text-blue-300' : 'text-slate-600 dark:text-slate-300'}`}>
+                  {m.role === 'user' ? (session.user || 'Пользователь') : (m.agent || 'assistant')}
+                </span>
+                {m.model && <span className={monoCls + ' text-[10px] text-slate-400'}>{m.model}</span>}
+                <span className="text-[10px] text-slate-400 ml-auto">{fmtTs(m.time)}</span>
+              </div>
+              <pre className="whitespace-pre-wrap break-words text-sm text-slate-800 dark:text-slate-200 font-sans m-0">{m.text}</pre>
+            </div>
+          ))}
+        </div>
+      )}
+    </Modal>
   );
 }

@@ -359,6 +359,19 @@ export const api = {
   getOpencodePluginToken: (id: string) => request<{ token: string }>(`/opencode/servers/${id}/plugin/token`),
   getOpencodeSessions: () =>
     request<{ count: number; sessions: { session_id: string; server: string; user?: string | null; base?: string | null; has_jwt: boolean; expires_at: number }[] }>('/opencode/sessions'),
+  getOpencodeServerSessions: (id: string) =>
+    request<{
+      count: number;
+      sessions: {
+        id: string; title?: string | null; agent?: string | null; model?: string | null; provider?: string | null;
+        created?: number | null; updated?: number | null; idle?: number | null; viewed?: number | null;
+        outcome?: string | null; active: boolean;
+        tokens_in?: number | null; tokens_out?: number | null; cost?: number | null;
+        user?: string | null; base?: string | null;
+      }[];
+    }>(`/opencode/servers/${id}/sessions?limit=200`),
+  getOpencodeServerSessionMessages: (id: string, sid: string) =>
+    request<{ count: number; messages: { role: 'user' | 'assistant'; text: string; time?: number | null; agent?: string | null; model?: string | null }[] }>(`/opencode/servers/${id}/sessions/${sid}/messages`),
   dropOpencodeSession: (session_id: string) =>
     request<{ ok: boolean }>('/opencode/sessions/drop', { method: 'POST', body: JSON.stringify({ session_id }) }),
   getVitraToken: () => request<{ token_set: boolean }>('/opencode/vitra/token'),
