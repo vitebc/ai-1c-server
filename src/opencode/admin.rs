@@ -111,7 +111,9 @@ pub struct ServerRow {
     pub username: String,
     /// Пароль не отдаётся; только флаг.
     pub password_set: bool,
-    pub bases: Vec<String>,
+    /// Базы 1С: name (маршрутизация) + title (непустой = доступна для авторизации в AI-1C).
+    #[serde(default)]
+    pub bases: Vec<crate::opencode::gateway::OnecBase>,
     pub compose_service: String,
     pub compose_profile: String,
     pub onec_user: String,
@@ -141,7 +143,7 @@ pub struct ServerBody {
     #[serde(default)]
     pub password: Option<String>,
     #[serde(default)]
-    pub bases: Option<Vec<String>>,
+    pub bases: Option<Vec<crate::opencode::gateway::OnecBase>>,
     #[serde(default)]
     pub compose_service: Option<String>,
     #[serde(default)]
@@ -231,7 +233,7 @@ fn read_row(db: &crate::db::Database, id: &str) -> Option<ServerRow> {
                 url,
                 username,
                 password_set: !pw.is_empty(),
-            bases: serde_json::from_str(&bases_raw).unwrap_or_default(),
+            bases: crate::opencode::gateway::OnecBase::parse(&bases_raw),
             compose_service: cs,
             compose_profile: cp,
             onec_user: ou,
@@ -1456,8 +1458,8 @@ pub async fn tools_catalog(
     Ok(Json(json!({ "tools": tools })))
 }
 
-fn first_base(bases: &[String]) -> Option<String> {
-    bases.first().cloned()
+fn first_base(bases: &[crate::opencode::gateway::OnecBase]) -> Option<String> {
+    bases.first().map(|b| b.name.clone())
 }
 
 /// Резолв имени базы → URL публикации через agent/bases.conf + ONEC_BASES из .env.

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Plus, Pencil, Trash2, Play, Square, RotateCw, Check, X, RefreshCw, KeyRound, Package, Network, ChevronRight, Server as ServerIcon, MessageSquare } from 'lucide-react';
 import * as yaml from 'js-yaml';
 import { api } from '../api/client';
-import type { ModelProvider, OpencodeServer } from '../types';
+import type { ModelProvider, OnecBase, OpencodeServer } from '../types';
 import { t } from '../i18n';
 import { errText } from '../errors';
 import { PageHeader, Btn, IconBtn, Badge, TableShell, Th, Td, Row, TextInput, TextArea, Select, Field, Alert, Modal, Confirm, Segmented, inputCls, monoCls } from '../components/ui';
@@ -336,16 +336,21 @@ const CODE_INDEX_ALIASES = ['ka2', 'erp', 'ktm', 'upp', 'obrabotki', 'erp_ext', 
 
 interface ServerForm {
   name: string; title: string; config_dir: string; url: string; username: string;
-  password: string; bases: string[]; compose_service: string; compose_profile: string;
+  password: string; bases: OnecBase[]; compose_service: string; compose_profile: string;
   onec_user: string; onec_password: string; enabled: boolean; is_default: boolean;
   visible_agents: string[]; code_indexes: string[];
 }
 
 const emptyForm: ServerForm = {
   name: '', title: '', config_dir: '', url: 'http://127.0.0.1:4040', username: 'opencode',
-  password: '', bases: [], compose_service: '', compose_profile: '', onec_user: '', onec_password: '', enabled: true, is_default: false,
+  password: '', bases: [] as OnecBase[], compose_service: '', compose_profile: '', onec_user: '', onec_password: '', enabled: true, is_default: false,
   visible_agents: [], code_indexes: [],
 };
+
+/// Старый формат строки ["имя"] → новый {name, title}.
+function normalizeBases(bases: Array<string | OnecBase> | undefined): OnecBase[] {
+  return (bases || []).map(b => typeof b === 'string' ? { name: b, title: '' } : { name: b.name, title: b.title || '' });
+}
 
 function ServersTab({ servers, onChanged, onPick, selId }: { servers: OpencodeServer[]; onChanged: () => void; onPick: (id: string) => void; selId: string }) {
   const [form, setForm] = useState<ServerForm | null>(null);
@@ -362,7 +367,7 @@ function ServersTab({ servers, onChanged, onPick, selId }: { servers: OpencodeSe
     setEditingId(s.id);
     setForm({
       name: s.name, title: s.title, config_dir: s.config_dir, url: s.url, username: s.username,
-      password: '', bases: [...s.bases], compose_service: s.compose_service, compose_profile: s.compose_profile,
+      password: '', bases: normalizeBases(s.bases), compose_service: s.compose_service, compose_profile: s.compose_profile,
       onec_user: s.onec_user, onec_password: '', enabled: s.enabled, is_default: s.is_default,
       visible_agents: [...(s.visible_agents || [])], code_indexes: [...(s.code_indexes || [])],
     });
@@ -379,7 +384,7 @@ function ServersTab({ servers, onChanged, onPick, selId }: { servers: OpencodeSe
     try {
       const payload = {
         name: form.name.trim(), title: form.title, config_dir: form.config_dir || undefined, url: form.url,
-        username: form.username, password: form.password || undefined, bases: form.bases,
+        username: form.username, password: form.password || undefined, bases: form.bases.map(b => ({ name: b.name, title: b.title })),
         compose_service: form.compose_service, compose_profile: form.compose_profile,
         onec_user: form.onec_user, onec_password: form.onec_password || undefined,
         enabled: form.enabled, is_default: form.is_default,
@@ -436,7 +441,11 @@ function ServersTab({ servers, onChanged, onPick, selId }: { servers: OpencodeSe
             <Td><span className={monoCls + ' text-xs'}>{s.url}</span></Td>
             <Td>
               <div className="flex flex-wrap gap-1">
-                {s.bases.map(b => <Badge key={b} tone="sky">{b}</Badge>)}
+                {(s.bases || []).map(b => {
+                  const name = typeof b === 'string' ? b : b.name;
+                  const title = typeof b === 'string' ? '' : (b.title || '');
+                  return <Badge key={name} tone="sky" title={title || undefined} className={title ? 'cursor-help' : ''}>{name}{title && ' ·'}</Badge>;
+                })}
               </div>
             </Td>
             <Td><span className="text-xs">{s.onec_user || '—'}</span></Td>
@@ -470,7 +479,7 @@ function ServersTab({ servers, onChanged, onPick, selId }: { servers: OpencodeSe
             <Field label={t.opencode.username}><TextInput value={form.username} mono onChange={e => setForm({ ...form, username: e.target.value })} /></Field>
             <Field label={editingId ? t.opencode.passwordKeep : t.opencode.password}><TextInput type="password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} /></Field>
             <Field label={t.opencode.bases} hint={t.opencode.basesHint}>
-              <ChipsInput values={form.bases} onChange={v => setForm({ ...form, bases: v })} placeholder="ca2_ai" />
+              <BasesEditor bases={form.bases} onChange={v => setForm({ ...form, bases: v })} />
             </Field>
             <Field label={t.opencode.composeService}><TextInput value={form.compose_service} mono onChange={e => setForm({ ...form, compose_service: e.target.value })} placeholder="server-main" /></Field>
             <Field label={t.opencode.onecUser}><TextInput value={form.onec_user} mono onChange={e => setForm({ ...form, onec_user: e.target.value })} placeholder="agent" /></Field>
@@ -538,30 +547,55 @@ function ServersTab({ servers, onChanged, onPick, selId }: { servers: OpencodeSe
   );
 }
 
-function ChipsInput({ values, onChange, placeholder, mono }: { values: string[]; onChange: (v: string[]) => void; placeholder?: string; mono?: boolean }) {
+
+
+/// Базы 1С сервера: имя (маршрутизация) + «Авторизация» (title для AI-1C).
+function BasesEditor({ bases, onChange }: { bases: OnecBase[]; onChange: (v: OnecBase[]) => void }) {
   const [draft, setDraft] = useState('');
   function commit() {
-    // lower-case только для имён каталогов (видимые агенты); имена моделей
-    // сохраняем как ввели — префикс провайдера case-sensitive.
-    const v = mono ? draft.trim() : draft.trim().toLowerCase();
-    if (v && !values.includes(v)) onChange([...values, v]);
+    const v = draft.trim().toLowerCase();
+    if (v && !bases.some(b => b.name === v)) onChange([...bases, { name: v, title: '' }]);
     setDraft('');
   }
   return (
-    <div className={inputCls + ' flex flex-wrap items-center gap-1 py-1.5'}>
-      {values.map(v => (
-        <span key={v} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-xs ${mono ? monoCls : ''}`}>
-          {v}
-          <button onClick={() => onChange(values.filter(x => x !== v))} className="text-slate-400 hover:text-red-500"><X size={12} /></button>
-        </span>
-      ))}
+    <div>
+      {bases.length > 0 && (
+        <div className="space-y-1 mb-2">
+          {bases.map((b, i) => (
+            <div key={b.name} className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                title={t.opencode.baseAuthHint}
+                checked={(b.title || '').trim() !== ''}
+                onChange={e => {
+                  const next = [...bases];
+                  next[i] = { ...next[i], title: e.target.checked ? (next[i].title || ' ') : '' };
+                  onChange(next);
+                }}
+              />
+              <span className={`text-sm w-28 shrink-0 truncate ${monoCls}`} title={b.name}>{b.name}</span>
+              <input
+                value={b.title}
+                placeholder={t.opencode.baseTitlePlaceholder}
+                onChange={e => {
+                  const next = [...bases];
+                  next[i] = { ...next[i], title: e.target.value };
+                  onChange(next);
+                }}
+                className="flex-1 min-w-0 bg-transparent outline-none text-sm border-b border-slate-200 dark:border-slate-700 focus:border-blue-400 py-0.5"
+              />
+              <button onClick={() => onChange(bases.filter((_, j) => j !== i))} className="text-slate-400 hover:text-red-500 shrink-0"><X size={13} /></button>
+            </div>
+          ))}
+        </div>
+      )}
       <input
         value={draft}
         onChange={e => setDraft(e.target.value)}
         onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); commit(); } }}
         onBlur={commit}
-        placeholder={placeholder}
-        className={`flex-1 min-w-[80px] bg-transparent outline-none text-sm ${mono ? monoCls : ''}`}
+        placeholder="ca2_ai + Enter"
+        className={inputCls + ' w-full'}
       />
     </div>
   );

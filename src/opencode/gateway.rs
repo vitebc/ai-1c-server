@@ -23,7 +23,7 @@ use axum::{
     routing::any,
     Json, Router,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::api::AppState;
@@ -47,6 +47,39 @@ fn with_cors(mut resp: Response) -> Response {
 /// кастомные headers в preflight).
 fn cors_preflight() -> Response {
     with_cors(StatusCode::NO_CONTENT.into_response())
+}
+
+/// База 1С в поле `bases` сервера. Формат JSON: [{"name": "...", "title": "..."}].
+/// title непустой = база доступна для авторизации пользователя (AI-1C берёт
+/// список из GET /api/bases). Старый формат ["имя"] парсится как name-only.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OnecBase {
+    pub name: String,
+    #[serde(default)]
+    pub title: String,
+}
+
+impl OnecBase {
+    /// Парсинг JSON-массива баз с fallback на строковый формат.
+    pub fn parse(raw: &str) -> Vec<OnecBase> {
+        let arr = match serde_json::from_str::<Vec<Value>>(raw) {
+            Ok(a) => a,
+            Err(_) => return Vec::new(),
+        };
+        arr.into_iter()
+            .filter_map(|v| match v {
+                Value::String(s) if !s.trim().is_empty() => Some(OnecBase { name: s.trim().to_string(), title: String::new() }),
+                Value::Object(_) => serde_json::from_value(v).ok(),
+                _ => None,
+            })
+            .filter(|b| !b.name.is_empty())
+            .collect()
+    }
+
+    /// Имена баз (для маршрутизации и мап ONEC_BASES).
+    pub fn names(bases: &[OnecBase]) -> Vec<String> {
+        bases.iter().map(|b| b.name.clone()).collect()
+    }
 }
 
 // ─── реестр сессий ──────────────────────────────────────────────────
@@ -138,7 +171,7 @@ struct ServerInfo {
     url: String,
     username: String,
     password: String,
-    bases: Vec<String>,
+    bases: Vec<OnecBase>,
     /// Агенты, отдаваемые клиенту (GET /api/agent). Пусто = все.
     visible_agents: Vec<String>,
     /// Каталог конфигов сервера (agents/*.md) — для чтения title из frontmatter.
@@ -155,7 +188,7 @@ fn load_servers(db: &crate::db::Database) -> (Vec<ServerInfo>, Option<ServerInfo
         url: url.trim_end_matches('/').to_string(),
         username,
         password,
-        bases: serde_json::from_str(&bases_raw).unwrap_or_default(),
+        bases: OnecBase::parse(&bases_raw),
         visible_agents: serde_json::from_str(&va_raw).unwrap_or_default(),
         config_dir,
     };
@@ -554,7 +587,7 @@ async fn gateway_any(
             None => match &base {
                 Some(b) => servers
                     .iter()
-                    .find(|s| s.name.eq_ignore_ascii_case(b) || s.bases.iter().any(|x| x.eq_ignore_ascii_case(b)))
+                    .find(|s| s.name.eq_ignore_ascii_case(b) || s.bases.iter().any(|x| x.name.eq_ignore_ascii_case(b)))
                     .cloned(),
                 None => default.clone(),
             },
@@ -1034,7 +1067,7 @@ async fn onec_rpc(
         Some(r) => r,
         None => return (StatusCode::NOT_FOUND, Json(json!({ "error": "сервер не найден" }))).into_response(),
     };
-    let bases: Vec<String> = serde_json::from_str(&bases_raw).unwrap_or_default();
+    let bases: Vec<String> = OnecBase::names(&OnecBase::parse(&bases_raw));
     let base_final = match base_claim {
         Some(b) => b,
         None => bases.first().cloned().unwrap_or_default(),
@@ -1136,6 +1169,22 @@ fn constant_time_eq(a: &str, b: &str) -> bool {
 
 // ─── health / app ───────────────────────────────────────────────────
 
+/// GET /api/bases — список баз 1С для авторизации пользователя (AI-1C).
+/// Без авторизации: запрашивается ДО того, как у пользователя есть JWT.
+/// Включает только базы с непустым title (отмеченные «Авторизация» в админке)
+/// по включённым серверам. Ответ: [{"name": ..., "title": ...}].
+async fn gateway_bases(State(state): State<Arc<AppState>>) -> Response {
+    let db = state.db.lock().await;
+    let (servers, _) = load_servers(&db);
+    let bases: Vec<Value> = servers
+        .iter()
+        .flat_map(|s| s.bases.iter())
+        .filter(|b| !b.title.trim().is_empty())
+        .map(|b| json!({ "name": b.name, "title": b.title }))
+        .collect();
+    with_cors(Json(json!({ "bases": bases })).into_response())
+}
+
 /// Публичный health: только «шлюз жив». Без списка серверов и сессий —
 /// это информационное раскрытие, а реальный статус админка берёт из
 /// /api/admin/opencode/status (там же зонды {url}/global/health).
@@ -1149,6 +1198,7 @@ async fn gateway_health() -> Response {
 pub fn app(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/health", axum::routing::get(gateway_health))
+        .route("/api/bases", axum::routing::get(gateway_bases))
         .route("/onec/rpc", axum::routing::post(onec_rpc))
         // Всё остальное — прокси OpenCode API (REST + SSE).
         .fallback(any(gateway_any))

@@ -251,6 +251,8 @@ export const t = {
     url: 'URL OpenCode', username: 'Basic-юзер', password: 'Basic-пароль',
     passwordKeep: 'Базовый пароль (пусто = оставить)',
     bases: 'Базы 1С', basesHint: 'Имена из мапы ONEC_BASES — по ним маршрутизация шлюза. Пусто = только как сервер по умолчанию.',
+    baseAuth: 'Авторизация', baseAuthHint: 'База доступна для авторизации пользователя в AI-1C (попадает в GET /api/bases). Название — подпись базы в списке.',
+    baseTitlePlaceholder: 'Название (для AI-1C)',
     composeService: 'Compose-сервис', composeProfile: 'Compose-профиль',
     onecUser: 'Юзер 1С (Basic)', onecPassword: 'Пароль 1С (пусто = оставить)',
     onecCredsHint: 'Креды 1С для синхронизации каталога инструментов и теста. В рантайме RLS идёт под JWT пользователя.',

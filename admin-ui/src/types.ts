@@ -437,6 +437,12 @@ export interface RagReingestResult {
 
 // ─── OpenCode gateway ──────────────────────────────────────────────
 
+export interface OnecBase {
+  name: string;
+  /** Непустой = база доступна для авторизации пользователя (AI-1C, GET /api/bases). */
+  title?: string;
+}
+
 export interface OpencodeServer {
   id: string;
   name: string;
@@ -445,7 +451,7 @@ export interface OpencodeServer {
   url: string;
   username: string;
   password_set: boolean;
-  bases: string[];
+  bases: OnecBase[];
   compose_service: string;
   compose_profile: string;
   onec_user: string;
