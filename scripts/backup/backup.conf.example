@@ -19,7 +19,7 @@ KEEP_WEEKLY=8
 KEEP_MONTHLY=12
 
 # Включить search-index в бэкап (1=да, 0=нет)
-INCLUDE_SEARCH_INDEX=1
+INCLUDE_SEARCH_INDEX=0
 
 # Уведомления при ошибке (путь к notify_error.sh)
 NOTIFY_SCRIPT=/home/test/.config/ai-1c-server/workspace/tools/obrabotki/notify_error.sh
