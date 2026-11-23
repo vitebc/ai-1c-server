@@ -94,6 +94,43 @@ pub fn git_revert(root: &Path, hash: &str) -> Result<String, String> {
     Ok(hash_out.trim().to_string())
 }
 
+/// Revert a single repo-relative path to its state at `hash` and commit the
+/// result. Unlike `git revert <commit>` this does not require a clean working
+/// tree for *other* files, so it works even when unrelated local changes are
+/// present (the common case in the prod 1c-chat checkout).
+pub fn git_revert_path(root: &Path, hash: &str, rel_path: &str) -> Result<String, String> {
+    // Stage the exact blob from `hash` regardless of what is on disk.
+    let (blob, err) = git(root, &["rev-parse", &format!("{hash}:{rel_path}")])?;
+    if blob.trim().is_empty() {
+        return Err(format!("cannot resolve blob for {hash}:{rel_path} — {}", err.trim()));
+    }
+    let (data, _) = git(root, &["cat-file", "blob", blob.trim()])?;
+    if let Some(parent) = Path::new(rel_path).parent() {
+        if !parent.as_os_str().is_empty() {
+            let _ = std::fs::create_dir_all(root.join(parent));
+        }
+    }
+    let target = root.join(rel_path);
+    std::fs::write(&target, data)
+        .map_err(|e| format!("write failed: {e}"))?;
+    let (out4, err4) = git(root, &["add", "-A", "--", rel_path])?;
+    if !out4.is_empty() && err4.contains("fatal") {
+        return Err(format!("git add failed: {}", err4.trim()));
+    }
+    // Nothing staged (content already matches `hash`) → no commit.
+    let (staged, _) = git(root, &["diff", "--cached", "--name-only", "--", rel_path])?;
+    if staged.trim().is_empty() {
+        return Err("no changes to commit".into());
+    }
+    let message = format!("revert: {rel_path} → state at {hash}");
+    let (out5, err5) = git(root, &["commit", "-m", &message])?;
+    if !out5.contains("[") && !err5.is_empty() {
+        return Err(format!("git commit failed: {}", err5.trim()));
+    }
+    let (hash_out, _) = git(root, &["rev-parse", "HEAD"])?;
+    Ok(hash_out.trim().to_string())
+}
+
 
 
 // ─── audit table helpers ─────────────────────────────────────────────
@@ -455,6 +492,29 @@ pub async fn change_diff(
 
 
 
+/// Repo-relative path for an audit row's entity (monorepo rows). Mirrors the
+/// `rel_path` values used by `commit_and_record` in agent_files.rs.
+fn entity_rel_path(entity_type: &str, entity_name: &str) -> Option<String> {
+    match entity_type {
+        "agent" => Some(format!("backend/agents/{entity_name}")),
+        "skill" => Some(format!("backend/skills/{entity_name}")),
+        "pattern" => Some(format!("backend/patterns/{entity_name}")),
+        _ => None,
+    }
+}
+
+/// Config-dir-relative path for an OpenCode audit row (rebased onto the repo
+/// root by the caller). Mirrors the file layout written by opencode/admin.rs.
+fn oc_entity_rel(entity_type: &str, entity_name: &str) -> String {
+    match entity_type {
+        "oc-agent" => format!("agents/{entity_name}.md"),
+        "oc-skill" => format!("skills/{entity_name}/SKILL.md"),
+        "oc-tools" => format!("plugins/1c-tools/index.ts"),
+        // oc-config and others: the file lives directly in the config dir.
+        _ => entity_name.to_string(),
+    }
+}
+
 /// POST /agent-changes/{id}/revert — revert any past change (new commit).
 pub async fn revert_change(
     State(state): State<Arc<AppState>>,
@@ -488,29 +548,49 @@ pub async fn revert_change(
         (project_root(&db), dirs)
     };
 
-    // OpenCode rows: find the repo containing the commit.
-    let root: PathBuf = if row.1.starts_with("oc-") {
+    // We only ever commit single entity paths, so the revert stays scoped.
+    // `git revert <commit>` requires a clean working tree — the prod 1c-chat
+    // checkout usually has unrelated local changes, so use a path-scoped
+    // revert (restore this file to its state at the commit, commit only it).
+    let (root, rel_path) = if row.1.starts_with("oc-") {
+        // OpenCode rows: find the repo containing the commit, then rebase the
+        // entity path onto the repo root via the config dir that produced it.
         let mut found = None;
         for dir in &oc_dirs {
             let p = Path::new(dir);
             if let Some(repo) = enclosing_repo_of(p) {
                 if let Ok((out, _)) = git(&repo, &["cat-file", "-t", &row.0]) {
                     if out.trim() == "commit" {
-                        found = Some(repo);
+                        found = Some((repo, p.to_path_buf()));
                         break;
                     }
                 }
             }
         }
-        found.unwrap_or(monorepo_root.clone())
+        match found {
+            Some((repo, config_dir)) => {
+                let rel = oc_entity_rel(&row.1, &row.2);
+                let rebased = match config_dir.strip_prefix(&repo) {
+                    Ok(prefix) => format!("{}/{}", prefix.display(), rel),
+                    Err(_) => rel,
+                };
+                (repo, rebased)
+            }
+            None => return Err(
+                super::AppError::msg("cannot find repo for this OpenCode change").into_response(),
+            ),
+        }
     } else {
-        monorepo_root.clone()
+        let rel = match entity_rel_path(&row.1, &row.2) {
+            Some(p) => p,
+            None => {
+                return Err(super::AppError::msg("cannot determine path for revert").into_response())
+            }
+        };
+        (monorepo_root.clone(), rel)
     };
 
-    // Revert creates a new commit — but `git revert` of a *revert* commit or
-    // of commits touching multiple files is fine: we only ever commit single
-    // entity paths, so the revert stays scoped.
-    let new_hash = match git_revert(&root, &row.0) {
+    let new_hash = match git_revert_path(&root, &row.0, &rel_path) {
         Ok(h) => h,
         Err(e) => return Err(super::AppError::msg(format!("revert failed: {e}")).into_response()),
     };
