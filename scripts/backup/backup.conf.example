@@ -1,0 +1,25 @@
+# backup.conf — конфигурация бэкапа ai-1c-server
+# Скопируйте в /home/test/.config/ai-1c-server/backup/backup.conf и настройте.
+
+# Репозиторий restic (шара)
+RESTIC_REPOSITORY=/home/test/zhvv/ai_backup/restic
+
+# Файл пароля restic (chmod 600!)
+RESTIC_PASSWORD_FILE=/home/test/.config/ai-1c-server/backup/restic.pass
+
+# Локальный staging для дампов
+STAGE_DIR=/var/tmp/ai-1c-backup
+
+# Лог бэкапа
+LOG_FILE=/home/test/.config/ai-1c-server/backup/backup.log
+
+# Retention (restic forget)
+KEEP_DAILY=14
+KEEP_WEEKLY=8
+KEEP_MONTHLY=12
+
+# Включить search-index в бэкап (1=да, 0=нет)
+INCLUDE_SEARCH_INDEX=1
+
+# Уведомления при ошибке (путь к notify_error.sh)
+NOTIFY_SCRIPT=/home/test/.config/ai-1c-server/workspace/tools/obrabotki/notify_error.sh

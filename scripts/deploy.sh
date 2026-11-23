@@ -36,6 +36,27 @@ if systemctl --user cat ai-1c-server-prod.service >/dev/null 2>&1; then
   HAS_SYSTEMD=1
 fi
 
+# Pre-deploy snapshot: сохраняем текущее состояние для быстрого отката.
+# Храним в $ADM_DIR/backups/pre-deploy-<timestamp>/ (5 последних).
+echo "=== Creating pre-deploy snapshot ==="
+PRE_DEPLOY_DIR="$ADM_DIR/backups/pre-deploy-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$PRE_DEPLOY_DIR"
+# Бинарник + dist + миграции
+cp "$ADM_DIR/ai-1c-server" "$PRE_DEPLOY_DIR/" 2>/dev/null || true
+cp -r "$ADM_DIR/admin-ui/dist" "$PRE_DEPLOY_DIR/dist" 2>/dev/null || true
+cp "$ADM_DIR"/migrations/*.sql "$PRE_DEPLOY_DIR/" 2>/dev/null || true
+# Consistent DB backup
+sqlite3 "$ADM_DIR/data/db.sqlite" ".backup '$PRE_DEPLOY_DIR/db.sqlite'" 2>/dev/null || true
+# Манифест
+{
+  echo "timestamp=$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  echo "commit=$(git -C "$DIR" rev-parse HEAD 2>/dev/null || echo 'unknown')"
+  echo "branch=$(git -C "$DIR" branch --show-current 2>/dev/null || echo 'detached')"
+} > "$PRE_DEPLOY_DIR/MANIFEST.txt"
+# Чистим старые (оставляем 5)
+ls -1d "$ADM_DIR"/backups/pre-deploy-* 2>/dev/null | sort | head -n -5 | xargs rm -rf 2>/dev/null || true
+echo "Pre-deploy snapshot: $PRE_DEPLOY_DIR"
+
 # Сначала stop: бинарник занят запущенным процессом (cp → "Text file busy").
 echo "=== Stopping prod ==="
 if [ "$HAS_SYSTEMD" = 1 ]; then

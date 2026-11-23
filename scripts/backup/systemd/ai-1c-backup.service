@@ -1,0 +1,18 @@
+[Unit]
+Description=AI 1C Server Backup (restic to /home/test/zhvv/ai_backup)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/project/ai-1c-server/scripts/backup
+EnvironmentFile=-%h/.config/ai-1c-server/backup/backup.conf
+ExecStart=%h/project/ai-1c-server/scripts/backup/backup.sh
+TimeoutStartSec=3600
+Nice=10
+IOSchedulingClass=idle
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

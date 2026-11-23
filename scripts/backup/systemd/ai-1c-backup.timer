@@ -1,0 +1,11 @@
+[Unit]
+Description=AI 1C Server Backup Timer (daily at 03:30 UTC)
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+RandomizedDelaySec=15m
+Unit=ai-1c-backup.service
+
+[Install]
+WantedBy=timers.target
