@@ -54,11 +54,15 @@ fi
 
 # === 4. Init restic repo ===
 if [ "$INIT_REPO" = "1" ]; then
-  ensure_repo
-  log "Restic repo initialized at $RESTIC_REPOSITORY"
+  mkdir -p "$(dirname "$RESTIC_REPOSITORY")"
+  if ! RESTIC_REPOSITORY="$RESTIC_REPOSITORY" RESTIC_PASSWORD_FILE="$RESTIC_PASSWORD_FILE" restic snapshots >/dev/null 2>&1; then
+    log "Initializing restic repo at $RESTIC_REPOSITORY"
+    RESTIC_REPOSITORY="$RESTIC_REPOSITORY" RESTIC_PASSWORD_FILE="$RESTIC_PASSWORD_FILE" restic init
+  fi
+  log "Restic repo ready at $RESTIC_REPOSITORY"
 else
-  # Check if repo exists
-  if restic snapshots >/dev/null 2>&1; then
+  # Check if repo exists (direct env, no wrapper — avoids segfault on CIFS)
+  if RESTIC_REPOSITORY="$RESTIC_REPOSITORY" RESTIC_PASSWORD_FILE="$RESTIC_PASSWORD_FILE" restic snapshots >/dev/null 2>&1; then
     log "Restic repo already exists at $RESTIC_REPOSITORY"
   else
     log "WARN: Restic repo not initialized. Run with --init-repo to create it."

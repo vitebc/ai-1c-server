@@ -95,7 +95,14 @@ pg_dump "$AGENT_PROD" "postgres" "agentdb" "agent" "$PG_DUMP_FILE"
 # === 4. OpenCode (config + volumes) ===
 log "[4/8] Copying OpenCode config..."
 mkdir -p "$STAGE_ROOT/project/1C-opencode"
-rsync -a --exclude='node_modules/' "$OPENCODE_ROOT/" "$STAGE_ROOT/project/1C-opencode/"
+rsync -a --exclude='node_modules/' "$OPENCODE_ROOT/" "$STAGE_ROOT/project/1C-opencode/" 2>/dev/null || true
+# service.json files are root:root 600 — copy via sudo
+for svc in main ka2 upp doc3; do
+  if [ -f "$OPENCODE_ROOT/config/$svc/service.json" ]; then
+    sudo -n cp "$OPENCODE_ROOT/config/$svc/service.json" \
+      "$STAGE_ROOT/project/1C-opencode/config/$svc/service.json" 2>/dev/null || true
+  fi
+done
 
 # OpenCode volumes (root-owned, needs sudo)
 for vol in main ka2 upp doc3; do
@@ -119,7 +126,14 @@ fi
 # === 6. Dev data (без search-index) ===
 log "[6/8] Copying dev data..."
 mkdir -p "$STAGE_ROOT/project/ai-1c-server/data"
-rsync -a --exclude='search-index/' "$DEV_REPO/data/" "$STAGE_ROOT/project/ai-1c-server/data/"
+rsync -a --exclude='search-index/' "$DEV_REPO/data/" "$STAGE_ROOT/project/ai-1c-server/data/" 2>/dev/null || true
+# Dev opencode service.json (root-owned)
+for svc in main ka2 upp doc3; do
+  if [ -f "$DEV_REPO/data/opencode/config/$svc/service.json" ]; then
+    sudo -n cp "$DEV_REPO/data/opencode/config/$svc/service.json" \
+      "$STAGE_ROOT/project/ai-1c-server/data/opencode/config/$svc/service.json" 2>/dev/null || true
+  fi
+done
 
 # Consistent dev DB backup
 sqlite_backup "$DEV_REPO/data/db.sqlite" "$STAGE_ROOT/project/ai-1c-server/data/db.sqlite"
@@ -167,7 +181,7 @@ BACKUP_TAG="ai-1c-server"
 [ -n "$TAG" ] && BACKUP_TAG="$BACKUP_TAG $TAG"
 
 log "Running restic backup..."
-restic backup \
+RESTIC_REPOSITORY="$RESTIC_REPOSITORY" RESTIC_PASSWORD_FILE="$RESTIC_PASSWORD_FILE" restic backup \
   --tag "$BACKUP_TAG" \
   --host "$(hostname)" \
   "$STAGE_DIR/root" \
@@ -179,7 +193,7 @@ restic backup \
 # === Retention ===
 if [ "$NO_PRUNE" = "0" ]; then
   log "Running restic forget + prune..."
-  restic forget \
+  RESTIC_REPOSITORY="$RESTIC_REPOSITORY" RESTIC_PASSWORD_FILE="$RESTIC_PASSWORD_FILE" restic forget \
     --tag "ai-1c-server" \
     --keep-daily "${KEEP_DAILY:-14}" \
     --keep-weekly "${KEEP_WEEKLY:-8}" \
@@ -191,4 +205,4 @@ fi
 stage_cleanup
 
 log "=== Backup completed successfully ==="
-restic snapshots --last 5
+RESTIC_REPOSITORY="$RESTIC_REPOSITORY" RESTIC_PASSWORD_FILE="$RESTIC_PASSWORD_FILE" restic snapshots --last 5

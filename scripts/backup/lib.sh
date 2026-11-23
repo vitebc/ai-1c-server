@@ -25,7 +25,7 @@ WORKSPACE_TOOLS="$HOME_DIR/.config/ai-1c-server/workspace/tools"
 log() {
   local ts
   ts="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-  echo "[$ts] $*" | tee -a "$LOG_FILE"
+  echo "[$ts] $*" | tee -a "$LOG_FILE" 2>/dev/null || echo "[$ts] $*"
 }
 
 die() {
@@ -47,17 +47,15 @@ notify_error() {
 }
 
 # === Restic helpers ===
-restic() {
-  RESTIC_REPOSITORY="$RESTIC_REPOSITORY" \
-  RESTIC_PASSWORD_FILE="$RESTIC_PASSWORD_FILE" \
-  restic "$@"
-}
-
+# NOTE: не оборачивать restic в shell-функцию с env-переменными —
+# segfault на CIFS (autofs). Передаём env прямо в вызов.
 ensure_repo() {
-  if ! restic snapshots >/dev/null 2>&1; then
+  if ! RESTIC_REPOSITORY="$RESTIC_REPOSITORY" RESTIC_PASSWORD_FILE="$RESTIC_PASSWORD_FILE" \
+    restic snapshots >/dev/null 2>&1; then
     log "Initializing restic repo at $RESTIC_REPOSITORY"
     mkdir -p "$(dirname "$RESTIC_REPOSITORY")"
-    restic init
+    RESTIC_REPOSITORY="$RESTIC_REPOSITORY" RESTIC_PASSWORD_FILE="$RESTIC_PASSWORD_FILE" \
+      restic init
   fi
 }
 
@@ -86,13 +84,14 @@ pg_dump() {
 opencode_volume_backup() {
   local volume_name="$1" dst_dir="$2"
   local src="/var/lib/docker/volumes/$volume_name/_data"
-  [ -d "$src" ] || return 0
+  # /var/lib/docker is root:root 710 — test as root
+  sudo -n test -d "$src" || return 0
   mkdir -p "$dst_dir"
   # Copy opencode.db with sqlite .backup (consistent)
-  if [ -f "$src/opencode.db" ]; then
+  if sudo -n test -f "$src/opencode.db"; then
     sudo -n sqlite3 "$src/opencode.db" ".backup '$dst_dir/opencode.db'"
     local result
-    result="$(sudo -n sqlite3 "$dst_dir/opencode.db" 'PRAGMA integrity_check;')"
+    result="$(sqlite3 "$dst_dir/opencode.db" 'PRAGMA integrity_check;')"
     [ "$result" = "ok" ] || die "OpenCode DB integrity check failed: $volume_name"
   fi
   # Copy shell/ and tool-output/ (small state dirs)
@@ -101,7 +100,7 @@ opencode_volume_backup() {
       sudo -n cp -a "$src/$d" "$dst_dir/"
     fi
   done
-  log "OpenCode volume backup OK: $volume_name -> $dst_dir"
+  log "OpenCode volume backup OK: $volume_name -> $dst_dir ($(du -sh "$dst_dir" | cut -f1))"
 }
 
 # === Hardlink copy (for large static files) ===

@@ -37,10 +37,10 @@ ensure_repo
 # === 1. Restic check ===
 if [ "$FULL_CHECK" = "1" ]; then
   log "Running restic check --read-data (full)..."
-  restic check --read-data
+  RESTIC_REPOSITORY="$RESTIC_REPOSITORY" RESTIC_PASSWORD_FILE="$RESTIC_PASSWORD_FILE" restic check --read-data
 else
   log "Running restic check --read-data-subset=10%..."
-  restic check --read-data-subset=10%
+  RESTIC_REPOSITORY="$RESTIC_REPOSITORY" RESTIC_PASSWORD_FILE="$RESTIC_PASSWORD_FILE" restic check --read-data-subset=10%
 fi
 
 # === 2. Restore latest snapshot to temp ===
@@ -49,9 +49,11 @@ rm -rf "$VERIFY_STAGE"
 mkdir -p "$VERIFY_STAGE"
 
 log "Restoring latest snapshot to $VERIFY_STAGE..."
-restic restore latest --target "$VERIFY_STAGE"
+RESTIC_REPOSITORY="$RESTIC_REPOSITORY" RESTIC_PASSWORD_FILE="$RESTIC_PASSWORD_FILE" restic restore latest --target "$VERIFY_STAGE"
 
-STAGE_ROOT="$VERIFY_STAGE/root/home/test"
+# Restic restores with full path structure: /var/tmp/ai-1c-backup/...
+BACKUP_BASE="$VERIFY_STAGE/var/tmp/ai-1c-backup"
+STAGE_ROOT="$BACKUP_BASE/root/home/test"
 
 # === 3. SQLite integrity checks ===
 log "Checking SQLite integrity..."
@@ -77,16 +79,16 @@ check_sqlite "$STAGE_ROOT/project/ai-1c-server/data/db.sqlite" "dev db.sqlite"
 
 # OpenCode volumes
 for vol in main ka2 upp doc3; do
-  if [ -d "$VERIFY_STAGE/opencode-volumes/$vol" ]; then
-    check_sqlite "$VERIFY_STAGE/opencode-volumes/$vol/opencode.db" "opencode $vol"
+  if [ -d "$BACKUP_BASE/opencode-volumes/$vol" ]; then
+    check_sqlite "$BACKUP_BASE/opencode-volumes/$vol/opencode.db" "opencode $vol"
   fi
 done
 
 # === 4. PostgreSQL dump check ===
-if [ -f "$VERIFY_STAGE/agentdb.dump" ]; then
+if [ -f "$BACKUP_BASE/agentdb.dump" ]; then
   log "Checking agentdb.dump..."
-  if pg_restore --list "$VERIFY_STAGE/agentdb.dump" >/dev/null 2>&1; then
-    log "  OK: agentdb.dump ($(du -h "$VERIFY_STAGE/agentdb.dump" | cut -f1))"
+  if pg_restore --list "$BACKUP_BASE/agentdb.dump" >/dev/null 2>&1; then
+    log "  OK: agentdb.dump ($(du -h "$BACKUP_BASE/agentdb.dump" | cut -f1))"
   else
     log "  FAIL: agentdb.dump is not a valid pg_dump file"
     FAILURES=$((FAILURES + 1))
@@ -96,9 +98,9 @@ else
 fi
 
 # === 5. Manifest comparison ===
-if [ -f "$VERIFY_STAGE/MANIFEST.txt" ]; then
+if [ -f "$BACKUP_BASE/MANIFEST.txt" ]; then
   log "Manifest from snapshot:"
-  cat "$VERIFY_STAGE/MANIFEST.txt"
+  cat "$BACKUP_BASE/MANIFEST.txt"
 fi
 
 # === Cleanup ===

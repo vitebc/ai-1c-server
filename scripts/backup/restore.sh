@@ -28,7 +28,7 @@ RESTORE_FULL=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --list) restic snapshots; exit 0 ;;
+    --list) RESTIC_REPOSITORY="$RESTIC_REPOSITORY" RESTIC_PASSWORD_FILE="$RESTIC_PASSWORD_FILE" restic snapshots; exit 0 ;;
     --snapshot) SNAPSHOT="$2"; shift 2 ;;
     --target) TARGET="$2"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
@@ -73,23 +73,26 @@ mkdir -p "$RESTORE_STAGE"
 
 # === Restic restore (в staging) ===
 log "Restoring snapshot to $RESTORE_STAGE..."
-restic restore "$SNAPSHOT" --target "$RESTORE_STAGE"
+RESTIC_REPOSITORY="$RESTIC_REPOSITORY" RESTIC_PASSWORD_FILE="$RESTIC_PASSWORD_FILE" restic restore "$SNAPSHOT" --target "$RESTORE_STAGE"
+
+# Restic восстанавливает с полным путём: /var/tmp/ai-1c-backup/...
+BACKUP_BASE="$RESTORE_STAGE/var/tmp/ai-1c-backup"
 
 # Структура после restore:
-# $RESTORE_STAGE/root/home/test/...  — конфиги и данные
-# $RESTORE_STAGE/agentdb.dump        — PostgreSQL dump
-# $RESTORE_STAGE/opencode-volumes/   — OpenCode volumes
-# $RESTORE_STAGE/repo/               — git bundle
-# $RESTORE_STAGE/MANIFEST.txt        — манифест
+# $BACKUP_BASE/root/home/test/...  — конфиги и данные
+# $BACKUP_BASE/agentdb.dump        — PostgreSQL dump
+# $BACKUP_BASE/opencode-volumes/   — OpenCode volumes
+# $BACKUP_BASE/repo/               — git bundle
+# $BACKUP_BASE/MANIFEST.txt        — манифест
 
-STAGE_ROOT="$RESTORE_STAGE/root/home/test"
+STAGE_ROOT="$BACKUP_BASE/root/home/test"
 
 if [ ! -d "$STAGE_ROOT" ]; then
   die "Expected structure not found in snapshot: $STAGE_ROOT"
 fi
 
 log "Snapshot restored to staging. Manifest:"
-cat "$RESTORE_STAGE/MANIFEST.txt" 2>/dev/null || echo "(no manifest)"
+cat "$BACKUP_BASE/MANIFEST.txt" 2>/dev/null || echo "(no manifest)"
 
 # === Dry run? ===
 if [ "$DRY_RUN" = "1" ]; then
@@ -148,17 +151,13 @@ if [ "$RESTORE_AGENT" = "1" ]; then
   rsync -a "$STAGE_ROOT/.config/ai-1c-server/1c-chat/" "$AGENT_PROD/"
   
   # Restore PostgreSQL
-  if [ -f "$RESTORE_STAGE/agentdb.dump" ]; then
+  if [ -f "$BACKUP_BASE/agentdb.dump" ]; then
     log "Restoring PostgreSQL from dump..."
     (cd "$AGENT_PROD" && docker compose up -d postgres)
     sleep 5
     (cd "$AGENT_PROD" && docker compose exec -T postgres \
-      pg_restore -U agent -d agentdb --clean --if-exists --no-owner \
-      < /dev/null) # placeholder, need to pipe dump
-    # Actual restore:
-    (cd "$AGENT_PROD" && docker compose exec -T postgres \
       sh -c "pg_restore -U agent -d agentdb --clean --if-exists --no-owner" \
-      < "$RESTORE_STAGE/agentdb.dump") || true
+      < "$BACKUP_BASE/agentdb.dump") || true
   fi
   
   # Start backend
@@ -191,11 +190,11 @@ if [ "$RESTORE_OPENCODE" = "1" ]; then
   
   # Restore volumes (root-owned, needs sudo)
   for vol in main ka2 upp doc3; do
-    if [ -d "$RESTORE_STAGE/opencode-volumes/$vol" ]; then
+    if [ -d "$BACKUP_BASE/opencode-volumes/$vol" ]; then
       log "Restoring OpenCode volume: $vol..."
       VOLUME_DATA="/var/lib/docker/volumes/1c-opencode_opencode-$vol/_data"
       sudo -n rm -rf "$VOLUME_DATA"/*
-      sudo -n cp -a "$RESTORE_STAGE/opencode-volumes/$vol/." "$VOLUME_DATA/"
+      sudo -n cp -a "$BACKUP_BASE/opencode-volumes/$vol/." "$VOLUME_DATA/"
     fi
   done
   
