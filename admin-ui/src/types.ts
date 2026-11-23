@@ -290,7 +290,7 @@ export interface StatsSummary {
 export interface OpencodeRequest {
   id: number;
   ts: string;
-  client: 'onec' | 'vitra';
+  client: 'onec' | 'ai1c';
   user_id: string | null;
   base: string | null;
   server: string;

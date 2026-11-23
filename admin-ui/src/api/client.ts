@@ -376,7 +376,7 @@ export const api = {
     request<{ count: number; messages: { role: 'user' | 'assistant'; text: string; time?: number | null; agent?: string | null; model?: string | null }[] }>(`/opencode/servers/${id}/sessions/${sid}/messages`),
   dropOpencodeSession: (session_id: string) =>
     request<{ ok: boolean }>('/opencode/sessions/drop', { method: 'POST', body: JSON.stringify({ session_id }) }),
-  getVitraToken: () => request<{ token_set: boolean }>('/opencode/vitra/token'),
-  putVitraToken: (token: string) =>
-    request<{ token_set: boolean }>('/opencode/vitra/token', { method: 'PUT', body: JSON.stringify({ token }) }),
+  getAi1cToken: () => request<{ token_set: boolean }>('/opencode/ai1c/token'),
+  putAi1cToken: (token: string) =>
+    request<{ token_set: boolean }>('/opencode/ai1c/token', { method: 'PUT', body: JSON.stringify({ token }) }),
 };

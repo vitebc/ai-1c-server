@@ -334,7 +334,7 @@ export default function Stats({ me }: { me: Me | null }) {
   const ocCards = [
     { label: t.stats.opencodeTotal, value: ocData?.total ?? 0, icon: BarChart3, chip: 'bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-300' },
     { label: t.stats.onecRequests, value: ocData?.by_client.find(c => c.key === 'onec')?.count ?? 0, icon: Database, chip: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-300' },
-    { label: t.stats.vitraRequests, value: ocData?.by_client.find(c => c.key === 'vitra')?.count ?? 0, icon: Bot, chip: 'bg-purple-50 text-purple-600 dark:bg-purple-950 dark:text-purple-300' },
+    { label: t.stats.ai1cRequests, value: ocData?.by_client.find(c => c.key === 'ai1c')?.count ?? 0, icon: Bot, chip: 'bg-purple-50 text-purple-600 dark:bg-purple-950 dark:text-purple-300' },
     { label: t.stats.activeUsers, value: new Set((ocData?.items || []).filter(r => r.client === 'onec').map(r => r.user_id).filter(Boolean)).size, icon: Users, chip: 'bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-300' },
     { label: t.stats.ocTotalTokens, value: ocTokensTotal, icon: Zap, chip: 'bg-sky-50 text-sky-600 dark:bg-sky-950 dark:text-sky-300' },
   ];
@@ -390,7 +390,7 @@ export default function Stats({ me }: { me: Me | null }) {
                 <Select value={fClient} onChange={e => { setFClient(e.target.value); setOcPage(0); }}>
                   <option value="">{t.stats.clientAll}</option>
                   <option value="onec">{t.stats.clientOnec}</option>
-                  <option value="vitra">{t.stats.clientVitra}</option>
+                  <option value="ai1c">{t.stats.clientAi1c}</option>
                 </Select>
               </div>
             )}
@@ -452,8 +452,8 @@ export default function Stats({ me }: { me: Me | null }) {
                       {ocData.by_client.map(r => (
                         <tr key={r.key} className="border-t border-slate-100 dark:border-slate-800">
                           <td className="py-1">
-                            <Badge tone={r.key === 'onec' ? 'blue' : r.key === 'vitra' ? 'purple' : 'neutral'}>
-                              {r.key === 'onec' ? t.stats.clientOnec : r.key === 'vitra' ? t.stats.clientVitra : r.key || '—'}
+                            <Badge tone={r.key === 'onec' ? 'blue' : r.key === 'ai1c' ? 'purple' : 'neutral'}>
+                              {r.key === 'onec' ? t.stats.clientOnec : r.key === 'ai1c' ? t.stats.clientAi1c : r.key || '—'}
                             </Badge>
                           </td>
                           <td className="py-1 text-right">{r.count}</td>
@@ -561,7 +561,7 @@ export default function Stats({ me }: { me: Me | null }) {
                             </td>
                             <td className="px-3 py-2">
                               <Badge tone={r.client === 'onec' ? 'blue' : 'purple'}>
-                                {r.client === 'onec' ? t.stats.clientOnec : t.stats.clientVitra}
+                                {r.client === 'onec' ? t.stats.clientOnec : t.stats.clientAi1c}
                               </Badge>
                             </td>
                             <td className="px-3 py-2 font-mono">{r.user_id || '—'}</td>

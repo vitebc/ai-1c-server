@@ -98,14 +98,14 @@ pub fn gateway_password(db: &crate::db::Database) -> Option<String> {
         .filter(|v| !v.is_empty())
 }
 
-/// Токен Витра AI для анонимного режима: `server_settings(vitra_ai_token)`.
-/// Клиент шлёт его в заголовке `X-Vitra-Token`; шлюз сверяет (constant-time).
-/// Пусто — допуск по Витре выключен. Без env-fallback: токен генерируется в UI.
-pub fn vitra_token(db: &crate::db::Database) -> Option<String> {
+/// Токен AI-1C для анонимного режима: `server_settings(ai1c_ai_token)`.
+/// Клиент шлёт его в заголовке `X-AI1C-Token`; шлюз сверяет (constant-time).
+/// Пусто — допуск по AI-1C выключен. Без env-fallback: токен генерируется в UI.
+pub fn ai1c_token(db: &crate::db::Database) -> Option<String> {
     let from_db: Option<String> = db
         .conn
         .query_row(
-            "SELECT value FROM server_settings WHERE key = 'vitra_ai_token'",
+            "SELECT value FROM server_settings WHERE key = 'ai1c_ai_token'",
             [],
             |row| row.get(0),
         )

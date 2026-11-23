@@ -275,10 +275,10 @@ Authorization: Bearer <JWT HS256, sub = onec_id>
 перезапуска: сначала prod, потом dev.
 
 **Авторизация:** каждый запрос шлюза требует маркер — JWT пользователя 1С
-(`Authorization: Bearer`, aud=`mcp`) или `X-Vitra-Token` (совпадение с
-`server_settings.vitra_ai_token`, constant-time; пусто = выключено).
+(`Authorization: Bearer`, aud=`mcp`) или `X-AI1C-Token` (совпадение с
+`server_settings.ai1c_ai_token`, constant-time; пусто = выключено).
 Иначе 401. Исключение — `GET /health` (без маркера, без раскрытия списка
-серверов/сессий): `{ok: true, gateway: "opencode"}`. Анонимная Витра без JWT
+серверов/сессий): `{ok: true, gateway: "opencode"}`. Анонимный AI-1C без JWT
 не может вызывать инструменты 1С (`/onec/rpc` требует JWT пользователя).
 
 **Админ API** (`/api/admin/opencode/*`, секция RBAC `opencode`):
@@ -305,7 +305,7 @@ Authorization: Bearer <JWT HS256, sub = onec_id>
 | GET | `/opencode/sessions` | реестр сессий шлюза: `{session_id, server, user, base, has_jwt, expires_at}` |
 | POST | `/opencode/sessions/drop` | `{session_id}` — убрать из реестра (после рестарта шлюза JWT теряется) |
 | GET | `/opencode/logs?limit=` | логи обращений к шлюзу из LogBuffer (target `ai_1c_server::opencode::gateway`; дефолт 300; 401/ошибки — WARN, успехи — INFO; IP не логируется) |
-| GET/PUT | `/opencode/vitra/token` | токен Витры: GET → `{token_set}` (значение не раскрывается), PUT `{token}` (пустая строка = выключить) |
+| GET/PUT | `/opencode/ai1c/token` | токен AI-1C: GET → `{token_set}` (значение не раскрывается), PUT `{token}` (пустая строка = выключить) |
 
 **Gateway listener** (`:9020` prod / `:9025` dev):
 

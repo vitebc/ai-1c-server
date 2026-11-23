@@ -2206,32 +2206,32 @@ pub async fn server_session_messages(
     Ok(Json(json!({ "count": messages.len(), "messages": messages })))
 }
 
-// ─── токен Витра AI (анонимный режим) ───────────────────────────────
+// ─── токен AI-1C (анонимный режим) ──────────────────────────────────
 
 #[derive(Debug, Serialize)]
-pub struct VitraTokenStatus {
+pub struct Ai1cTokenStatus {
     pub token_set: bool,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct VitraTokenBody {
+pub struct Ai1cTokenBody {
     /// Пустая строка — очистить токен (выключить анонимный допуск).
     pub token: String,
 }
 
-/// GET /api/admin/opencode/vitra/token — только флаг, сам токен не отдаётся.
-pub async fn vitra_token_get(State(state): State<Arc<AppState>>) -> Json<VitraTokenStatus> {
+/// GET /api/admin/opencode/ai1c/token — только флаг, сам токен не отдаётся.
+pub async fn ai1c_token_get(State(state): State<Arc<AppState>>) -> Json<Ai1cTokenStatus> {
     let db = state.db.lock().await;
-    Json(VitraTokenStatus {
-        token_set: crate::opencode::vitra_token(&db).is_some(),
+    Json(Ai1cTokenStatus {
+        token_set: crate::opencode::ai1c_token(&db).is_some(),
     })
 }
 
-/// PUT /api/admin/opencode/vitra/token — сохранить/очистить токен.
-pub async fn vitra_token_put(
+/// PUT /api/admin/opencode/ai1c/token — сохранить/очистить токен.
+pub async fn ai1c_token_put(
     State(state): State<Arc<AppState>>,
-    Json(body): Json<VitraTokenBody>,
-) -> Result<Json<VitraTokenStatus>, axum::response::Response> {
+    Json(body): Json<Ai1cTokenBody>,
+) -> Result<Json<Ai1cTokenStatus>, axum::response::Response> {
     use axum::response::IntoResponse;
     let token = body.token.trim().to_string();
     if token.len() > 256 {
@@ -2239,13 +2239,13 @@ pub async fn vitra_token_put(
     }
     let db = state.db.lock().await;
     if let Err(e) = db.conn.execute(
-        "INSERT INTO server_settings (key, value) VALUES ('vitra_ai_token', ?1)
+        "INSERT INTO server_settings (key, value) VALUES ('ai1c_ai_token', ?1)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         rusqlite::params![token],
     ) {
         return Err(AppError::msg(format!("db: {e}")).into_response());
     }
-    Ok(Json(VitraTokenStatus { token_set: !token.is_empty() }))
+    Ok(Json(Ai1cTokenStatus { token_set: !token.is_empty() }))
 }
 
 // ─── логи обращений к шлюзу ──────────────────────────────────────────
@@ -2263,7 +2263,7 @@ pub async fn logs(
 // ─── статистика запросов (opencode_requests) ────────────────────────
 
 /// GET /api/admin/opencode/stats?from=&to=&client=&base= — список промптов
-/// и сводка (по клиентам 1С/Витра, по базам, по серверам). Период — ISO UTC
+/// и сводка (по клиентам 1С/AI-1C, по базам, по серверам). Период — ISO UTC
 /// (ts в таблице хранится в том же формате, строковое сравнение корректно).
 pub async fn stats(
     State(state): State<Arc<AppState>>,
@@ -2568,7 +2568,7 @@ pub fn routes() -> Router<Arc<AppState>> {
             "/servers/{id}/sessions/{sid}/messages",
             get(server_session_messages),
         )
-        .route("/vitra/token", get(vitra_token_get).put(vitra_token_put))
+        .route("/ai1c/token", get(ai1c_token_get).put(ai1c_token_put))
         .route("/logs", get(logs))
         .route("/stats", get(stats))
         .route("/status", get(status))

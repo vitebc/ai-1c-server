@@ -153,8 +153,8 @@ function GatewayTab() {
   const [gwUrl, setGwUrl] = useState('');
   const [rootDir, setRootDir] = useState('');
   const [pw, setPw] = useState('');          // PEPK-токен контейнера (только /onec/rpc)
-  const [vitra, setVitra] = useState('');    // токен Витра AI (анонимный режим)
-  const [vitraSet, setVitraSet] = useState(false);
+  const [ai1c, setAi1c] = useState('');      // токен AI-1C (анонимный режим)
+  const [ai1cSet, setAi1cSet] = useState(false);
 
   const load = useCallback(async () => {
     setErr('');
@@ -163,8 +163,8 @@ function GatewayTab() {
       setSt(s);
       setGwUrl(s.gateway_url || '');
       setRootDir(s.project_root || '');
-      const vt = await api.getVitraToken();
-      setVitraSet(vt.token_set);
+      const vt = await api.getAi1cToken();
+      setAi1cSet(vt.token_set);
     } catch (e) { setErr(errText(e, 'Ошибка статуса')); }
   }, []);
 
@@ -177,15 +177,15 @@ function GatewayTab() {
       if (rootDir.trim()) await api.putSetting('opencode_project_root', rootDir.trim());
       if (pw !== '') await api.putSetting('opencode_gateway_password', pw);
       setPw('');
-      // Токен Витры: пустая строка = не трогать; «__clear__» = очистить; иначе — установить.
-      if (vitra === '__clear__') {
-        await api.putVitraToken('');
-        setVitraSet(false);
-      } else if (vitra.trim() !== '') {
-        await api.putVitraToken(vitra.trim());
-        setVitraSet(true);
+      // Токен AI-1C: пустая строка = не трогать; «__clear__» = очистить; иначе — установить.
+      if (ai1c === '__clear__') {
+        await api.putAi1cToken('');
+        setAi1cSet(false);
+      } else if (ai1c.trim() !== '') {
+        await api.putAi1cToken(ai1c.trim());
+        setAi1cSet(true);
       }
-      setVitra('');
+      setAi1c('');
       setMsg(t.opencode.gatewaySaved);
       load();
     } catch (e) { setErr(errText(e, 'Ошибка сохранения')); }
@@ -210,7 +210,7 @@ function GatewayTab() {
       <div className="flex items-center gap-2 text-xs">
         <Badge tone="green">{t.opencode.gatewaySecure}</Badge>
         <span className="text-slate-500 dark:text-slate-400">
-          {vitraSet ? t.opencode.vitraTokenSet : t.opencode.vitraTokenEmpty}
+          {ai1cSet ? t.opencode.ai1cTokenSet : t.opencode.ai1cTokenEmpty}
         </span>
       </div>
 
@@ -247,11 +247,11 @@ function GatewayTab() {
         <Field label={t.opencode.pepekSetting} hint={t.opencode.pepekHint}>
           <TextInput type="password" value={pw} onChange={e => setPw(e.target.value)} placeholder={st.password_set ? '•••••• (установлен)' : ''} />
         </Field>
-        <Field label={t.opencode.vitraSetting} hint={t.opencode.vitraHint}>
+        <Field label={t.opencode.ai1cSetting} hint={t.opencode.ai1cHint}>
           <div className="flex gap-2">
-            <TextInput type="password" value={vitra} onChange={e => setVitra(e.target.value)} placeholder={vitraSet ? '•••••• (установлен)' : ''} />
-            {vitraSet && (
-              <Btn variant="outline" onClick={() => setVitra('__clear__')} title={t.opencode.vitraTokenEmpty}>
+            <TextInput type="password" value={ai1c} onChange={e => setAi1c(e.target.value)} placeholder={ai1cSet ? '•••••• (установлен)' : ''} />
+            {ai1cSet && (
+              <Btn variant="outline" onClick={() => setAi1c('__clear__')} title={t.opencode.ai1cTokenEmpty}>
                 <Trash2 size={15} />
               </Btn>
             )}

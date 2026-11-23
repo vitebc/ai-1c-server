@@ -29,10 +29,10 @@ use serde_json::{json, Value};
 use crate::api::AppState;
 use crate::opencode::{basic_auth, plugin_token};
 
-// ─── CORS (Vitra AI — WebView2, cross-origin) ────────────────────────
+// ─── CORS (AI-1C — WebView2, cross-origin) ───────────────────────────
 const CORS_ORIGIN: &str = "*";
 const CORS_METHODS: &str = "GET, POST, PATCH, DELETE, OPTIONS";
-const CORS_HEADERS: &str = "Content-Type, Authorization, X-Vitra-Token, X-OpenCode-Token, X-Onec-Pepek, X-1C-Base";
+const CORS_HEADERS: &str = "Content-Type, Authorization, X-AI1C-Token, X-OpenCode-Token, X-Onec-Pepek, X-1C-Base";
 
 /// Добавляет CORS-заголовки в любой ответ (включая ошибки 401/404).
 fn with_cors(mut resp: Response) -> Response {
@@ -66,7 +66,7 @@ struct SessionEntry {
 /// Одна строка статистики запроса OpenCode (таблица opencode_requests).
 #[derive(Debug, Clone)]
 struct StatsRec {
-    client: String, // 'onec' | 'vitra'
+    client: String, // 'onec' | 'ai1c'
     user_id: Option<String>,
     base: String,
     server: String,
@@ -497,37 +497,37 @@ async fn gateway_any(
     let mut stats: Option<StatsRec> = None;
 
     // Допуск к прокси: только два легитимных клиента.
-    // 1) Форма 1С / Витра AI с JWT пользователя 1С (HS256, aud=mcp, валидный exp) —
+    // 1) Форма 1С / AI-1C с JWT пользователя 1С (HS256, aud=mcp, валидный exp) —
     //    Bearer или ?onec_token=. Подпись проверяется здесь же (decode_onec_jwt).
-    // 2) Витра AI анонимно — статический токен X-Vitra-Token (server_settings.vitra_ai_token).
+    // 2) AI-1C анонимно — статический токен X-AI1C-Token (server_settings.ai1c_ai_token).
     //    Такой сессии не будет выдан JWT → /onec/rpc отклонит инструменты 1С (только чтение).
     // Всё остальное (браузер, curl без маркера) — 401.
     {
         let db = state.db.lock().await;
         let jwt_info = bearer.as_deref().and_then(|t| decode_onec_jwt(&db, t));
-        let vitra_ok = match crate::opencode::vitra_token(&db) {
+        let ai1c_ok = match crate::opencode::ai1c_token(&db) {
             Some(expected) => headers
-                .get("x-vitra-token")
+                .get("x-ai1c-token")
                 .and_then(|v| v.to_str().ok())
                 .map(|p| constant_time_eq(p, &expected))
                 .unwrap_or(false),
-            None => false, // токен не задан — допуск по Витре выключен
+            None => false, // токен не задан — допуск по AI-1C выключен
         };
-        if jwt_info.is_none() && !vitra_ok {
+        if jwt_info.is_none() && !ai1c_ok {
             let reason = match bearer.as_deref() {
                 Some(_) => "неверный JWT",
-                None => "нет маркера (JWT / X-Vitra-Token)",
+                None => "нет маркера (JWT / X-AI1C-Token)",
             };
             tracing::warn!(
                 "gateway: 401 {} {} — {}",
                 method, path, reason
             );
-            return with_cors((StatusCode::UNAUTHORIZED, Json(json!({ "error": "доступ только для формы 1С / Витра AI" }))).into_response());
+            return with_cors((StatusCode::UNAUTHORIZED, Json(json!({ "error": "доступ только для формы 1С / AI-1C" }))).into_response());
         }
         if is_prompt {
             stats = Some(match &jwt_info {
                 Some((sub, _, _, _)) => StatsRec { client: "onec".into(), user_id: Some(sub.clone()), base: String::new(), server: String::new(), prompt: prompt_text.clone() },
-                None => StatsRec { client: "vitra".into(), user_id: None, base: String::new(), server: String::new(), prompt: prompt_text.clone() },
+                None => StatsRec { client: "ai1c".into(), user_id: None, base: String::new(), server: String::new(), prompt: prompt_text.clone() },
             });
         }
         jwt_info_global = jwt_info;
@@ -574,11 +574,11 @@ async fn gateway_any(
     };
     let jwt_info = jwt_info_global;
 
-    // Лог обращения: кто (JWT sub или Витра), база, сервер OpenCode, метод/путь.
+    // Лог обращения: кто (JWT sub или AI-1C), база, сервер OpenCode, метод/путь.
     tracing::info!(
         "gateway: {} {} — клиент={} base={} → {}",
         method, path,
-        jwt_info.as_ref().map(|(s, _, _, _)| s.clone()).unwrap_or_else(|| "Витра".into()),
+        jwt_info.as_ref().map(|(s, _, _, _)| s.clone()).unwrap_or_else(|| "AI-1C".into()),
         base_routed.clone().unwrap_or_default(),
         server.name
     );

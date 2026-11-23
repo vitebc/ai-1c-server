@@ -220,7 +220,7 @@ client_versions, clients, server_settings, audit_log),
 - **OpenCode Gateway** — шлюз: **prod держит :9020, dev — :9025** (порт из
   env `OPENCODE_GATEWAY_PORT` в `~/.config/ai-1c-server/{dev,prod}.env`,
   БД не читает; порядок перезапуска: сначала prod, потом dev). Авторизация:
-  JWT пользователя 1С или `X-Vitra-Token` (Витра анонимно), иначе 401.
+  JWT пользователя 1С или `X-AI1C-Token` (AI-1C анонимно), иначе 401.
   Логи обращений — общий LogBuffer (target `ai_1c_server::opencode::gateway`),
   читаются из prod-админки: `GET /api/admin/opencode/logs?limit=`.
   Серверы OpenCode живут в **`/home/test/project/1C-opencode`** (docker compose,
