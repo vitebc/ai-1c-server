@@ -16,6 +16,7 @@ use crate::log_buffer::LogEntry;
 pub mod agent_audit;
 pub mod agent_backend;
 pub mod agent_files;
+pub mod app;
 mod bsl_ls;
 mod client_versions;
 mod clients;
@@ -56,6 +57,22 @@ impl IntoResponse for AppError {
     fn into_response(self) -> axum::response::Response {
         tracing::error!("Admin API error: {}", self.0);
         (StatusCode::INTERNAL_SERVER_ERROR, self.0.to_string()).into_response()
+    }
+}
+
+/// Ошибка с кодом 400 (валидация входных данных).
+#[derive(Debug)]
+pub struct AppBadRequest(pub String);
+
+impl IntoResponse for AppBadRequest {
+    fn into_response(self) -> axum::response::Response {
+        (StatusCode::BAD_REQUEST, self.0).into_response()
+    }
+}
+
+impl From<AppBadRequest> for AppError {
+    fn from(e: AppBadRequest) -> Self {
+        AppError(e.0.into())
     }
 }
 
@@ -251,6 +268,22 @@ pub fn routes() -> Router<Arc<AppState>> {
                 .delete(client_versions::delete),
         )
         .route("/clients", get(clients::list))
+        // Приложение (десктоп-клиент): релизы, клиенты, настройки обновления.
+        .route("/app/overview", get(app::overview))
+        .route(
+            "/app/releases",
+            get(app::list_releases).post(app::upload_release),
+        )
+        .route(
+            "/app/releases/{id}",
+            get(app::get_release)
+                .put(app::update_release)
+                .delete(app::delete_release),
+        )
+        .route("/app/releases/{id}/publish", post(app::set_publish))
+        .route("/app/clients", get(app::list_clients).post(app::clear_clients))
+        .route("/app/settings", get(app::get_settings).put(app::put_settings))
+        .route("/app/update-preview", get(app::update_preview))
         .route("/status", get(status))
         .route("/dashboard", get(dashboard))
         .route("/settings", get(settings::list).put(settings::upsert))

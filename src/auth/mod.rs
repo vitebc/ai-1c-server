@@ -157,8 +157,9 @@ pub const SECTIONS: &[&str] = &[
     "skills",
     "bsl-ls",
     "configs",
-    "client-versions",
-    "clients",
+    // Приложение (десктоп-клиент): релизы, клиенты, настройки обновления.
+    // Старые секции client-versions/clients удалены — их заменила `app`.
+    "app",
     "logs",
     "settings",
     "fs",
@@ -195,8 +196,7 @@ fn base_sections(role: &str) -> Vec<String> {
             "skills",
             "bsl-ls",
             "configs",
-            "client-versions",
-            "clients",
+            "app",
             "logs",
             "settings",
             "fs",
@@ -216,8 +216,7 @@ fn base_sections(role: &str) -> Vec<String> {
             "skills",
             "bsl-ls",
             "configs",
-            "client-versions",
-            "clients",
+            "app",
             "logs",
         ]
         .iter()
@@ -236,8 +235,7 @@ fn base_sections(role: &str) -> Vec<String> {
             "skills",
             "bsl-ls",
             "configs",
-            "client-versions",
-            "clients",
+            "app",
             "logs",
         ]
         .iter()
@@ -631,10 +629,9 @@ fn section_for(path: &str) -> Option<&'static str> {
         "bsl-ls"
     } else if rest.starts_with("config-profiles") {
         "configs"
-    } else if rest.starts_with("client-versions") {
-        "client-versions"
-    } else if rest == "clients" {
-        "clients"
+    } else if rest.starts_with("app/") || rest == "app" {
+        // Приложение (десктоп-клиент): релизы, клиенты, настройки обновления.
+        "app"
     } else if rest.starts_with("logs") {
         "logs"
     } else if rest == "fs/browse" {

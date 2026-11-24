@@ -1199,6 +1199,20 @@ pub fn app(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/health", axum::routing::get(gateway_health))
         .route("/api/bases", axum::routing::get(gateway_bases))
+        // Приложение: автообновление десктоп-клиента (Tauri updater). Публично —
+        // клиент ходит сюда без авторизации; файлы из data/releases/.
+        .route(
+            "/api/update/check",
+            axum::routing::get(crate::updater::check),
+        )
+        .route(
+            "/api/update/download/{file}",
+            axum::routing::any(crate::updater::download),
+        )
+        .route(
+            "/api/update/heartbeat",
+            axum::routing::post(crate::updater::heartbeat),
+        )
         .route("/onec/rpc", axum::routing::post(onec_rpc))
         // Всё остальное — прокси OpenCode API (REST + SSE).
         .fallback(any(gateway_any))

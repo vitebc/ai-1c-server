@@ -34,6 +34,9 @@ pub fn project_root(db: &crate::db::Database) -> PathBuf {
     }
 }
 
+/// Дефолтный адрес шлюза (LAN-адрес сервера).
+pub const GATEWAY_URL_DEFAULT: &str = "http://192.168.60.39:9020";
+
 /// Адрес шлюза (для формы 1С и UI): `server_settings(opencode_gateway_url)`,
 /// дефолт `http://192.168.60.39:9020`.
 pub fn gateway_url(db: &crate::db::Database) -> String {
@@ -47,8 +50,14 @@ pub fn gateway_url(db: &crate::db::Database) -> String {
         .ok();
     match custom {
         Some(p) if !p.trim().is_empty() => p.trim().trim_end_matches('/').to_string(),
-        _ => "http://192.168.60.39:9020".into(),
+        _ => GATEWAY_URL_DEFAULT.into(),
     }
+}
+
+/// Дефолтный адрес шлюза без обращения к БД (для публичных роутов, где
+/// соединение уже занято).
+pub fn gateway_url_default() -> String {
+    GATEWAY_URL_DEFAULT.trim_end_matches('/').to_string()
 }
 
 /// Порт listener'а шлюза (env OPENCODE_GATEWAY_PORT, дефолт 9020).
