@@ -62,10 +62,14 @@ start/stop/status/restart. Выкатка в prod — `scripts/deploy.sh`.
   REST-инвентарь тулзов (`/api/mcp`, `/api/mcp-aggregated/tools`,
   `/api/mcp/{id|name}/tools`). `src/api/mcp_skills.rs` — скиллы как MCP.
 - **Auth / RBAC** — `src/auth/mod.rs`: users в БД (argon2id), JWT 12h/7d,
-  legacy machine-token, 4 роли, 19 секций, матрица ролей, rate-limit логина.
+  legacy machine-token, 4 роли, 21 секция, матрица ролей, rate-limit логина.
 - **Admin CRUD API** — `src/api/admin/`: mcp_servers, skills,
-  config_profiles, client_versions, clients, status, dashboard, settings,
+  config_profiles, app (релизы десктоп-клиента), status, dashboard, settings,
   logs, fs, users, model_providers, bsl_ls, agent_files, agent_backend.
+- **Приложение (updater)** — `src/updater/mod.rs` + `src/api/admin/app.rs`:
+  релизы Tauri-клиента в `app_releases`, файлы в `data/releases/`. Публичные
+  роуты `/api/update/{check,download/*,heartbeat}` — **только на шлюзе :9020**
+  (без JWT); админка — `/api/admin/app/*` (секция RBAC `app`).
 - **OpenCode Gateway** — `src/opencode/`: шлюз :9020 к серверам OpenCode
   (по одному на базу 1С). `admin.rs` — CRUD серверов + управление
   конфигами/агентами/скилами/тулзами (`/api/admin/opencode/*`, секция RBAC
@@ -78,11 +82,10 @@ start/stop/status/restart. Выкатка в prod — `scripts/deploy.sh`.
    имена провайдеров = имена с вкладки «Модели», default model — одна строка.
 - **Admin UI** (React 19 + Vite 7 + Tailwind CSS v4 + react-router 7):
   Dashboard, MCP Servers, Models, Agent Studio, Skills, BSL LS, Configs,
-  Client Versions, Clients, Logs, Users, OpenCode. Тёмная тема, i18n (ru),
+  Приложение (Application), Logs, Users, OpenCode. Тёмная тема, i18n (ru),
   общие компоненты в `components/ui.tsx`.
 
-Заглушки (модули есть, логики нет): `src/watcher/` (fsnotify-реиндекс),
-`src/updater/` (версионирование клиентских сборок).
+Заглушки (модули есть, логики нет): `src/watcher/` (fsnotify-реиндекс).
 
 ## Сборка и разработка
 
@@ -156,21 +159,22 @@ main.rs           — точка входа, clap CLI
 ├── auth/         — argon2 + JWT + RBAC (роли, секции, rate-limit)
 ├── log_buffer.rs — кольцевой буфер логов + distinct targets
 ├── watcher/      — заглушка (fsnotify для авто-реиндекса)
-├── updater/      — заглушка (версии клиентских сборок)
+├── updater/      — публичное API обновления клиента (check/download/heartbeat)
 └── web/          — embedded admin-ui/dist (rust-embed)
 ```
 
 Миграции: `001_initial.sql` (mcp_servers, skills, config_profiles,
 client_versions, clients, server_settings, audit_log),
 `002_add_instruction.sql`, `003_config_parent.sql`, `004_users.sql`,
-`005_model_providers.sql`, `008_opencode.sql` (opencode_servers).
+`005_model_providers.sql`, `008_opencode.sql` (opencode_servers),
+`015_app_releases.sql` (app_releases, app_clients — приложение).
 
 ## RBAC (кратко; полная документация — `RBAC.md`, код — `src/auth/mod.rs`)
 
-- 20 секций: `dashboard, mcp-servers, models, agent-studio, agent-agents,
-  agent-skills, agent-patterns, agent-backend, opencode, skills, bsl-ls,
-  configs, client-versions, clients, logs, settings, fs, env, users,
-  auth-manage`.
+- 21 секция: `dashboard, mcp-servers, models, agent-studio, agent-agents,
+  agent-skills, agent-patterns, agent-changes, agent-backend, agent-rag,
+  bases1c, opencode, skills, bsl-ls, configs, app, logs, settings, fs, env,
+  users, auth-manage` (полный список — `RBAC.md`).
 - 4 роли: `admin` (всегда full, не настраивается), `operator` (все
   рабочие разделы), `viewer` (read-only), `prompter` (read-only, но пишет
   `agent-files/agents|skills|patterns`).

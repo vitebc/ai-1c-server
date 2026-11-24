@@ -54,7 +54,7 @@ JWT: HS256, claims `{sub: user_id, username, exp}`, секрет — `server_set
 
 ## Секции
 
-Полный список — `SECTIONS` (`src/auth/mod.rs:144`), 22 шт.:
+Полный список — `SECTIONS` (`src/auth/mod.rs:144`), 21 шт.:
 
 | Секция | Раздел UI / API |
 |---|---|
@@ -72,8 +72,7 @@ JWT: HS256, claims `{sub: user_id, username, exp}`, секрет — `server_set
 | `skills` | серверные скиллы (sidebar), `skills/*` |
 | `bsl-ls` | BSL Language Server, `bsl-ls/*` |
 | `configs` | Config Profiles, `config-profiles/*` |
-| `client-versions` | Client Versions, `client-versions/*` |
-| `clients` | Clients (подключённые клиенты), `clients` |
+| `app` | Приложение (десктоп-клиент): релизы, клиенты, настройки обновления, `app/*` |
 | `logs` | Logs (серверные логи), `logs*` |
 | `settings` | Settings, `settings` |
 | `fs` | файловый браузер для выбора путей/бинарников, `fs/browse` |
@@ -111,8 +110,7 @@ JWT: HS256, claims `{sub: user_id, username, exp}`, секрет — `server_set
 | skills | ✓ | ✓ | ✓ | ✓ |
 | bsl-ls | ✓ | ✓ | ✓ | ✓ |
 | configs | ✓ | ✓ | ✓ | ✓ |
-| client-versions | ✓ | ✓ | ✓ | ✓ |
-| clients | ✓ | ✓ | ✓ | ✓ |
+| app | ✓ | ✓ | ✓ | ✓ |
 | logs | ✓ | ✓ | ✓ | ✓ |
 | settings | ✓ | ✓ | — | — |
 | fs | ✓ | ✓ | — | — |
@@ -120,7 +118,7 @@ JWT: HS256, claims `{sub: user_id, username, exp}`, секрет — `server_set
 | users | ✓ | — | — | — |
 | auth-manage | ✓ | — | — | — |
 
-Итого: admin 22, operator 19, viewer 12, prompter 14.
+Итого: admin 21, operator 18, viewer 11, prompter 13.
 
 ## Переопределение матрицы (admin)
 
@@ -174,8 +172,7 @@ JWT: HS256, claims `{sub: user_id, username, exp}`, секрет — `server_set
 | `skills*` | `skills` |
 | `bsl-ls*` | `bsl-ls` |
 | `config-profiles*` | `configs` |
-| `client-versions*` | `client-versions` |
-| `clients` | `clients` |
+| `app`, `app/*` | `app` |
 | `logs*` | `logs` |
 | `fs/browse` | `fs` |
 | `settings` | `settings` |

@@ -125,8 +125,30 @@ curl -s -X POST http://localhost:9224/api/mcp-aggregated/mcp -H "$T" \
 | GET | `/fs/browse?path=&show_hidden=` | read-only файловый браузер (выбор бинарников/путей), секция `fs` |
 | CRUD | `/skills`, `/skills/{id}` + `/skills/import`, `/skills/upload`, `/skills/export` | серверные скиллы (отдельные от агентских) |
 | CRUD | `/config-profiles`, `/config-profiles/{id}` | профили конфигов 1С (+ автосинк `search-*` строк) |
-| CRUD | `/client-versions`, `/client-versions/{id}`; GET `/clients` | версии и подключённые клиенты |
+| GET/POST | `/app/releases` | список / **multipart-загрузка релиза** (`file` + `sig` (или `meta.signature`) + `meta` JSON: `version, platform, arch, channel, notes?, required?, published?`) |
+| GET/PUT/DELETE | `/app/releases/{id}` | CRUD; PUT меняет `notes/required/published/signature`; DELETE удаляет и файл |
+| POST | `/app/releases/{id}/publish` | `{published: bool}` — publish/unpublish (черновик не отдаётся в check) |
+| GET/POST | `/app/clients` | клиенты (heartbeat) / очистить список |
+| GET/PUT | `/app/settings` | настройки обновления: `{enabled, base_url, channel, require_signature, pubkey}` |
+| GET | `/app/update-preview?version=&platform=&arch=&channel=` | как ответит клиенту `/api/update/check` (`{status: 200\|204, body?}`) |
+| GET | `/app/overview` | `{releases[], clients[], settings}` одной сводкой |
 | POST | `/reindex` | заглушка (`"Reindex triggered (stub)"`) |
+
+### Приложение: публичное API обновления (шлюз :9020, без JWT)
+
+Роуты живут **только на шлюзе OpenCode** (`OPENCODE_GATEWAY_PORT`, prod :9020 /
+dev :9025); основной сервер :9224 их не отдаёт. Файлы — `data/releases/`
+(переопределяется env `AI1C_RELEASES_DIR`).
+
+| Метод | Путь | Описание |
+|---|---|---|
+| GET | `/api/update/check?version=&platform=&arch=&channel=` | Tauri updater (dynamic server): 200 + flat `{version, notes, pub_date, url, signature, required}` или **204 No Content**. `platform`/`arch` — явными или из User-Agent; semver-сравнение с `version`; берётся лучший опубликованный релиз (канал по умолчанию из настроек) |
+| GET/HEAD | `/api/update/download/{file}` | файл релиза (`Content-Disposition: attachment`, счётчик загрузок) |
+| POST | `/api/update/heartbeat` | `{client_id, version?, platform?, hostname?, user_name?}` — upsert в `app_clients` |
+
+Настройки в `server_settings`: `app_update_enabled` (по умолчанию выкл),
+`app_update_base_url` (дефолт = URL шлюза), `app_update_channel` (stable),
+`app_update_require_signature`, `app_update_pubkey`.
 
 ### Провайдеры моделей
 
