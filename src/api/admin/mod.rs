@@ -64,6 +64,12 @@ impl IntoResponse for AppError {
 #[derive(Debug)]
 pub struct AppBadRequest(pub String);
 
+impl AppBadRequest {
+    pub fn msg(s: impl Into<String>) -> Self {
+        Self(s.into())
+    }
+}
+
 impl IntoResponse for AppBadRequest {
     fn into_response(self) -> axum::response::Response {
         (StatusCode::BAD_REQUEST, self.0).into_response()

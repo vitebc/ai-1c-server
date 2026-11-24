@@ -96,7 +96,7 @@ pub async fn get_release(
             [id],
             |row| updater::row_to_release(row),
         )
-        .map_err(|_| super::AppError::msg("release not found"))?;
+        .map_err(|_| super::AppBadRequest::msg("release not found"))?;
     Ok(Json(row))
 }
 
@@ -111,7 +111,9 @@ pub struct UploadMeta {
     pub arch: String,
     #[serde(default = "default_channel")]
     pub channel: String,
-    pub signature: String,
+    /// Подпись можно передать и в meta (вместо отдельного поля sig).
+    #[serde(default)]
+    pub signature: Option<String>,
     pub notes: Option<String>,
     pub required: Option<bool>,
     pub published: Option<bool>,
@@ -137,39 +139,56 @@ pub async fn upload_release(
     let mut sig: Option<String> = None;
     let mut meta_raw: Option<String> = None;
 
-    while let Some(field) = multipart.next_field().await? {
+    while let Some(mut field) = multipart.next_field().await? {
         let name = field.name().unwrap_or("").to_string();
         match name.as_str() {
             "file" => file_bytes = Some(field.bytes().await?.to_vec()),
-            "sig" => sig = Some(field.text().await?),
-            "meta" => meta_raw = Some(field.text().await?),
-            _ => {}
+            _ => {
+                // sig/meta — текстовые поля; читаем как bytes и декодируем.
+                let b = field.bytes().await?;
+                let s = String::from_utf8_lossy(&b).to_string();
+                match name.as_str() {
+                    "sig" => sig = Some(s),
+                    "meta" => meta_raw = Some(s),
+                    _ => {}
+                }
+            }
         }
     }
 
-    let bytes = file_bytes.ok_or_else(|| super::AppError::msg("file required"))?;
-    let sig = sig.filter(|s| !s.trim().is_empty()).ok_or_else(|| {
-        super::AppError::msg(
-            "signature required: tauri signer sign <file> -w ~/.tauri/ai1c.key",
-        )
-    })?;
-    let meta: UploadMeta = meta_raw
-        .and_then(|m| serde_json::from_str(&m).ok())
-        .ok_or_else(|| super::AppError::msg("meta required (JSON)"))?;
+    let bytes = file_bytes.ok_or_else(|| super::AppBadRequest::msg("file required"))?;
+    let sig_field = sig.filter(|s| !s.trim().is_empty());
+    let meta: UploadMeta = match meta_raw {
+        Some(m) if !m.trim().is_empty() => serde_json::from_str(&m)
+            .map_err(|e| super::AppBadRequest::msg(format!("meta: invalid JSON: {e}")))?,
+        _ => return Err(super::AppBadRequest::msg("meta required (JSON)").into()),
+    };
 
     // Валидация.
     let version = semver::Version::parse(meta.version.trim())
         .map(|v| v.to_string())
-        .map_err(|e| super::AppError::msg(format!("invalid semver: {e}")))?;
+        .map_err(|e| super::AppBadRequest::msg(format!("invalid semver: {e}")))?;
     if !["linux", "windows", "darwin"].contains(&meta.platform.as_str()) {
-        return Err(super::AppError::msg("platform must be linux|windows|darwin"));
+        return Err(super::AppBadRequest::msg("platform must be linux|windows|darwin").into());
     }
     if !["x86_64", "aarch64"].contains(&meta.arch.as_str()) {
-        return Err(super::AppError::msg("arch must be x86_64|aarch64"));
+        return Err(super::AppBadRequest::msg("arch must be x86_64|aarch64").into());
     }
     if meta.channel.trim().is_empty() {
-        return Err(super::AppError::msg("channel required"));
+        return Err(super::AppBadRequest::msg("channel required").into());
     }
+    // Подпись: отдельное поле sig либо meta.signature.
+    let sig = match (sig_field, meta.signature.clone()) {
+        (Some(s), _) => Some(s),
+        (None, s) => s,
+        _ => None,
+    }
+    .filter(|s| !s.trim().is_empty())
+    .ok_or_else(|| {
+        super::AppBadRequest::msg(
+            "signature required: поле sig или meta.signature (tauri signer sign <file> -w ~/.tauri/ai1c.key)",
+        )
+    })?;
 
     let sha = format!("{:x}", Sha256::digest(&bytes));
     let size = bytes.len() as i64;
@@ -227,7 +246,7 @@ pub async fn upload_release(
                 ],
             )?;
         }
-        Err(e) => return Err(super::AppError::msg(e.to_string())),
+        Err(e) => return Err(super::AppBadRequest::msg(e.to_string()).into()),
     }
     let row = db
         .conn
@@ -236,14 +255,14 @@ pub async fn upload_release(
             [&file_name],
             |row| updater::row_to_release(row),
         )
-        .map_err(|e| super::AppError::msg(e.to_string()))?;
+        .map_err(|e| super::AppBadRequest::msg(e.to_string()))?;
     Ok(Json(row))
 }
 
-/// Исходное имя файла из meta (best-effort: версия+платформа+арх).
+/// Исходное имя файла (best-effort: версия+платформа+арх).
 fn field_file_name(meta: &UploadMeta, _bytes: &[u8]) -> String {
     format!(
-        "AI-1C_{}_{}_{:?}.{}",
+        "AI-1C_{}_{}_{}.{}",
         meta.version.trim(),
         meta.platform,
         meta.arch,
@@ -279,7 +298,7 @@ pub async fn update_release(
             [id],
             |row| updater::row_to_release(row),
         )
-        .map_err(|_| super::AppError::msg("release not found"))?;
+        .map_err(|_| super::AppBadRequest::msg("release not found"))?;
     db.conn.execute(
         "UPDATE app_releases SET notes=?1, required=?2, published=?3, signature=?4 WHERE id=?5",
         rusqlite::params![
@@ -307,7 +326,7 @@ pub async fn delete_release(
             |row| row.get(0),
         ) {
         Ok(f) => f,
-        Err(_) => return Err(super::AppError::msg("release not found")),
+        Err(_) => return Err(super::AppBadRequest::msg("release not found").into()),
     };
     db.conn.execute("DELETE FROM app_releases WHERE id = ?1", [id])?;
     drop(db);
@@ -335,7 +354,7 @@ pub async fn set_publish(
         rusqlite::params![body.published as i32, id],
     )?;
     if changes == 0 {
-        return Err(super::AppError::msg("release not found"));
+        return Err(super::AppBadRequest::msg("release not found").into());
     }
     drop(db);
     get_release(State(state), Path(id)).await
@@ -407,7 +426,7 @@ pub async fn put_settings(
     }
     if let Some(v) = body.channel {
         if v.trim().is_empty() {
-            return Err(super::AppError::msg("channel required"));
+            return Err(super::AppBadRequest::msg("channel required").into());
         }
         set_setting(conn, updater::SET_CHANNEL, v.trim().to_string())?;
     }
@@ -430,7 +449,7 @@ fn set_setting(
          ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         rusqlite::params![key, value],
     )
-    .map_err(|e| super::AppError::msg(e.to_string()))?;
+    .map_err(|e| super::AppBadRequest::msg(e.to_string()))?;
     Ok(())
 }
 
