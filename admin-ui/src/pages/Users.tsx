@@ -30,8 +30,7 @@ const SECTION_GROUPS: { title: string; items: { key: string; label: string }[] }
       { key: 'skills', label: 'Скиллы сервера (sidebar)' },
       { key: 'bsl-ls', label: 'BSL Language Server' },
       { key: 'configs', label: 'Профили конфигураций' },
-      { key: 'client-versions', label: 'Версии клиента' },
-      { key: 'clients', label: 'Клиенты (подключённые)' },
+      { key: 'app', label: 'Приложение (релизы, клиенты, обновления)' },
       { key: 'bases1c', label: 'Базы 1С (мапа баз + search-мапа)' },
     ],
   },
@@ -50,9 +49,9 @@ const ALL_SECTIONS = SECTION_GROUPS.flatMap(g => g.items.map(i => i.key));
 
 const ROLE_BASE: Record<string, string[]> = {
   admin: ALL_SECTIONS,
-  operator: ['dashboard', 'mcp-servers', 'models', 'agent-agents', 'agent-skills', 'agent-patterns', 'agent-changes', 'agent-backend', 'agent-rag', 'bases1c', 'skills', 'bsl-ls', 'configs', 'client-versions', 'clients', 'logs', 'settings', 'fs', 'env'],
-  viewer: ['dashboard', 'mcp-servers', 'models', 'agent-agents', 'agent-skills', 'agent-patterns', 'skills', 'bsl-ls', 'configs', 'client-versions', 'clients', 'logs'],
-  prompter: ['dashboard', 'mcp-servers', 'models', 'agent-agents', 'agent-skills', 'agent-patterns', 'agent-changes', 'bases1c', 'skills', 'bsl-ls', 'configs', 'client-versions', 'clients', 'logs'],
+  operator: ['dashboard', 'mcp-servers', 'models', 'agent-agents', 'agent-skills', 'agent-patterns', 'agent-changes', 'agent-backend', 'agent-rag', 'bases1c', 'skills', 'bsl-ls', 'configs', 'app', 'logs', 'settings', 'fs', 'env'],
+  viewer: ['dashboard', 'mcp-servers', 'models', 'agent-agents', 'agent-skills', 'agent-patterns', 'skills', 'bsl-ls', 'configs', 'app', 'logs'],
+  prompter: ['dashboard', 'mcp-servers', 'models', 'agent-agents', 'agent-skills', 'agent-patterns', 'agent-changes', 'bases1c', 'skills', 'bsl-ls', 'configs', 'app', 'logs'],
 };
 
 export default function Users() {

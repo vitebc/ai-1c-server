@@ -53,23 +53,49 @@ export interface ConfigProfile {
   updated_at: string;
 }
 
-export interface ClientVersion {
-  id: string;
+// Приложение (десктоп-клиент): релизы Tauri updater.
+export interface AppRelease {
+  id: number;
   version: string;
   platform: string;
-  url: string;
-  checksum: string;
-  changelog: string | null;
+  arch: string;
+  channel: string;
+  file_name: string;
+  original_name: string;
+  signature: string;
+  sha256: string;
+  size: number;
+  notes: string;
   required: boolean;
+  published: boolean;
+  downloads: number;
+  created_by: string;
   created_at: string;
 }
 
-export interface Client {
-  id: string;
-  name: string | null;
-  version: string | null;
-  last_seen: string | null;
-  config_override: string | null;
+export interface AppClient {
+  client_id: string;
+  version: string;
+  platform: string;
+  hostname: string;
+  user_name: string;
+  first_seen_at: string;
+  last_seen_at: string;
+}
+
+export interface AppSettings {
+  enabled: boolean;
+  base_url: string;
+  channel: string;
+  require_signature: boolean;
+  pubkey: string | null;
+  releases_dir: string;
+}
+
+export interface AppOverview {
+  releases: AppRelease[];
+  clients: AppClient[];
+  settings: AppSettings;
 }
 
 export interface ServerStatus {

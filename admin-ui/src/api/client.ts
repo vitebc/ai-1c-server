@@ -1,4 +1,4 @@
-import type { AgentChangesPage, BslLsState, Client, ClientVersion, ConfigProfile, DashboardData, FsBrowseResult, LogEntry, McpServer, ModelProvider, ServerStatus, Skill, StatsRequest, StatsSummary } from '../types';
+import type { AgentChangesPage, AppOverview, BslLsState, ConfigProfile, DashboardData, FsBrowseResult, LogEntry, McpServer, ModelProvider, ServerStatus, Skill, StatsRequest, StatsSummary } from '../types';
 import type {
   AgentItem, SkillFileItem, PatternItem, AgentOverview,
   AgentBackendStatus, EnvEntry, LiveAgents, LiveSkills, LiveTools,
@@ -135,15 +135,42 @@ export const api = {
   getAuthToken: () => request<{ token: string | null; auth_required: boolean }>('/auth/token'),
   rotateToken: () => request<{ token: string }>('/auth/rotate', { method: 'POST' }),
 
-  getClientVersions: () => request<ClientVersion[]>('/client-versions'),
-  getClientVersion: (id: string) => request<ClientVersion>(`/client-versions/${id}`),
-  createClientVersion: (data: Partial<ClientVersion>) =>
-    request<ClientVersion>('/client-versions', { method: 'POST', body: JSON.stringify(data) }),
-  updateClientVersion: (id: string, data: Partial<ClientVersion>) =>
-    request<ClientVersion>(`/client-versions/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  deleteClientVersion: (id: string) => request<void>(`/client-versions/${id}`, { method: 'DELETE' }),
-
-  getClients: () => request<Client[]>('/clients'),
+  // ─── Приложение (десктоп-клиент) ────────────────────────────────────
+  getAppOverview: () => request<AppOverview>('/app/overview'),
+  uploadAppRelease: async (file: File, sigFile: File | null, meta: {
+    version: string; platform: string; arch: string; channel: string;
+    notes?: string; required?: boolean; published?: boolean;
+  }) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    if (sigFile) fd.append('sig', sigFile);
+    fd.append('meta', JSON.stringify(meta));
+    const res = await authFetch('/app/releases', { method: 'POST', body: fd });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(extractError(text) || `API error: ${res.status}`);
+    }
+    return (await res.json()) as import('../types').AppRelease;
+  },
+  updateAppRelease: (id: number, data: { notes?: string; required?: boolean; published?: boolean; signature?: string }) =>
+    request<import('../types').AppRelease>(`/app/releases/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteAppRelease: (id: number) => request<{ ok: boolean }>(`/app/releases/${id}`, { method: 'DELETE' }),
+  setAppReleasePublish: (id: number, published: boolean) =>
+    request<import('../types').AppRelease>(`/app/releases/${id}/publish`, { method: 'POST', body: JSON.stringify({ published }) }),
+  getAppClients: () => request<import('../types').AppClient[]>('/app/clients'),
+  clearAppClients: () => request<{ ok: boolean; deleted: number }>('/app/clients', { method: 'POST' }),
+  getAppSettings: () => request<import('../types').AppSettings>('/app/settings'),
+  putAppSettings: (data: Partial<import('../types').AppSettings>) =>
+    request<import('../types').AppSettings>('/app/settings', { method: 'PUT', body: JSON.stringify(data) }),
+  getAppUpdatePreview: (params: { version?: string; platform?: string; arch?: string; channel?: string }) => {
+    const qs = new URLSearchParams();
+    if (params.version) qs.set('version', params.version);
+    if (params.platform) qs.set('platform', params.platform);
+    if (params.arch) qs.set('arch', params.arch);
+    if (params.channel) qs.set('channel', params.channel);
+    const s = qs.toString();
+    return request<{ status: number; body?: Record<string, unknown> | null; note?: string; error?: string }>(`/app/update-preview${s ? `?${s}` : ''}`);
+  },
   getBslLs: () => request<BslLsState>('/bsl-ls'),
   updateBslLs: (data: { config: { java_path: string; jar_path: string; port: number; enabled: boolean } }) =>
     request<BslLsState>('/bsl-ls/config', { method: 'POST', body: JSON.stringify(data) }),

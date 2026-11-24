@@ -1,7 +1,7 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
-import { Route, Routes, NavLink, useLocation } from 'react-router-dom';
+import { Route, Routes, NavLink, Navigate, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard, Server, Brain, FileJson, Package, Users as UsersIcon, ScrollText, Code, KeyRound, LogOut, Bot, UserCog, Sun, Moon, Cpu, BarChart3, History, Database, GitBranch,
+  LayoutDashboard, Server, Brain, FileJson, Package, ScrollText, Code, KeyRound, LogOut, Bot, UserCog, Sun, Moon, Cpu, BarChart3, History, Database, GitBranch,
 } from 'lucide-react';
 import { getToken, setToken, api } from './api/client';
 import type { Me } from './types';
@@ -13,8 +13,7 @@ const McpServers = lazy(() => import('./pages/McpServers'));
 const ModelProviders = lazy(() => import('./pages/ModelProviders'));
 const Skills = lazy(() => import('./pages/Skills'));
 const Configs = lazy(() => import('./pages/Configs'));
-const ClientVersions = lazy(() => import('./pages/ClientVersions'));
-const Clients = lazy(() => import('./pages/Clients'));
+const Application = lazy(() => import('./pages/Application'));
 const Logs = lazy(() => import('./pages/Logs'));
 const BslLs = lazy(() => import('./pages/BslLs'));
 const OpenCode = lazy(() => import('./pages/OpenCode'));
@@ -45,8 +44,7 @@ const nav = [
   { to: '/skills', label: t.nav.skills, icon: Brain, section: 'skills' },
   { to: '/bsl-ls', label: t.nav.bsl, icon: Code, section: 'bsl-ls' },
   { to: '/configs', label: t.nav.configs, icon: FileJson, section: 'configs' },
-  { to: '/client-versions', label: t.nav.versions, icon: Package, section: 'client-versions' },
-  { to: '/clients', label: t.nav.clients, icon: UsersIcon, section: 'clients' },
+  { to: '/app', label: t.nav.app, icon: Package, section: 'app' },
   { to: '/bases-1c', label: t.nav.bases1c, icon: Database, section: 'bases1c' },
   { to: '/opencode', label: t.nav.opencode, icon: GitBranch, section: 'opencode' },
   { to: '/stats', label: t.nav.stats, icon: BarChart3, section: 'dashboard' },
@@ -170,8 +168,10 @@ function Shell() {
             <Route path="/models" element={<Guard me={me} section="models"><ModelProviders /></Guard>} />
             <Route path="/skills" element={<Guard me={me} section="skills"><Skills /></Guard>} />
             <Route path="/configs" element={<Guard me={me} section="configs"><Configs /></Guard>} />
-            <Route path="/client-versions" element={<Guard me={me} section="client-versions"><ClientVersions /></Guard>} />
-            <Route path="/clients" element={<Guard me={me} section="clients"><Clients /></Guard>} />
+            <Route path="/app" element={<Guard me={me} section="app"><Application /></Guard>} />
+            {/* Старые разделы «Версии клиента» и «Клиенты» — теперь в «Приложении». */}
+            <Route path="/client-versions" element={<Navigate to="/app" replace />} />
+            <Route path="/clients" element={<Navigate to="/app" replace />} />
             <Route path="/bases-1c" element={<Guard me={me} section="bases1c"><Bases1c /></Guard>} />
             <Route path="/opencode" element={<Guard me={me} section="opencode"><OpenCode /></Guard>} />
             <Route path="/bsl-ls" element={<Guard me={me} section="bsl-ls"><BslLs /></Guard>} />
