@@ -183,12 +183,9 @@ pub async fn upload_release(
         (None, s) => s,
         _ => None,
     }
-    .filter(|s| !s.trim().is_empty())
-    .ok_or_else(|| {
-        super::AppBadRequest::msg(
-            "signature required: поле sig или meta.signature (tauri signer sign <file> -w ~/.tauri/ai1c.key)",
-        )
-    })?;
+    .filter(|s| !s.trim().is_empty());
+    // Подпись опциональна: без неё Tauri updater отклонит обновление на клиенте,
+    // но загрузить и проверить пайплайн можно (например, до генерации ключа).
 
     let sha = format!("{:x}", Sha256::digest(&bytes));
     let size = bytes.len() as i64;
@@ -221,7 +218,7 @@ pub async fn upload_release(
             meta.channel.trim(),
             file_name,
             original,
-            sig.trim(),
+            sig.clone().unwrap_or_default(),
             sha,
             size,
             notes.clone(),
@@ -240,7 +237,7 @@ pub async fn upload_release(
                  WHERE file_name=?12",
                 rusqlite::params![
                     version, meta.platform, meta.arch, meta.channel.trim(), original,
-                    sig.trim(), sha, size, notes,
+                    sig.clone().unwrap_or_default(), sha, size, notes,
                     meta.required.unwrap_or(false) as i32, meta.published.unwrap_or(true) as i32,
                     file_name,
                 ],
