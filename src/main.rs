@@ -11,6 +11,7 @@ mod web;
 use std::sync::Arc;
 use axum::http::{StatusCode, Uri};
 use axum::response::IntoResponse;
+use axum::extract::DefaultBodyLimit;
 use clap::{Parser, Subcommand};
 use std::path::Path;
 use tokio::sync::Mutex;
@@ -144,7 +145,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Шлюз OpenCode: listener :9020 (прокси API/SSE + RLS-мост).
             tokio::spawn(opencode::spawn(state.clone()));
 
+            // Тело запроса до 1 ГБ: загрузка инсталляторов приложения (MSI/AppImage).
             let mut app = api::routes(state.clone())
+                .layer(DefaultBodyLimit::max(1024 * 1024 * 1024))
                 .layer(axum::middleware::from_fn_with_state(
                     state.clone(),
                     crate::auth::bearer_auth,

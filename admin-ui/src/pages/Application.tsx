@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Upload, Trash2, Pencil, Eye, EyeOff, RefreshCw } from 'lucide-react';
-import { api } from '../api/client';
+import { api, getToken } from '../api/client';
 import type { AppClient, AppRelease, AppSettings } from '../types';
 import { t } from '../i18n';
 import { errText } from '../errors';
@@ -132,16 +132,34 @@ function UploadModal({ onClose, onSaved, setError }: { onClose: () => void; onSa
   const [file, setFile] = useState<File | null>(null);
   const [sigFile, setSigFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<number | null>(null); // 0..100
 
-  async function submit() {
+  function submit() {
     if (!file || !version.trim()) return;
-    setBusy(true); setError('');
-    try {
-      await api.uploadAppRelease(file, sigFile, { version: version.trim(), platform, arch, channel, notes, required, published });
-      onSaved();
-    } catch (e) {
-      setError(errText(e, 'Ошибка загрузки'));
-    } finally { setBusy(false); }
+    setBusy(true); setError(''); setProgress(0);
+    const fd = new FormData();
+    fd.append('file', file);
+    if (sigFile) fd.append('sig', sigFile);
+    fd.append('meta', JSON.stringify({ version: version.trim(), platform, arch, channel, notes, required, published }));
+    // XMLHttpRequest: fetch не даёт прогресс, а MSI/AppImage весят десятки МБ.
+    const xhr = new XMLHttpRequest();
+    const base = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '');
+    xhr.open('POST', `${base}/api/admin/app/releases`);
+    const token = getToken();
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) setProgress(Math.round((e.loaded / e.total) * 100)); };
+    xhr.onload = () => {
+      setBusy(false); setProgress(null);
+      if (xhr.status >= 200 && xhr.status < 300) { onSaved(); return; }
+      let msg = '';
+      try { msg = JSON.parse(xhr.responseText)?.error || ''; } catch { /* не JSON */ }
+      setError(msg || `Ошибка загрузки: HTTP ${xhr.status}`);
+    };
+    xhr.onerror = () => {
+      setBusy(false); setProgress(null);
+      setError('Не удалось загрузить файл — сервер недоступен или соединение оборвалось (проверьте, что панель открыта через сервер, а не Vite dev)');
+    };
+    xhr.send(fd);
   }
 
   return (
@@ -164,6 +182,7 @@ function UploadModal({ onClose, onSaved, setError }: { onClose: () => void; onSa
         <Field label={t.appSec.file}>
           <input type="file" className="block w-full text-xs text-slate-500 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-2 file:text-xs file:font-medium file:text-blue-700 dark:file:bg-blue-950 dark:file:text-blue-300"
             onChange={e => setFile(e.target.files?.[0] ?? null)} />
+          {file && <p className="mt-1 text-[11px] text-slate-400">{fmtSize(file.size)}</p>}
         </Field>
         <Field label={`${t.appSec.sigFile} (опционально)`} hint={t.appSec.sigHint}>
           <input type="file" className="block w-full text-xs text-slate-500 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-xs file:font-medium file:text-slate-700 dark:file:bg-slate-800 dark:file:text-slate-300"
@@ -174,9 +193,16 @@ function UploadModal({ onClose, onSaved, setError }: { onClose: () => void; onSa
           <label className="flex items-center gap-2 text-xs cursor-pointer"><input type="checkbox" checked={required} onChange={e => setRequired(e.target.checked)} className="rounded accent-blue-600" /> {t.appSec.required}</label>
           <label className="flex items-center gap-2 text-xs cursor-pointer"><input type="checkbox" checked={published} onChange={e => setPublished(e.target.checked)} className="rounded accent-blue-600" /> {t.appSec.published}</label>
         </div>
+        {progress !== null && (
+          <div className="h-1.5 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
+            <div className="h-full bg-blue-600 transition-all" style={{ width: `${progress}%` }} />
+          </div>
+        )}
         <div className="flex justify-end gap-2 pt-1">
           <Btn variant="ghost" type="button" onClick={onClose}>{t.common.cancel}</Btn>
-          <Btn variant="primary" type="button" disabled={!file || !version.trim() || busy} onClick={submit}>{busy ? t.appSec.uploading : t.common.save}</Btn>
+          <Btn variant="primary" type="button" disabled={!file || !version.trim() || busy} onClick={submit}>
+            {busy ? (progress !== null ? `${t.appSec.uploading} ${progress}%` : t.appSec.uploading) : t.common.save}
+          </Btn>
         </div>
       </div>
     </Modal>
