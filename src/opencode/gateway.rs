@@ -260,20 +260,29 @@ fn default_agent_title(name: &str) -> String {
     }
 }
 
-/// Пересобирает ответ GET /api/agent: выкидывает штатных build/plan,
-/// фильтрует по visible_agents (пусто = все), подставляет title из frontmatter.
+/// Пересобирает ответ GET /api/agent: выкидывает штатных build/plan, скрытых
+/// (hidden) и субагентов (mode=subagent), фильтрует по visible_agents
+/// (пусто = все видимые), подставляет title из frontmatter.
 /// Если после фильтрации список пуст — 409 «нет доступных агентов».
 fn rewrite_agent_response(mut resp: Response, server: &ServerInfo) -> Response {
     if let Some((status, body_bytes)) = peek_json(&resp) {
         if status.is_success() {
             if let Ok(mut v) = serde_json::from_slice::<Value>(&body_bytes) {
                 if let Some(data) = v.get_mut("data").and_then(|d| d.as_array_mut()) {
-                    // 1. Штатные build/plan — никогда не отдаём клиенту.
+                    // 1. Никогда не отдаём клиенту: штатных build/plan, скрытых
+                    // (hidden=true — compaction/title/summary и т.п.) и субагентов
+                    // (mode=subagent — general/explore). Работает и в default-режиме,
+                    // и при явном whitelist (выбранный hidden/subagent тоже срезается).
                     data.retain(|a| {
-                        a.get("id")
-                            .and_then(|i| i.as_str())
-                            .map(|i| !HIDDEN_AGENTS.contains(&i))
-                            .unwrap_or(true)
+                        let id = a.get("id").and_then(|i| i.as_str()).unwrap_or_default();
+                        if HIDDEN_AGENTS.contains(&id) {
+                            return false;
+                        }
+                        if a.get("hidden").and_then(|h| h.as_bool()) == Some(true) {
+                            return false;
+                        }
+                        let mode = a.get("mode").and_then(|m| m.as_str()).unwrap_or_default();
+                        mode != "subagent"
                     });
                     // 2. Фильтр по visible_agents (пусто = все).
                     if !server.visible_agents.is_empty() {
