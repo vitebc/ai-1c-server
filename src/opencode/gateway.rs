@@ -502,6 +502,25 @@ async fn gateway_any(
     let path = uri.path().to_string();
     let query = uri.query().map(|q| q.to_string()).unwrap_or_default();
 
+    // Публичные маршруты приложения (Tauri updater): клиент ходит сюда БЕЗ
+    // авторизации — проверка допуска ниже их не касается.
+    if path == "/api/update/check" {
+        let q: crate::updater::CheckQuery = serde_urlencoded::from_str(&query).unwrap_or_default();
+        return with_cors(crate::updater::check(state.clone(), headers, q).await);
+    }
+    if let Some(file) = path.strip_prefix("/api/update/download/") {
+        if !file.is_empty() && !file.contains('/') {
+            return with_cors(crate::updater::download(state.clone(), file.to_string(), method.clone()).await);
+        }
+    }
+    if path == "/api/update/heartbeat" {
+        let body: Result<crate::updater::HeartbeatBody, _> = serde_json::from_slice(&bytes);
+        return match body {
+            Ok(b) => with_cors(crate::updater::heartbeat(state.clone(), b).await),
+            Err(_) => with_cors((StatusCode::BAD_REQUEST, "invalid JSON").into_response()),
+        };
+    }
+
     // Заполняется блоком допуска ниже (декодированный JWT формы, если есть).
     #[allow(unused_assignments)]
     let mut jwt_info_global: Option<(String, u64, Option<String>, Option<String>)> = None;
@@ -1199,20 +1218,8 @@ pub fn app(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/health", axum::routing::get(gateway_health))
         .route("/api/bases", axum::routing::get(gateway_bases))
-        // Приложение: автообновление десктоп-клиента (Tauri updater). Публично —
-        // клиент ходит сюда без авторизации; файлы из data/releases/.
-        .route(
-            "/api/update/check",
-            axum::routing::get(crate::updater::check),
-        )
-        .route(
-            "/api/update/download/{file}",
-            axum::routing::any(crate::updater::download),
-        )
-        .route(
-            "/api/update/heartbeat",
-            axum::routing::post(crate::updater::heartbeat),
-        )
+        // Публичные роуты приложения (check/download/heartbeat) обрабатываются
+        // в gateway_any ДО проверки допуска — клиент ходит без авторизации.
         .route("/onec/rpc", axum::routing::post(onec_rpc))
         // Всё остальное — прокси OpenCode API (REST + SSE).
         .fallback(any(gateway_any))

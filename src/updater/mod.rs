@@ -118,7 +118,7 @@ pub const RELEASE_SELECT: &str = "SELECT id, version, platform, arch, channel, f
 
 // ─── check ───────────────────────────────────────────────────────────
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct CheckQuery {
     pub version: Option<String>,
     /// linux | windows | darwin; без параметра — определяем по User-Agent.
@@ -203,9 +203,9 @@ pub fn best_release(
 /// GET /api/update/check — Tauri updater (dynamic server).
 /// 200 + flat JSON при наличии обновления; 204 No Content — нет.
 pub async fn check(
-    State(state): State<Arc<AppState>>,
+    state: Arc<AppState>,
     headers: axum::http::HeaderMap,
-    Query(q): Query<CheckQuery>,
+    q: CheckQuery,
 ) -> Response {
     let result = {
         let db = state.db.lock().await;
@@ -274,13 +274,12 @@ pub async fn check(
 // ─── download ────────────────────────────────────────────────────────
 
 /// GET|HEAD /api/update/download/{file} — статика релиза из data/releases/.
-#[axum::debug_handler]
 pub async fn download(
-    State(state): State<Arc<AppState>>,
-    Path(file): Path<String>,
-    req: axum::extract::Request,
+    state: Arc<AppState>,
+    file: String,
+    method: axum::http::Method,
 ) -> Response {
-    let is_head = req.method() == axum::http::Method::HEAD;
+    let is_head = method == axum::http::Method::HEAD;
     // Только имена файлов (без слешей, без ..).
     if file.contains('/') || file.contains('\\') || file.contains("..") || file.starts_with('.') {
         return StatusCode::NOT_FOUND.into_response();
@@ -351,8 +350,8 @@ pub struct HeartbeatBody {
 
 /// POST /api/update/heartbeat — клиент сообщает о себе (id = uuid клиента).
 pub async fn heartbeat(
-    State(state): State<Arc<AppState>>,
-    Json(body): Json<HeartbeatBody>,
+    state: Arc<AppState>,
+    body: HeartbeatBody,
 ) -> Response {
     if body.client_id.trim().is_empty() || body.client_id.len() > 128 {
         return (StatusCode::BAD_REQUEST, "invalid client_id").into_response();
