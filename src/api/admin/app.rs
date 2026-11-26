@@ -489,7 +489,7 @@ pub async fn update_preview(
                 "body": {
                     "version": r.version,
                     "notes": r.notes,
-                    "pub_date": r.created_at,
+                    "pub_date": crate::updater::to_rfc3339(&r.created_at),
                     "url": format!("{}/api/update/download/{}", base_url.trim_end_matches('/'), r.file_name),
                     "signature": r.signature,
                     "required": r.required,

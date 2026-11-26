@@ -263,12 +263,21 @@ pub async fn check(
     Json(json!({
         "version": row.version,
         "notes": row.notes,
-        "pub_date": row.created_at,
+        "pub_date": to_rfc3339(&row.created_at),
         "url": url,
         "signature": row.signature,
         "required": row.required,
     }))
     .into_response()
+}
+
+/// SQLite `datetime('now')` хранит UTC в формате "YYYY-MM-DD HH:MM:SS" (без Z).
+/// Tauri updater ожидает RFC 3339 — приводим: "2026-11-25T07:29:10Z".
+pub fn to_rfc3339(s: &str) -> String {
+    if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S") {
+        return dt.to_string().replace(' ', "T") + "Z";
+    }
+    s.to_string()
 }
 
 // ─── download ────────────────────────────────────────────────────────
@@ -397,6 +406,13 @@ mod tests {
         assert_eq!(detect_platform_arch("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)").0, "darwin");
         assert_eq!(detect_platform_arch("AI-1C/1.0 (X11; Linux x86_64)").0, "linux");
         assert_eq!(detect_platform_arch("AI-1C/1.0 (Linux aarch64)").1, "aarch64");
+    }
+
+    #[test]
+    fn rfc3339_conversion() {
+        assert_eq!(to_rfc3339("2026-11-25 07:29:10"), "2026-11-25T07:29:10Z");
+        // Не распарсилось — как есть (не ломать ответ).
+        assert_eq!(to_rfc3339("weird"), "weird");
     }
 
     #[test]
