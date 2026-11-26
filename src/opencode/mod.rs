@@ -155,7 +155,12 @@ pub async fn spawn(state: Arc<crate::api::AppState>) {
             Ok(listener) => {
                 tracing::info!("OpenCode gateway listening on :{port}");
                 let app = gateway::app(state.clone());
-                if let Err(e) = axum::serve(listener, app.into_make_service()).await {
+                if let Err(e) = axum::serve(
+                    listener,
+                    app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+                )
+                .await
+                {
                     tracing::error!("OpenCode gateway exited: {e}");
                 }
             }

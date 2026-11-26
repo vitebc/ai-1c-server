@@ -664,6 +664,29 @@ const LOGIN_MAX_FAILS: u32 = 5;
 const LOGIN_WINDOW: Duration = Duration::from_secs(10 * 60);
 const LOGIN_LOCK: Duration = Duration::from_secs(5 * 60);
 
+/// Публичные обёртки лимитера логина (использует шлюз :9020 для входа в 1С).
+/// Ключ — произвольная строка; админка использует IP, шлюз — `onec:<ip>`.
+pub fn login_limit_check(
+    limits: &std::sync::Mutex<HashMap<String, LoginAttempt>>,
+    key: &str,
+) -> Option<Duration> {
+    login_locked(limits, key)
+}
+
+pub fn login_limit_fail(
+    limits: &std::sync::Mutex<HashMap<String, LoginAttempt>>,
+    key: &str,
+) {
+    login_fail(limits, key)
+}
+
+pub fn login_limit_ok(
+    limits: &std::sync::Mutex<HashMap<String, LoginAttempt>>,
+    key: &str,
+) {
+    login_ok(limits, key)
+}
+
 fn login_locked(
     limits: &std::sync::Mutex<HashMap<String, LoginAttempt>>,
     ip: &str,

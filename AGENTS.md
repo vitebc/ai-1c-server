@@ -74,7 +74,12 @@ start/stop/status/restart. Выкатка в prod — `scripts/deploy.sh`.
   (по одному на базу 1С). `admin.rs` — CRUD серверов + управление
   конфигами/агентами/скилами/тулзами (`/api/admin/opencode/*`, секция RBAC
   `opencode`); `gateway.rs` — listener :9020 (прокси REST/SSE, реестр сессий,
-  RLS-мост `/onec/rpc`). Инструменты 1С в OpenCode — штатный плагин v2
+  RLS-мост `/onec/rpc`). Вход в 1С из приложения (AI-1C): публичные
+  `POST /api/auth/login` (логин/пароль → HS256 JWT, проверка Basic-запросом в
+  `{base}/hs/mcp/health`, URL базы из мапы backend/bases.conf) и
+  `GET /api/auth/me`; формат токена = как у формы 1С (`iss=1c-ai-chat`,
+  `aud=mcp`, `sub=<логин>`, `iat=now-60` — платформа 8.3.27 требует iat и
+  отклоняет «сейчас»). Инструменты 1С в OpenCode — штатный плагин v2
   (`Plugin.define` + `ctx.tool.transform`), генерируется кнопкой «Применить»
   (sync из 1С → generate index.ts → restart контейнера). RLS: JWT пользователя
   из формы подставляется шлюзом в запрос к `{base}/hs/mcp/rpc`. Вкладка Конфиг:

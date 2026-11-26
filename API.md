@@ -331,6 +331,26 @@ Authorization: Bearer <JWT HS256, sub = onec_id>
 
 **Gateway listener** (`:9020` prod / `:9025` dev):
 
+- **Вход в 1С из приложения (AI-1C):**
+  - `GET /api/bases` — публичный список баз для входа (только с непустым
+    title, дедупликация по имени). Ответ: `{bases: [{name, title}]}`.
+  - `POST /api/auth/login` — публичный, body `{base, login, password}` →
+    `{access_token, token_type: "Bearer", expires_in, user, base, onec_tools}`.
+    Шлюз проверяет логин/пароль Basic-запросом в `{base}/hs/mcp/health`
+    (URL базы — из мапы `backend/bases.conf` / `ONEC_BASES`; база должна быть
+    в списке авторизации) и выпускает HS256 JWT общего секрета:
+    `iss=1c-ai-chat, aud=mcp, sub=<логин>, iat=now-60, exp=now+8ч, base,
+    base_url` — тот же формат, что у формы 1С; публикация 1С принимает его по
+    `accessTokenAuthentication` (per-user RLS). Токен работает в шлюзе,
+    бэкенде агента и напрямую в `{base}/hs/mcp/rpc`. Ошибки: 400
+    `bad_request`, 401 `invalid_credentials`, 404 `base_not_found`, 409
+    `user_not_mapped` (логин не в справочнике Пользователи), 423
+    `account_locked` (учётка заблокирована в 1С), 429 `too_many_attempts`
+    (5 неудач / 10 мин на IP), 501 `basic_auth_disabled` (анонимная
+    публикация — пароль проверить нельзя), 502/503 `onec_unreachable` /
+    `base_url_not_configured`. Пароль не сохраняется и не логируется.
+  - `GET /api/auth/me` — с Bearer-токеном: `{user, base, exp}`; без/неверный
+    → 401 `invalid_token`. Для проверки сохранённого токена приложения.
 - `POST /api/session` — создаёт сессию на целевом сервере OpenCode; шлюз
   кладёт в реестр `sessionID → {base, sub, JWT, exp}` (id из `data.id`).
 - `POST /api/session/{id}/prompt`, `/wait`, `/message` — обновляют реестр.

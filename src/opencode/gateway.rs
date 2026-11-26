@@ -17,10 +17,10 @@ use std::time::Duration;
 
 use axum::{
     body::Body,
-    extract::{DefaultBodyLimit, State},
+    extract::{ConnectInfo, DefaultBodyLimit, State},
     http::{header, Method, StatusCode},
     response::{IntoResponse, Response},
-    routing::any,
+    routing::{any, get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -1201,16 +1201,286 @@ fn constant_time_eq(a: &str, b: &str) -> bool {
 /// Без авторизации: запрашивается ДО того, как у пользователя есть JWT.
 /// Включает только базы с непустым title (отмеченные «Авторизация» в админке)
 /// по включённым серверам. Ответ: [{"name": ..., "title": ...}].
+/// Дедупликация по имени (первый найденный включённый сервер побеждает).
 async fn gateway_bases(State(state): State<Arc<AppState>>) -> Response {
     let db = state.db.lock().await;
     let (servers, _) = load_servers(&db);
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     let bases: Vec<Value> = servers
         .iter()
         .flat_map(|s| s.bases.iter())
         .filter(|b| !b.title.trim().is_empty())
+        .filter(|b| seen.insert(b.name.to_lowercase()))
         .map(|b| json!({ "name": b.name, "title": b.title }))
         .collect();
     with_cors(Json(json!({ "bases": bases })).into_response())
+}
+
+// ─── вход в 1С из приложения: /api/auth/login + /api/auth/me ─────────
+
+/// JWT пользователя 1С для входа из приложения (AI-1C).
+///
+/// Формат обязан совпадать с тем, что подписывает форма 1С
+/// (`a1c_ЧатФоновый.СформироватьТокенДоступа`) и который публикация 1С
+/// принимает по `accessTokenAuthentication` в default.vrd:
+///   iss = "1c-ai-chat", aud = ["mcp"], sub = логин 1С, exp обязателен.
+///
+/// Нюанс платформы (проверено на 8.3.27): claim `iat` ОБЯЗАТЕЛЕН и при
+/// значении «сейчас» запрос падает HTTP 402 «Некорректное значение
+/// параметра 'iat'» — ставим `iat = now - 60` (запас на расхождение часов).
+const ONEC_JWT_ISS: &str = "1c-ai-chat";
+const ONEC_JWT_AUD: &str = "mcp";
+const ONEC_JWT_TTL_SECS: u64 = 8 * 3600; // как у формы 1С (Токен.ВремяЖизни)
+
+#[derive(Debug, Deserialize)]
+struct OnecLoginBody {
+    base: String,
+    login: String,
+    password: String,
+}
+
+/// Ответ с кодом ошибки входа из приложения. Пароль никогда не попадает
+/// ни в ответ, ни в лог.
+fn onec_login_error(status: StatusCode, code: &str, error: &str) -> Response {
+    with_cors((status, Json(json!({ "error": error, "code": code }))).into_response())
+}
+
+/// GET /api/auth/me — кто зашёл по JWT (для проверки сохранённого токена
+/// приложения). Без маркера/с неверным → 401.
+async fn gateway_auth_me(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Response {
+    let bearer = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .map(|t| t.trim().to_string());
+    let Some(token) = bearer else {
+        return onec_login_error(StatusCode::UNAUTHORIZED, "invalid_token", "нет Bearer-токена");
+    };
+    let db = state.db.lock().await;
+    match decode_onec_jwt(&db, &token) {
+        Some((sub, exp, base, _)) => with_cors(
+            Json(json!({
+                "user": sub,
+                "base": base,
+                "exp": exp,
+            }))
+            .into_response(),
+        ),
+        None => onec_login_error(StatusCode::UNAUTHORIZED, "invalid_token", "неверный или истёкший токен"),
+    }
+}
+
+/// POST /api/auth/login — логин/пароль пользователя 1С → JWT.
+///
+/// Публичный роут (как GET /api/bases): запрашивается ДО того, как у
+/// пользователя есть токен. Последовательность:
+///   1. База из списка авторизации (title ≠ пусто) + URL из мапы
+///      backend/bases.conf / ONEC_BASES (.env).
+///   2. Защита от анонимной публикации: случайный логин/пароль обязаны
+///      получить 401 — иначе пароль проверить нельзя (501).
+///   3. Basic-проверка `GET {base}/hs/mcp/health`: 200/403 = пароль верен
+///      (403 = прав на MCP нет), 401 = неверный логин или пароль.
+///   4. Выпуск HS256 JWT общим секретом (jwt_secret) — тот же формат, что
+///      у формы 1С; публикация 1С проверяет подпись и ставит
+///      ТекущийПользователь по sub.
+///   5. Проверка выпущенного токена `Bearer`-запросом в health: 200 — всё
+///      ок, 403 — токен принят, но прав на MCP нет (onec_tools=false),
+///      500 «Идентификация…» — логин не сопоставлен со справочником
+///      Пользователи (409).
+async fn gateway_auth_login(
+    State(state): State<Arc<AppState>>,
+    ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
+    Json(body): Json<OnecLoginBody>,
+) -> Response {
+    let ip = addr.ip().to_string();
+    let limit_key = format!("onec:{ip}");
+    if let Some(wait) = crate::auth::login_limit_check(&state.login_limits, &limit_key) {
+        tracing::warn!("onec-login: 429 {ip} — лок на {}s", wait.as_secs());
+        return onec_login_error(
+            StatusCode::TOO_MANY_REQUESTS,
+            "too_many_attempts",
+            &format!("слишком много попыток входа, повторите через {} с", wait.as_secs()),
+        );
+    }
+
+    let base_req = body.base.trim().to_lowercase();
+    if base_req.is_empty() || body.login.trim().is_empty() {
+        return onec_login_error(StatusCode::BAD_REQUEST, "bad_request", "нужны base, login и password");
+    }
+
+    // 1. База: только включённые серверы, непустой title (список авторизации).
+    let db = state.db.lock().await;
+    let (servers, _) = load_servers(&db);
+    let found = servers
+        .iter()
+        .find(|s| s.bases.iter().any(|b| b.name.to_lowercase() == base_req))
+        .and_then(|s| {
+            s.bases
+                .iter()
+                .find(|b| b.name.to_lowercase() == base_req)
+                .filter(|b| !b.title.trim().is_empty())
+                .cloned()
+        });
+    let Some(base_entry) = found else {
+        tracing::warn!("onec-login: 404 база {base_req} не в списке авторизации (ip={ip})");
+        return onec_login_error(StatusCode::NOT_FOUND, "base_not_found", "база не найдена или не доступна для входа");
+    };
+    let base_name = base_entry.name.clone();
+    drop(db);
+
+    // URL публикации — только из мапы backend/bases.conf / ONEC_BASES (.env).
+    let Some(base_url) = resolve_onec_url(&state, &base_name).await else {
+        tracing::warn!("onec-login: 503 база {base_name} не найдена в мапе bases.conf/ONEC_BASES (ip={ip})");
+        return onec_login_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "base_url_not_configured",
+            "адрес публикации базы не настроен (мапа «Базы 1С» backend/bases.conf)",
+        );
+    };
+    let base_url = validate_onec_base_url(&base_url).unwrap_or_else(|| base_url.trim_end_matches('/').to_string());
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .unwrap_or_default();
+    let health_url = format!("{base_url}/hs/mcp/health");
+
+    // 2. Анонимная публикация: запрос БЕЗ авторизации обязан получить 401,
+    //    иначе пароль проверить нельзя — не выдаём токен (501). Пробируем без
+    //    кредов, а не с фиктивным логином: 1С блокирует учётку после серии
+    //    неудачных вводов, и «пробный» логин не должен рисковать чужими.
+    let anon = client.get(&health_url).send().await;
+    match anon {
+        Ok(r) if r.status().is_success() => {
+            tracing::warn!("onec-login: 501 база {base_name} пускает анонимно — вход по паролю невозможен (ip={ip})");
+            return onec_login_error(
+                StatusCode::NOT_IMPLEMENTED,
+                "basic_auth_disabled",
+                "на публикации 1С включён анонимный доступ — проверка пароля невозможна",
+            );
+        }
+        Err(e) => {
+            tracing::warn!("onec-login: 502 база {base_name} недоступна: {e} (ip={ip})");
+            return onec_login_error(StatusCode::BAD_GATEWAY, "onec_unreachable", "база 1С недоступна");
+        }
+        _ => {} // 401 — Basic включён, продолжаем.
+    }
+
+    // 3. Basic-проверка реальных кредов. Ответ 500 с текстом «Превышено
+    //    допустимое количество ошибок» = учётка заблокирована в 1С после
+    //    серии неудачных попыток — отдаём отдельный код, не 401.
+    let basic = client
+        .get(&health_url)
+        .header(
+            header::AUTHORIZATION,
+            crate::opencode::basic_auth(&body.login, &body.password),
+        )
+        .send()
+        .await;
+    let (status_ok, has_mcp_rights) = match basic {
+        Ok(r) => {
+            let s = r.status();
+            if s.is_success() {
+                (true, true)
+            } else if s.as_u16() == 403 {
+                // Пароль принят, но нет прав на HTTP-сервис MCP.
+                (true, false)
+            } else if s.as_u16() == 500 {
+                let text = r.text().await.unwrap_or_default();
+                if text.contains("количество ошибок") || text.contains("заблокирован") {
+                    tracing::warn!("onec-login: 423 база {base_name} логин {:?} — учётка заблокирована в 1С (ip={ip})", body.login);
+                    return onec_login_error(StatusCode::LOCKED, "account_locked", "учётная запись заблокирована в 1С после нескольких неудачных попыток входа");
+                }
+                tracing::warn!("onec-login: 502 база {base_name} логин {:?} — ошибка 1С (http=500, body={:?})", body.login, &text[..text.len().min(300)]);
+                return onec_login_error(StatusCode::BAD_GATEWAY, "onec_error", "база 1С вернула ошибку");
+            } else {
+                tracing::warn!("onec-login: 401 база {base_name} логин {:?} — неверный логин или пароль (ip={ip}, http={})", body.login, s.as_u16());
+                crate::auth::login_limit_fail(&state.login_limits, &limit_key);
+                return onec_login_error(StatusCode::UNAUTHORIZED, "invalid_credentials", "неверный логин или пароль");
+            }
+        }
+        Err(e) => {
+            tracing::warn!("onec-login: 502 база {base_name} недоступна: {e} (ip={ip})");
+            return onec_login_error(StatusCode::BAD_GATEWAY, "onec_unreachable", "база 1С недоступна");
+        }
+    };
+
+    // 4. Выпуск JWT (формат формы 1С; iat с запасом — см. константы выше).
+    let secret = {
+        let db = state.db.lock().await;
+        crate::auth::jwt_secret_pub(&db)
+    };
+    if secret.is_empty() {
+        tracing::error!("onec-login: 500 jwt_secret не задан");
+        return onec_login_error(StatusCode::INTERNAL_SERVER_ERROR, "internal", "jwt_secret не настроен");
+    }
+    let now = chrono::Utc::now().timestamp();
+    let claims = json!({
+        "iss": ONEC_JWT_ISS,
+        "aud": [ONEC_JWT_AUD],
+        "sub": body.login.trim(),
+        "iat": now - 60,
+        "exp": (now as u64) + ONEC_JWT_TTL_SECS,
+        "base": base_name,
+        "base_url": base_url,
+    });
+    let token = match jsonwebtoken::encode(
+        &jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256),
+        &claims,
+        &jsonwebtoken::EncodingKey::from_secret(secret.as_bytes()),
+    ) {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!("onec-login: 500 ошибка подписи JWT: {e}");
+            return onec_login_error(StatusCode::INTERNAL_SERVER_ERROR, "internal", "не удалось сформировать токен");
+        }
+    };
+
+    // 5. Проверка выпущенного токена в 1С (сопоставление sub со справочником).
+    let probe = client.get(&health_url).bearer_auth(&token).send().await;
+    let onec_tools = match probe {
+        Ok(r) => {
+            let s = r.status();
+            if s.is_success() {
+                true
+            } else if s.as_u16() == 403 {
+                false
+            } else {
+                let text = r.text().await.unwrap_or_default();
+                tracing::warn!("onec-login: база {base_name} логин {:?} — токен не принят (http={}, body={:?})", body.login, s.as_u16(), &text[..text.len().min(300)]);
+                if text.contains("Идентификация пользователя") {
+                    return onec_login_error(StatusCode::CONFLICT, "user_not_mapped", "пользователь не найден в справочнике Пользователи 1С (сопоставление по имени)");
+                }
+                return onec_login_error(StatusCode::BAD_GATEWAY, "onec_rejected", "база 1С отклонила сформированный токен");
+            }
+        }
+        Err(e) => {
+            tracing::warn!("onec-login: 502 база {base_name} недоступна при проверке токена: {e} (ip={ip})");
+            return onec_login_error(StatusCode::BAD_GATEWAY, "onec_unreachable", "база 1С недоступна");
+        }
+    };
+
+    crate::auth::login_limit_ok(&state.login_limits, &limit_key);
+    tracing::info!(
+        "onec-login: успех база {base_name} логин {:?} (ip={}, tools={})",
+        body.login,
+        ip,
+        onec_tools
+    );
+    with_cors(
+        Json(json!({
+            "access_token": token,
+            "token_type": "Bearer",
+            "expires_in": ONEC_JWT_TTL_SECS,
+            "user": body.login.trim(),
+            "base": base_name,
+            "onec_tools": onec_tools,
+        }))
+        .into_response(),
+    )
 }
 
 /// Публичный health: только «шлюз жив». Без списка серверов и сессий —
@@ -1227,6 +1497,13 @@ pub fn app(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/health", axum::routing::get(gateway_health))
         .route("/api/bases", axum::routing::get(gateway_bases))
+        // Вход в 1С из приложения: публичные роуты (до получения JWT).
+        .route(
+            "/api/auth/login",
+            post(gateway_auth_login)
+                .options(|| async { cors_preflight() }),
+        )
+        .route("/api/auth/me", get(gateway_auth_me))
         // Публичные роуты приложения (check/download/heartbeat) обрабатываются
         // в gateway_any ДО проверки допуска — клиент ходит без авторизации.
         .route("/onec/rpc", axum::routing::post(onec_rpc))
